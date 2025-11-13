@@ -1,0 +1,176 @@
+{% extends "base.html" %}{% block title %}Check Out{% endblock %}
+      {%block content%}
+      <div class="container-fluid py-4">
+        <table>
+          <tbody>
+            <tr>
+              <td>
+                <h4 class="mb-2" a href="{{ url_for('main.get_cart', user_id=user_id) }}">Your Cart ({{ total_items }} item)</h4>
+              </td>
+              <td>
+                {% if total_items >0 %}
+                  <form action="{{ url_for('main.clear_cart', user_id=user_id) }}" method="POST">
+                    <input type="hidden" name="clear_cart" >
+                    <input type="hidden" name="csrf_token" value="{{csrf_token()}}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit">Clear Basket</button>
+                {% endif %}
+                </form>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="table-responsive">
+         
+          <table class="table table-md align-middle">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 48px">
+                <th></th>
+                <th>Item</th>
+                <th>Category</th>
+                <th>License</th>
+                <th>Price</th>
+                <th>Remove</th>
+                <th></th>
+              </tr>
+            </thead>
+           
+            
+            <tbody>
+            {% for item in cart_item %}
+            <form action = "{{url_for('main.get_cart',user_id=user_id)}}"  method="POST">
+              {{ form.hidden_tag() }}
+            <tr>
+              <td style="width: 48px">
+              <td></td>  
+              <td>
+                <div class="d-flex align-items-center gap-1" style="min-width:0;">
+                  <div class="flex-shrink-0" style="width:40px;height:30px;">
+                      <img src="{{url_for('static',filename=item.url ) }}" alt="{{item.title}}" 
+                        class="w-100 h-100 object-fit-contain d-block">  
+                  </div>     
+                  <p class="fw-semibold mb-0 ms-1 flex-grow-1 text-truncate">{{item.title}}</p>
+                </div>
+              </td>
+              <td>
+                {% for i in item.category %}
+                  {{ i.name }}<br>
+                {% endfor %}
+                
+              </td>
+              <td><span class="badge text-bg-dark">  
+              
+                {% for lic in item.licenses%}
+                  {{ lic.type }}<br>
+                {% endfor %}
+              
+                </span>
+              </td>
+
+              <td>${{ item.price }}</td>
+            
+              <td>
+                    <input type="hidden" name="image_id" value="{{item.image_id}}">
+                    <button class="btn btn-outline-secondary btn-sm" type="submit" formaction="{{url_for('main.remove_item',user_id=user_id)}}" formmethod="POST">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-trash" viewBox="0 0 16 16">
+                        <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+                        <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+                      </svg>
+                    </button>
+              </td>
+              <td></td>
+            </tr>
+            </form>
+            {% endfor %} 
+            </tbody>
+            <tfoot class="table-light">
+              <tr>
+                <td colspan="3"></td>
+                <td colspan="3"></td>
+                <td colspan="4" class="text-end">
+                    <strong> Total: $ {{total}}</strong>
+                </td>
+              </tr>
+            </tfoot>
+          </tbody>
+          </table>
+          {% if total_items == 0 %}
+            <h4>The cart is empty, please go back to homepage for checking again!</h4> <a href="{{ url_for('main.index') }}" class="btn btn-secondary">Home Page</a>
+          {% endif %}
+        </div>
+      </div>
+
+        <div class="card">
+          <div class="card-body">
+            <h5 class="card-title">Order detail</h5>
+            <form action="{{url_for('main.payment_info', user_id=user_id)}}" method="POST">
+              <div class="card p-4 mt-4" style="border-style: dashed;">
+                  {{ form.hidden_tag() }}
+                    <div class="row g-4">
+                      <div class="col-12">
+                        {{ form.username.label(class="form-label") }}
+                        {{ form.username(class="form-control") }}
+                        {% for err in form.username.errors %}
+                            <small class="text-danger">{{ err }}</small>
+                        {% endfor %}
+                    </div>
+
+                    <div class="col-12">
+                        {{ form.email.label(class="form-label") }}
+                        {{ form.email(class="form-control") }}
+                        {% for err in form.email.errors %}
+                            <small class="text-danger">{{ err }}</small>
+                        {% endfor %}
+                    </div>  
+                    </div>
+                
+              </div>
+              <div class="card p-4 mt-4" style="border-style: dashed;">
+                  
+                <div class="row g-3">
+                  <div class="col-12">
+                      {{ form.accountname.label(class="form-label") }}
+                      {{ form.accountname(class="form-control", placeholder="Your Account Name") }}
+                      {% for err in form.accountname.errors %}
+                          <small class="text-danger">{{ err }}</small>
+                      {% endfor %}
+                  </div>
+                  <div class="col-12">
+                      {{ form.cardnumber.label(class="form-label") }}
+                      {{ form.cardnumber(class="form-control", placeholder="Your Credit Card Number") }}
+                      {% for err in form.cardnumber.errors %}
+                          <small class="text-danger">{{ err }}</small>
+                      {% endfor %}
+                  </div>
+                  <div class="col-12">
+                      {{ form.expiry.label(class="form-label") }}
+                      {{ form.expiry(class="form-control", placeholder="Credit Card Expiry") }}
+                      {% for err in form.expiry.errors %}
+                          <small class="text-danger">{{ err }}</small>
+                      {% endfor %}
+                  </div>
+                  <div class="col-12">
+                      {{ form.cvc.label(class="form-label") }}
+                      {{ form.cvc(class="form-control", placeholder="Credit Card CVC") }}
+                      {% for err in form.cvc.errors %}
+                          <small class="text-danger">{{ err }}</small>
+                      {% endfor %}
+                  </div>
+                </div>
+              
+              </div>
+              <div class="col-12 mt-4">
+                <div class="form-check">
+                    {{ form.agreeterm(class="form-check-input") }}
+                    {{ form.agreeterm.label(class="form-check-label") }}
+                </div>
+              </div>
+            
+
+            <div class="d-grid my-3">
+              <button type="submit" class="btn btn-dark btn-lg mt-3">Check out</button>
+            </div>
+            </form>
+          </div>
+        </div>
+      {% endblock %}

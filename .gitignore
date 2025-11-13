@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+run.sh
+# .gitignore
+project/static/uploads/*
+!project/static/uploads/.gitkeep

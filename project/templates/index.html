@@ -1,0 +1,93 @@
+{% extends "base.html" %} {% block title %}Home{% endblock %} {% block content
+%}
+<div class="container-xxl py-4">
+  <div class="row g-3">
+    {% if images|length == 0 %}
+    <div class="col-12">
+      <p class="text-muted mb-0">No images yet.</p>
+    </div>
+    {% endif %} {% for item in images %}
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+      <div class="card h-100 rounded-4 shadow-sm hover-zoom">
+        <div class="ratio ratio-4x3">
+          <a
+            href="{{ url_for('main.item_detail', id=item.id) }}"
+            class="d-block w-100 h-100"
+            aria-label="Open {{ item.title }} details"
+          >
+            <img
+              src="{{ url_for('static', filename=item.url) }}"
+              class="w-100 h-100 object-fit-cover"
+              alt="{{ item.title }}"
+              loading="lazy"
+            />
+          </a>
+        </div>
+
+        <div class="card-body noclick">
+          <div>
+            <div
+              class="d-flex align-images-center justify-content-between mb-1"
+            >
+              <h6 class="mb-0 me-2 text-truncate" title="{{ item.title }}">
+                {{ item.title or 'Untitled' }}
+              </h6>
+
+              {% set vendor_label = item.vendor_name or ('Vendor #' ~
+              item.vendor_id) %} {% if session.get('role') == 'vendor' %}
+              <a
+                class="badge badge-link vendor-badge d-inline-block text-truncate"
+                href="{{ url_for('vendor.gallery', vendor_id=item.vendor_id) }}"
+                aria-label="Open {{ vendor_label }} gallery"
+                title="{{ vendor_label }}"
+                style="max-width: 160px"
+              >
+                {{ vendor_label }}
+              </a>
+              {% else %}
+              <span
+                class="badge badge-link rounded-pill disabled vendor-badge d-inline-block text-truncate"
+                title="{{ vendor_label }}"
+                style="max-width: 160px"
+              >
+                {{ vendor_label }}
+              </span>
+              {% endif %}
+            </div>
+            <div class="d-flex justify-content-between mb-1">
+              <div class="small text-muted badge text-bg-light">
+                {% if item.uploaded_at and item.uploaded_at.__class__.__name__
+                in ['date','datetime'] %} {{
+                item.uploaded_at.strftime('%Y-%m-%d') }} {% else %} {{
+                item.uploaded_at or '-' }} {% endif %}
+              </div>
+              <span class="badge text-bg-dark float-end"
+                >{{ item.license_types[0] }}</span
+              >
+            </div>
+          </div>
+          <div class="d-flex small text-muted">
+            <span class="badge text-bg-light"
+              >${{ '%.2f'|format(item.price or 0) }}</span
+            >
+            <span class="badge text-bg-light"
+              >{{ item.resolution or '-' }}</span
+            >
+          </div>
+
+          <div class="d-flex flex-wrap gap-1 mt-2">
+            {% if item.event_name %}
+            <span class="badge badge-event">{{ item.event_name }}</span>
+            {% endif %}
+            <span class="badge badge-event">👀 {{ item.views or 0 }}</span>
+          </div>
+          {% for c in item.category_names %}
+          <span class="badge badge-category mt-2">#{{ c|capitalize }}</span>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

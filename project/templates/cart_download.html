@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block head %}{% endblock %}
+<body>
+    <main>
+    {%block content%}
+        <div class="container-fluid py-4">
+            <table>
+            <tbody>
+                <tr>
+                    <td>
+                        <h4 class="mb-2" a href="{{ url_for('main.get_download', user_id=user_id) }}">Ready for Download</h4>
+                    </td>
+                </tr>
+            </tbody>
+            </table>
+            <div class="table-responsive">
+            <table class="table table-md align-middle">
+                <thead class="table-light">
+                <tr>
+                    <th style="width: 48px">
+                    </th>
+                    <th>Item</th>
+                    <th>Download</th>
+                    <th></th>
+                </tr>
+                </thead>
+                <tbody>
+                    {% for order in order_item %}
+                    <tr>
+                        <td style="width: 48px">
+                        </td>       
+                        <td>
+                            <form action="{{ url_for('main.get_download', user_id=user_id) }}" method="POST">
+                            <div class="d-flex align-items-center gap-6" style="min-width:0;">
+                                <div class="flex-shrink-0" style="width:40px;height:30px;">
+                                    <img src="{{url_for('static',filename=order.url ) }}" alt="{{order.title}}" 
+                                        class="w-100 h-100 object-fit-contain d-block">  
+                                </div>     
+                                <p class="fw-semibold mb-0 ms-1 flex-grow-1 text-truncate">{{order.title}}</p>
+                            </div>
+                            </form>
+                        </td> 
+                    
+                        <td> 
+                                <button class="btn btn-outline-secondary btn-sm" type="submit">Download</button>
+                        </td>
+                        <td></td>
+                    </tr>
+                    {% endfor %}
+                </tbody> 
+                <tfoot class="table-light">
+                <tr>
+                    
+                    <td colspan="4" class="text-center">
+                        <a href="{{ url_for('main.index',user_id=user_id) }}" class="btn btn-secondary btn-lg" "
+                        ><strong> Finish Download</strong>
+                    </a>
+                    </td>
+                </tr>
+                </tfoot>
+            </table>
+            </div>
+        </div>
+    {% endblock %}
+    </body>
+ </main>

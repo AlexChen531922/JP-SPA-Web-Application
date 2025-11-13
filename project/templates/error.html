@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+  <h1>Error {{ code }}</h1>
+  <p>{{ message }}</p>
+
+
+  {% if code == 404 %}
+    <a href="{{ url_for('main.index') }}">Go Home</a>
+  {% elif code == 500 %}
+    <p>Please try again later. If the problem persists, contact support.</p>
+  {% endif %}
+{% endblock %}
