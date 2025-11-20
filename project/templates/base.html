@@ -1,310 +1,579 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-Hant-TW">
 
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>{% block title %}Index Page{% endblock %}</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}晶品芳療 JP AROMATIC{% endblock %}</title>
 
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
-    integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/index.css') }}" />
-  <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}" />
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+
   {% block head %}{% endblock %}
 </head>
 
 <body>
-  <header class="sticky-top border-bottom py-2 bg-white">
-    <nav class="navbar navbar-expand-lg">
-      <div class="container-fluid align-items-center gap-2">
+  <!-- Header / Navbar -->
+  <header class="sticky-top border-bottom bg-white py-2 shadow-sm">
+    <nav class="navbar navbar-expand-lg container-fluid">
+      <!-- LOGO (加大、類似 raptbeauty 風格) -->
+      <a href="{{ url_for('main.home') }}" class="navbar-brand d-flex align-items-center">
+        <img src="{{ url_for('static', filename='img/JPLOGO.jpg') }}" alt="晶品芳療" style="height:110px;width:auto;"
+          class="me-3">
+      </a>
 
-        <a href="{{ url_for('main.index') }}" class="navbar-brand fw-semibold">G5 EVENTHUB</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
+        <span class="navbar-toggler-icon"></span>
+      </button>
 
-        <form class="search-wrap flex-grow-1 my-0 px-lg-3" role="search" method="get"
-          action="{{ url_for('main.index') }}">
-          <div class="input-group">
-            <input id="searchInput" class="form-control" type="search" placeholder="Search images" name="q"
-              value="{{ request.args.get('q', '') }}" aria-label="Search" />
+      <div class="collapse navbar-collapse justify-content-end" id="navbarMain">
 
-            {% if request.args.get('q') %}
-            <a href="{{ url_for('main.index') }}" class="btn btn-outline-secondary" aria-label="Clear search">✕</a>
-            {% endif %}
+        <!-- 左側 nav-links (about / product / course) 全部保留 -->
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.home') }}">首頁</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.about') }}">關於晶品</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.products') }}">產品介紹</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.courses') }}">課程介紹</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.blog') }}">美麗知識</a></li>
+        </ul>
 
-            <button class="btn btn-outline-secondary" type="submit" aria-label="Search">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-search"
-                viewBox="0 0 16 16">
-                <path
-                  d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zM6.5 11a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z" />
-              </svg>
-            </button>
-          </div>
-        </form>
+        <!-- Hero Section -->
+        <section class="header-hero-text">
+          <p class="lead text-muted mb-4">專業精進不止，感恩之心常存；健康與美麗內外相映</p>
+        </section>
 
-        <div class="d-none d-lg-flex align-items-center gap-2 ms-auto">
 
-          {% if session.get('logged_in') %}
-          {% set _role = session.get('user', {}).get('role') %}
+        <!-- 預約課程（主按鈕） -->
+        <a href="{{ url_for('main.courses') }}" class="btn btn-spa fw-bold px-4"><i class="bi bi-calendar-check"></i>
+          預約課程
+        </a>
+      </div>
 
-          {% if _role in ['vendor', 'admin'] %}
-          <a class="btn"
-            href="{{ url_for('vendor.management') if _role=='vendor' else url_for('main.vendor_management') }}"
-            aria-label="Dashboard" title="Dashboard">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" class="bi bi-kanban"
-              viewBox="0 0 16 16">
-              <path
-                d="M13.5 1a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1zm-11-1a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2z" />
-              <path
-                d="M6.5 3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1zm-4 0a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1zm8 0a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1h-1a1 1 0 0 1-1-1z" />
-            </svg>
-          </a>
-          {% endif %}
+      <style>
+        .navbar {
+          position: relative;
+        }
 
-          {% if _role == 'vendor' %}
-          <a class="btn" href="{{ url_for('vendor.my_gallery') }}" aria-label="Gallery" title="Gallery">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" class="bi bi-images"
-              viewBox="0 0 16 16">
-              <path d="M4.502 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3" />
-              <path
-                d="M14.002 13a2 2 0 0 1-2 2h-10a2 2 0 0 1-2-2V5A2 2 0 0 1 2 3a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v8a2 2 0 0 1-1.998 2M14 2H4a1 1 0 0 0-1 1h9.002a2 2 0 0 1 2 2v7A1 1 0 0 0 15 11V3a1 1 0 0 0-1-1M2.002 4a1 1 0 0 0-1 1v8l2.646-2.354a.5.5 0 0 1 .63-.062l2.66 1.773 3.71-3.71a.5.5 0 0 1 .577-.094l1.777 1.947V5a1 1 0 0 0-1-1z" />
-            </svg>
-          </a>
-          {% endif %}
+        /* ============================
+   HERO 標語置中 + 與 nav 和按鈕對齊
+============================ */
+        .header-hero-text {
+          font-family: 'Noto Serif TC', serif;
+          font-style: italic;
+          position: absolute;
+          left: 50%;
+          transform: translateX(-50%);
+          top: 60%;
+          /* 可微調 */
+          transform: translate(-50%, -50%);
+          white-space: nowrap;
+          /* ⭐ 永不換行 */
 
-          {% if _role == 'customer' %}
-          <a class="btn" href="{{ url_for('main.get_cart', user_id=current_user_id) }}" aria-label="Checkout"
-            title="Cart">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="currentColor" class="bi bi-bag-heart"
-              viewBox="0 0 16 16">
-              <path fill-rule="evenodd"
-                d="M10.5 3.5a2.5 2.5 0 0 0-5 0V4h5zm1 0V4H15v10a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V4h3.5v-.5a3.5 3.5 0 1 1 7 0M14 14V5H2v9a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1M8 7.993c1.664-1.711 5.825 1.283 0 5.132-5.825-3.85-1.664-6.843 0-5.132" />
-            </svg>
-          </a>
-          {% endif %}
+          font-size: 1.05rem;
+          color: #6c6c6c;
+          letter-spacing: 1px;
+          margin: 0;
+          /* 淡入動畫 */
+          opacity: 0;
+          animation: fadeInOpacity 1.5s ease-in-out forwards;
+          /* 持續 1.5 秒 */
+        }
 
-          <a class="btn btn-outline-dark" href="{{ url_for('main.logout') }}">Sign Out</a>
+        /* Keyframes */
+        @keyframes fadeInOpacity {
+          0% {
+            opacity: 0;
+          }
 
-          {% else %}
-          <button class="btn btn-outline-dark" data-bs-toggle="modal" data-bs-target="#loginModal">Sign In</button>
-          {% endif %}
-        </div>
+          100% {
+            opacity: 1;
+          }
+        }
 
+        /* SPA風格預約按鈕 */
+        .btn-spa {
+          font-size: 1.05rem;
+          padding: 0.55rem 1.8rem;
+          margin-right: 10px;
+          background-color: #F7D9E3;
+          color: #4B2E39;
+          border-radius: 50px;
+          transition: all 0.3s;
+        }
+
+        .btn-spa:hover {
+          background-color: #E3B9CD;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* ============================
+   左側 nav-links
+============================ */
+        .navbar-nav .nav-link {
+          font-size: 1.15rem;
+          /* 原本太小 → 同比放大 */
+          font-weight: 500;
+          padding: 0.6rem 1.2rem;
+          margin-right: 10px;
+          /* 增加左右距讓版面更飽滿 */
+          border-radius: 50px;
+          transition: all 0.3s;
+          color: #54484d !important;
+        }
+
+        .navbar-nav .nav-link:hover {
+          transform: translateY(-2px);
+          background-color: #F7D9E3;
+          color: #2F1B24 !important;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* ============================
+   會員按鈕 & 角色按鈕
+============================ */
+        .d-flex .btn {
+          border-radius: 50px;
+          font-size: 1.05rem;
+          padding: 0.55rem 1.8rem;
+          transition: 0.3s;
+        }
+
+        .d-flex .btn:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* 管理後台 & 購物車 & 會員中心 */
+        .d-flex .btn-outline-primary:hover,
+        .d-flex .btn-outline-secondary:hover {
+          background-color: #F7D9E3;
+          /* 柔粉色 */
+          color: #2F1B24 !important;
+          /* 深棕文字 */
+        }
+
+        /* 使用者名稱 dropdown 按鈕 */
+        .d-flex .btn-dark.dropdown-toggle {
+          background-color: #F7D9E3;
+          color: #4B2E39;
+        }
+
+        .d-flex .btn-dark.dropdown-toggle:hover {
+          background-color: #E3B9CD;
+          color: #2F1B24;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* 會員登入按鈕 */
+        button[data-bs-target="#loginModal"] {
+          background-color: #FFB6C1;
+          /* 高雅粉色 */
+          color: #4B2E39;
+          border-radius: 50px;
+          transition: all 0.3s;
+          padding: 0.4rem 1.2rem;
+        }
+
+        button[data-bs-target="#loginModal"]:hover {
+          background-color: #FF8DAA;
+          /* 深粉色懸停 */
+          color: #2F1B24;
+          transform: translateY(-2px);
+          box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        /* Dropdown 選單項目懸停效果 */
+        .dropdown-menu .dropdown-item:hover {
+          background-color: #F7D9E3;
+          color: #2F1B24;
+        }
+      </style>
+
+
+      <!-- User Menu -->
+      <div class="d-flex gap-2 align-items-center">
         {% if session.get('logged_in') %}
-        <div class="dropdown d-lg-none ms-auto">
-          <button class="btn btn-outline-secondary rounded-3" type="button" id="mobileMenuBtn" data-bs-toggle="dropdown"
-            data-bs-auto-close="outside" aria-expanded="false" aria-label="Open menu">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z" />
-            </svg>
-          </button>
-          <div class="dropdown-menu dropdown-menu-end p-2 shadow rounded-4 border-0" aria-labelledby="mobileMenuBtn"
-            style="min-width:320px">
-            <div class="list-group">
-              {% set _role = session.get('user', {}).get('role') %}
-              {% if _role == 'admin' %}
-              <a class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-                href="{{ url_for('vendor.management') if _role=='vendor' else url_for('main.vendor_management') }}">
-                Dashboard
-              </a>
-              {% elif _role == 'vendor' %}
-              <a class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-                href="{{ url_for('vendor.management') if _role=='vendor' else url_for('main.vendor_management') }}">
-                Dashboard
-              </a>
-              <a class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-                href="{{ url_for('vendor.my_gallery') }}">
-                Gallery
-              </a>
-              {% else %}
-              <a class="list-group-item list-group-item-action d-flex align-items-center gap-2"
-                href="{{ url_for('main.get_cart', user_id=current_user_id) }}">
-                Cart
-              </a>
-              {% endif %}
-              <a class="list-group-item list-group-item-action d-flex align-items-center gap-2 text-dark fw-semibold"
-                href="{{ url_for('main.logout') }}">Log Out</a>
-            </div>
-          </div>
-        </div>
-        {% else %}
-        <div class="dropdown d-lg-none ms-auto">
-          <button class="btn btn-outline-secondary rounded-3" type="button" id="mobileMenuBtn" data-bs-toggle="dropdown"
-            data-bs-auto-close="outside" aria-expanded="false" aria-label="Open menu">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z" />
-            </svg>
-          </button>
-          <div class="dropdown-menu dropdown-menu-end p-2 shadow rounded-4 border-0" aria-labelledby="mobileMenuBtn"
-            style="min-width:320px">
-            <div class="list-group">
-              <button
-                class="list-group-item list-group-item-action d-flex align-items-center gap-2 text-dark fw-semibold"
-                data-bs-toggle="modal" data-bs-target="#loginModal">
-                Sign In
-              </button>
-            </div>
-          </div>
-        </div>
+        {% set role = session.get('user', {}).get('role') %}
+        {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
+
+        <!-- Role-specific buttons -->
+        {% if role in ['staff', 'admin'] %}
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm">
+          <i class="bi bi-speedometer2"></i> 管理後台
+        </a>
+        {% elif role == 'customer' %}
+        <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative">
+          <i class="bi bi-cart3"></i> 購物車
+        </a>
+        <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-person"></i> 會員中心
+        </a>
         {% endif %}
 
+        <!-- User Dropdown -->
+        <div class="dropdown">
+          <button class="btn btn-dark btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
+            {{ username }}
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% if role == 'customer' %}
+            <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}">
+                <i class="bi bi-person-circle"></i> 會員中心
+              </a></li>
+            <li><a class="dropdown-item" href="{{ url_for('customer.bookings') }}">
+                <i class="bi bi-calendar-check"></i> 我的預約
+              </a></li>
+            <li><a class="dropdown-item" href="{{ url_for('customer.orders') }}">
+                <i class="bi bi-bag-check"></i> 我的訂單
+              </a></li>
+            <li>
+              <hr class="dropdown-divider">
+            </li>
+            {% endif %}
+            <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}">
+                <i class="bi bi-box-arrow-right"></i> 登出
+              </a></li>
+          </ul>
+        </div>
+        {% else %}
+        <button class="btn btn-spa fw-bold px-4" data-bs-toggle="modal" data-bs-target="#loginModal">
+          <i class="bi bi-person-circle"></i> 會員登入
+        </button>
+        {% endif %}
+      </div>
       </div>
     </nav>
   </header>
 
+  <!-- Flash Messages -->
+  {% with messages = get_flashed_messages(with_categories=True) %}
+  {% if messages %}
+  <div class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index:1080; margin-top: 80px;">
+    {% for category, msg in messages %}
+    {% set alert_type = 'danger' if category in ['error', 'danger'] else category %}
+    <div class="alert alert-{{ alert_type }} alert-dismissible fade show shadow-sm rounded-3" role="alert">
+      {{ msg | safe }}
+      <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% endwith %}
+
+  <!-- Main Content -->
   <main>
-    <div class="container-fluid bg-body-secondary py-2">
-      <div class="d-flex flex-wrap align-items-center gap-2 w-100 justify-content-start justify-content-lg-center">
-        <form method="get" id="sortForm" class="d-inline">
-          <input type="hidden" name="q" value="{{ q }}">
-          <input type="hidden" name="category" value="{{ active_category }}">
-          <select name="sort" class="form-select form-select-sm w-auto"
-            onchange="document.getElementById('sortForm').submit()">
-            <option value="latest" {% if sort=='latest' %}selected{% endif %}>Latest</option>
-            <option value="popular" {% if sort=='popular' %}selected{% endif %}>Popular</option>
-            <option value="price-asc" {% if sort=='price-asc' %}selected{% endif %}>Price (Low–High)</option>
-            <option value="price-desc" {% if sort=='price-desc' %}selected{% endif %}>Price (High–Low)</option>
-          </select>
-        </form>
-
-        {% for category in categories %}
-        <a href="{{ url_for('main.index', category=category) }}"
-          class="btn btn-sm btn-chip {{ 'btn-secondary text-white' if category == active_category else 'btn-outline-secondary' }}">
-          #{{ category|capitalize }}
-        </a>
-        {% endfor %}
-      </div>
-    </div>
-
-    {% with messages = get_flashed_messages(with_categories=True) %}
-    {% if messages %}
-    <div class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index:1080">
-      {% for category, msg in messages %}
-      {% set cat = 'danger' if category in ['error','danger'] else category %}
-      <div class="alert alert-{{ cat }} alert-dismissible fade show shadow-sm rounded-3" role="alert">
-        {{ msg | safe }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-      </div>
-      {% endfor %}
-    </div>
-    {% endif %}
-    {% endwith %}
-
     {% block content %}{% endblock %}
   </main>
 
+  <!-- Footer -->
   <footer class="bg-light border-top mt-5">
-    <div class="container py-4">
-      <div class="row gy-3">
-        <div class="col-md">
-          <div class="small">
-            <a href="#" class="link-secondary">Licensing</a> ·
-            <a href="#" class="link-secondary">Accessibility</a> ·
-            <a href="#" class="link-secondary">Terms</a> ·
-            <a href="#" class="link-secondary">Contact</a>
+    <div class="container py-5">
+      <div class="row">
+        <!-- Company Info -->
+        <div class="col-md-4 mb-4">
+          <h5 class="fw-bold mb-3">晶品芳療 JP AROMATIC</h5>
+          <p class="text-muted">提供專業芳香療法課程與天然精油產品</p>
+          <p class="text-muted small">
+            <i class="bi bi-geo-alt"></i> 新北市新莊區思源路196巷37號1樓<br>
+            <i class="bi bi-envelope"></i> apple630203@gmail.com
+          </p>
+        </div>
+
+        <!-- Quick Links -->
+        <div class="col-md-4 mb-4">
+          <h5 class="fw-bold mb-3">快速連結</h5>
+          <ul class="list-unstyled">
+            <li><a href="{{ url_for('main.about') }}" class="text-muted text-decoration-none">關於晶品</a></li>
+            <li><a href="{{ url_for('main.products') }}" class="text-muted text-decoration-none">產品介紹</a></li>
+            <li><a href="{{ url_for('main.courses') }}" class="text-muted text-decoration-none">課程介紹</a></li>
+            <li><a href="{{ url_for('main.blog') }}" class="text-muted text-decoration-none">美麗知識</a></li>
+          </ul>
+        </div>
+
+        <!-- Social Media -->
+        <div class="col-md-4 mb-4">
+          <h5 class="fw-bold mb-3">追蹤我們</h5>
+          <div class="d-flex gap-3 mb-3">
+            <a href="https://www.facebook.com/j.pin9" target="_blank" class="text-dark fs-3">
+              <i class="bi bi-facebook"></i>
+            </a>
+            <a href="https://www.instagram.com/jpinspa" target="_blank" class="text-dark fs-3">
+              <i class="bi bi-instagram"></i>
+            </a>
+            <a href="https://www.tiktok.com/@j_pin_spa" target="_blank" class="text-dark fs-3">
+              <i class="bi bi-tiktok"></i>
+            </a>
+            <a href="https://line.me/ti/p/~@lhn1950m" target="_blank" class="text-dark fs-3">
+              <i class="bi bi-line"></i>
+            </a>
           </div>
-          <div class="text-muted small mt-1">©2025 IFN582 Group 5 · Images from Unsplash</div>
+          <p class="text-muted small">營業時間：週一至週日 09:00-18:00
+            <br>採預約制
+          </p>
+        </div>
+      </div>
+
+      <hr>
+
+      <div class="row">
+        <div class="col-12 text-center text-muted small">
+          <p class="mb-0">© 2025 JP AROMATIC SPA. All rights reserved. |
+            <a href="#" class="text-muted">隱私權政策</a> |
+            <a href="#" class="text-muted">服務條款</a>
+          </p>
         </div>
       </div>
     </div>
   </footer>
 
-  <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
+  <!-- Login/Register Modal -->
+  <div class="modal fade" id="loginModal" tabindex="-1">
     <div class="modal-dialog">
       <div class="modal-content">
-
         <div class="modal-header">
-          <h5 class="modal-title" id="loginModalLabel">Sign In</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          <h5 class="modal-title">會員登入 / 註冊</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
-
         <div class="modal-body">
-          <ul class="nav nav-tabs mb-3" id="authTab" role="tablist">
-            <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="signin-tab" data-bs-toggle="tab" data-bs-target="#signin"
-                type="button" role="tab" aria-controls="signin" aria-selected="true">
-                Sign In
-              </button>
+          <ul class="nav nav-tabs mb-3">
+            <li class="nav-item">
+              <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#signin">登入</button>
             </li>
-            <li class="nav-item" role="presentation">
-              <button class="nav-link" id="signup-tab" data-bs-toggle="tab" data-bs-target="#signup" type="button"
-                role="tab" aria-controls="signup" aria-selected="false">
-                Sign Up
-              </button>
+            <li class="nav-item">
+              <button class="nav-link" data-bs-toggle="tab" data-bs-target="#signup">註冊</button>
             </li>
           </ul>
 
-          <div class="tab-content" id="authTabContent">
-            <div class="tab-pane fade show active" id="signin" role="tabpanel" aria-labelledby="signin-tab">
-              <form action="{{ url_for('main.login') }}" method="POST">
+          <div class="tab-content">
+            <!-- Login Tab -->
+            <div class="tab-pane fade show active" id="signin">
+              <form method="POST" action="{{ url_for('auth.login') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 <div class="mb-3">
-                  <label for="signin-username" class="form-label">Username</label>
-                  <input type="text" class="form-control" id="signin-username" name="username"
-                    placeholder="Enter username" required />
+                  <label class="form-label">帳號</label>
+                  <input type="text" name="username" class="form-control" required>
                 </div>
+
                 <div class="mb-3">
-                  <label for="signin-password" class="form-label">Password</label>
-                  <input type="password" class="form-control" id="signin-password" name="password"
-                    placeholder="Enter password" required />
+                  <label class="form-label">密碼</label>
+                  <input type="password" name="password" class="form-control" required>
                 </div>
-                <button type="submit" class="btn btn-primary w-100">Login</button>
+
+                <button type="submit" class="btn btn-primary w-100">登入</button>
+
+                <div class="text-center mt-3">
+                  <a href="{{ url_for('auth.forgot_password') }}" class="small text-decoration-none">忘記密碼？</a>
+                </div>
               </form>
-              <div class="mt-2 text-end">
-                <a href="#">Forgot password?</a>
-              </div>
             </div>
 
-            <div class="tab-pane fade" id="signup" role="tabpanel" aria-labelledby="signup-tab">
-              <form action="{{ url_for('main.register') }}" method="POST">
+            <!-- Register Tab -->
+            <div class="tab-pane fade" id="signup">
+              <form method="POST" action="{{ url_for('auth.register') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 <div class="mb-3">
-                  <label for="signup-username" class="form-label">Username</label>
-                  <input type="text" class="form-control" id="signup-username" name="username"
-                    placeholder="Choose username" required />
+                  <label class="form-label">帳號</label>
+                  <input type="text" name="username" class="form-control" required>
                 </div>
+
                 <div class="mb-3">
-                  <label for="signup-email" class="form-label">Email</label>
-                  <input type="email" class="form-control" id="signup-email" name="email" placeholder="Enter email"
-                    required />
+                  <label class="form-label">Email</label>
+                  <input type="email" name="email" class="form-control" required>
                 </div>
+
                 <div class="mb-3">
-                  <label for="signup-password" class="form-label">Password</label>
-                  <input type="password" class="form-control" id="signup-password" name="password"
-                    placeholder="Choose password" required />
+                  <label class="form-label">密碼</label>
+                  <input type="password" name="password" class="form-control" required>
                 </div>
-                <div class="mb-3">
-                  <label for="signup-firstname" class="form-label">First Name</label>
-                  <input type="text" class="form-control" id="signup-firstname" name="firstname"
-                    placeholder="Enter first name" required />
+
+                <div class="row">
+                  <div class="col-6 mb-3">
+                    <label class="form-label">姓氏</label>
+                    <input type="text" name="surname" class="form-control" required>
+                  </div>
+                  <div class="col-6 mb-3">
+                    <label class="form-label">名字</label>
+                    <input type="text" name="firstname" class="form-control" required>
+                  </div>
                 </div>
-                <div class="mb-3">
-                  <label for="signup-surname" class="form-label">Surname</label>
-                  <input type="text" class="form-control" id="signup-surname" name="surname" placeholder="Enter surname"
-                    required />
-                </div>
-                <div class="mb-3">
-                  <label for="signup-role" class="form-label">Register as</label>
-                  <select class="form-select" id="signup-role" name="role" required>
-                    <option value="customer">Customer</option>
-                    <option value="vendor">Vendor</option>
-                  </select>
-                </div>
-                <button type="submit" class="btn btn-success w-100">Sign Up</button>
+
+                <input type="hidden" name="role" value="customer">
+
+                <button type="submit" class="btn btn-success w-100">註冊</button>
               </form>
             </div>
           </div>
         </div>
-
-        <div class="modal-footer">
-          <small class="text-muted">New here? Use the Sign Up tab above.</small>
-        </div>
-
       </div>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
-    integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
-    crossorigin="anonymous"></script>
+
+  <!-- Floating Social Icons -->
+  <div class="floating-social-icons">
+
+    <!-- Back to Top -->
+    <a href="#" class="social-icon back-to-top">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-up-circle"
+        viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z" />
+        <path fill-rule="evenodd"
+          d="M8 12a.5.5 0 0 0 .5-.5V5.707l1.146 1.147a.5.5 0 0 0 .708-.708l-2-2-.007-.007a.498.498 0 0 0-.7 0l-2 2a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z" />
+      </svg>
+      <span class="icon-label">Back to Top</span>
+    </a>
+
+    <a href="https://line.me/ti/p/~@lhn1950m" target="_blank" class="social-icon line">
+      <i class="bi bi-line"></i>
+      <span class="icon-label">LINE</span>
+    </a>
+
+    <a href="https://facebook.com/j.pin9" target="_blank" class="social-icon facebook">
+      <i class="bi bi-facebook"></i>
+      <span class="icon-label">Facebook</span>
+    </a>
+
+    <a href="https://instagram.com/jpinspa" target="_blank" class="social-icon instagram">
+      <i class="bi bi-instagram"></i>
+      <span class="icon-label">Instagram</span>
+    </a>
+
+    <a href="mailto:info@jparomatic.com" class="social-icon email">
+      <i class="bi bi-envelope-fill"></i>
+      <span class="icon-label">Email</span>
+    </a>
+
+    <a href="https://www.tiktok.com/@j_pin_spa" target="_blank" class="social-icon tiktok">
+      <i class="bi bi-tiktok"></i>
+      <span class="icon-label">TikTok</span>
+    </a>
+  </div>
+
+
+
+  <style>
+    .floating-social-icons {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      z-index: 9999;
+    }
+
+    /* icon */
+    .floating-social-icons .social-icon {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 45px;
+      height: 45px;
+      border-radius: 50%;
+      background-color: #333;
+      color: #FFD700;
+      text-decoration: none;
+      overflow: visible;
+      /* 文字不被裁切 */
+      z-index: 0;
+      /* 讓子元素 z-index 生效 */
+      transition: box-shadow 0.2s, background 0.3s, color 0.3s;
+    }
+
+    /* hover icon 顏色 */
+    .floating-social-icons .social-icon.back-to-top:hover {
+      background-color: #FFD700;
+      color: white;
+    }
+
+    .floating-social-icons .social-icon.line:hover {
+      background-color: #00C300;
+    }
+
+    .floating-social-icons .social-icon.facebook:hover {
+      background-color: #1877F2;
+    }
+
+    .floating-social-icons .social-icon.instagram:hover {
+      background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);
+    }
+
+    .floating-social-icons .social-icon.email:hover {
+      background-color: #FF6B35;
+    }
+
+    .floating-social-icons .social-icon.tiktok:hover {
+      background: linear-gradient(135deg, #69C9D0 0%, #EE1D52 100%);
+    }
+
+    /* icon hover 放大 */
+    .floating-social-icons .social-icon svg,
+    .floating-social-icons .social-icon i {
+      transition: transform 0.2s;
+    }
+
+    .floating-social-icons .social-icon:hover svg,
+    .floating-social-icons .social-icon:hover i {
+      transform: scale(1.25);
+    }
+
+    /* 懸停文字 */
+    .floating-social-icons .social-icon .icon-label {
+      position: absolute;
+      top: 1.1rem;
+      left: -210%;
+      transform: translateY(-50%) translateX(-10px);
+      white-space: nowrap;
+      font-family: 'Arial', cursive, sans-serif;
+      color: rgba(120, 116, 116, 0.829);
+      font-size: 1.2rem;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s, transform 0.2s;
+      z-index: 10;
+      /* 保證在 icon 上方 */
+    }
+
+    .floating-social-icons .social-icon.back-to-top .icon-label {
+      left: -250%;
+    }
+
+    .floating-social-icons .social-icon.line .icon-label {
+      left: -110%;
+    }
+
+    .floating-social-icons .social-icon.email .icon-label {
+      left: -130%;
+    }
+
+    .floating-social-icons .social-icon.tiktok .icon-label {
+      left: -150%;
+    }
+
+    .floating-social-icons .social-icon.instagram .icon-label {
+      left: -220%;
+    }
+
+    .floating-social-icons .social-icon:hover .icon-label {
+      opacity: 1;
+      transform: translateY(-50%) translateX(0);
+    }
+  </style>
+
+
+  <!-- Bootstrap JS -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   {% block scripts %}{% endblock %}
 </body>
 

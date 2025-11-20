@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block title %}課程介紹 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+    <!-- Page Header -->
+    <div class="text-center mb-4">
+        <p class="lead text-muted">選擇適合您的芳療課程，讓身心得到完整的放鬆與療癒</p>
+    </div>
+
+    <!-- Search & Filter Section -->
+    <div class="d-flex flex-wrap justify-content-between align-items-start mb-4 g-3">
+
+        <!-- Category Buttons (左側) -->
+        <div class="d-flex flex-wrap gap-2">
+            <a href="{{ url_for('main.courses') }}"
+                class="btn btn-sm {% if not current_category %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                全部
+            </a>
+            {% for category in categories %}
+            <a href="{{ url_for('main.courses', category=category.id) }}"
+                class="btn btn-sm {% if current_category == category.id %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                {{ category.name }}
+            </a>
+            {% endfor %}
+        </div>
+
+        <!-- Search Bar (右側) -->
+        <div style="min-width: 280px;">
+            <form method="GET" action="{{ url_for('main.courses') }}" class="input-group input-group-lg">
+                <input type="text" name="q" class="form-control" placeholder="搜尋課程名稱或關鍵字..."
+                    value="{{ search_query or '' }}" aria-label="搜尋課程">
+                <button class="btn btn-primary" type="submit">
+                    <i class="bi bi-search"></i> 搜尋
+                </button>
+
+                {% if search_query %}
+                <a href="{{ url_for('main.courses') }}" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-circle"></i> 清除
+                </a>
+                {% endif %}
+            </form>
+        </div>
+
+    </div>
+
+    <!-- Course Grid -->
+    <div id="course-list" class="row g-4">
+        {% for course in courses %}
+        <div class="col-6 col-md-4 col-lg-3">
+            <div class="card h-100 hover-zoom shadow-sm">
+
+                <!-- 卡片 body 觸發 modal -->
+                <div data-bs-toggle="modal" data-bs-target="#courseModal{{ course.id }}" style="cursor:pointer;">
+                    <div class="ratio ratio-16x9">
+                        {% if course.image %}
+                        <img src="{{ url_for('static', filename=course.image) }}" class="card-img-top object-fit-cover"
+                            alt="{{ course.name }}" loading="lazy">
+                        {% else %}
+                        <div class="bg-light d-flex align-items-center justify-content-center">
+                            <i class="bi bi-calendar-check fs-1 text-muted"></i>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">{{ course.name }}</h5>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <div>
+                                {% if course.experience_price %}
+                                <span class="badge bg-success">首次體驗</span>
+                                <span class="text-success fw-bold">NT$ {{ '{:,.0f}'.format(course.experience_price)
+                                    }}</span>
+                                {% endif %}
+                                <p
+                                    class="mb-0 {% if course.experience_price %}text-muted text-decoration-line-through small{% else %}text-primary fw-bold{% endif %}">
+                                    NT$ {{ '{:,.0f}'.format(course.regular_price) }}
+                                </p>
+                            </div>
+                            {% if course.duration %}
+                            <span class="text-muted small"><i class="bi bi-clock"></i> {{ course.duration }} 分鐘</span>
+                            {% endif %}
+                        </div>
+                        {% if course.category_name %}
+                        <span class="badge bg-light text-dark">{{ course.category_name }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Footer 不觸發 modal -->
+                <div class="card-footer bg-white border-0 pt-0">
+                    {% if session.get('role') == 'customer' %}
+                    <form action="{{ url_for('main.add_to_cart', course_id=course.id) }}" method="POST">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="quantity" value="1">
+                        <button type="submit" class="btn btn-primary btn-sm w-100">
+                            <i class="bi bi-cart-plus"></i> 加入購物車
+                        </button>
+                    </form>
+                    {% else %}
+                    <button class="btn btn-secondary btn-sm w-100" disabled>請先登入</button>
+                    {% endif %}
+                </div>
+
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Loading Indicator -->
+    <div id="loading" class="text-center mt-4" style="display:none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">載入中...</span>
+        </div>
+        <p class="text-muted mt-2">載入更多課程...</p>
+    </div>
+
+    <!-- No More Courses -->
+    <div id="no-more" class="text-center text-muted mt-4" style="display:none;">
+        <p>已顯示全部課程</p>
+    </div>
+
+    <!-- Empty State -->
+    {% if courses|length == 0 %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox fs-1 text-muted"></i>
+        <p class="text-muted mt-3">目前沒有課程</p>
+        <a href="{{ url_for('main.courses') }}" class="btn btn-primary">瀏覽全部課程</a>
+    </div>
+    {% endif %}
+
+    <!-- Modals -->
+    {% for course in courses %}
+    <div class="modal fade" id="courseModal{{ course.id }}" tabindex="-1"
+        aria-labelledby="courseModalLabel{{ course.id }}" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="courseModalLabel{{ course.id }}">{{ course.name }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    {% if course.image %}
+                    <img src="{{ url_for('static', filename=course.image) }}" class="img-fluid mb-3"
+                        alt="{{ course.name }}">
+                    {% endif %}
+                    <p><strong>類別：</strong> {{ course.category_name or '無' }}</p>
+                    <p><strong>課程時長：</strong> {{ course.duration or '未知' }} 分鐘</p>
+                    <p><strong>價格：</strong>
+                        {% if course.experience_price %}
+                        <span class="text-success fw-bold">首次體驗 NT$ {{ '{:,.0f}'.format(course.experience_price)
+                            }}</span>
+                        <span class="text-decoration-line-through text-muted">NT$ {{
+                            '{:,.0f}'.format(course.regular_price)
+                            }}</span>
+                        {% else %}
+                        NT$ {{ '{:,.0f}'.format(course.regular_price) }}
+                        {% endif %}
+                    </p>
+                    {% if course.description %}
+                    <hr>
+                    <p>{{ course.description }}</p>
+                    {% endif %}
+                </div>
+                <div class="modal-footer">
+                    {% if session.get('role') == 'customer' %}
+                    <form action="{{ url_for('main.add_to_cart', course_id=course.id) }}" method="POST" class="w-100">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="quantity" value="1">
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="bi bi-cart-plus"></i> 加入購物車
+                        </button>
+                    </form>
+                    {% else %}
+                    <button class="btn btn-secondary w-100" disabled>請先登入</button>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let page = 1;
+    let loading = false;
+    let hasMore = {{ 'true' if courses| length >= 15 else 'false' }};
+    const courseList = document.getElementById('course-list');
+    const loadingIndicator = document.getElementById('loading');
+    const noMoreIndicator = document.getElementById('no-more');
+    const currentCategory = {{ current_category| tojson }};
+    const searchQuery = {{ search_query| tojson }};
+
+    // Infinite scroll
+    function loadMoreCourses() {
+        if (loading || !hasMore) return;
+
+        const scrollTop = window.scrollY;
+        const windowHeight = window.innerHeight;
+        const docHeight = document.documentElement.scrollHeight;
+
+        if (scrollTop + windowHeight >= docHeight - 300) {
+            loading = true;
+            page += 1;
+            loadingIndicator.style.display = 'block';
+
+            let url = `/courses?page=${page}`;
+            if (currentCategory) url += `&category=${currentCategory}`;
+            if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+
+            fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+                .then(res => res.text())
+                .then(html => {
+                    loadingIndicator.style.display = 'none';
+
+                    if (html.trim()) {
+                        const tempDiv = document.createElement('div');
+                        tempDiv.innerHTML = html;
+                        const newItems = tempDiv.querySelectorAll('.col-6');
+
+                        if (newItems.length > 0) {
+                            newItems.forEach(item => courseList.appendChild(item));
+                            loading = false;
+                        } else {
+                            hasMore = false;
+                            noMoreIndicator.style.display = 'block';
+                        }
+                    } else {
+                        hasMore = false;
+                        noMoreIndicator.style.display = 'block';
+                    }
+                })
+                .catch(err => {
+                    console.error('載入失敗:', err);
+                    loadingIndicator.style.display = 'none';
+                    loading = false;
+                });
+        }
+    }
+
+    if (hasMore) {
+        window.addEventListener('scroll', loadMoreCourses);
+    }
+
+    // Hover effect
+    document.querySelectorAll('.hover-zoom').forEach(card => {
+        card.addEventListener('mouseenter', function () { this.style.transform = 'translateY(-5px)'; });
+        card.addEventListener('mouseleave', function () { this.style.transform = 'translateY(0)'; });
+    });
+</script>
+
+<style>
+    .hover-zoom {
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .hover-zoom:hover {
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    .object-fit-cover {
+        object-fit: cover;
+    }
+</style>
+{% endblock %}

@@ -1,71 +1,111 @@
-{% extends "base.html" %} {% block title %}Image detail page{% endblock %} {%
-block content %}
-<main>
-  <div class="container-sm py-3">
-    <div class="gallery-item ratio ratio-4x3">
-      <img
-        src="{{ url_for('static', filename=item.url) }}"
-        class="w-100 h-100 object-fit-contain"
-        alt="{{ item.title }}"
-        loading="lazy"
-      />
-    </div>
+{% extends "base.html" %}
+{% block title %}課程列表{% endblock %}
 
-    <div class="d-flex row align-items-center mt-3 g-2">
-      <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
-        <h1 class="h2 fw-semibold mb-0 me-2 flex-grow-1 text-truncate">
-          {{ item.title or "Untitled image" }}
-        </h1>
+{% block content %}
+<div class="container-xxl py-4">
 
-        <div class="d-flex align-items-center gap-2">
-          <span class="badge text-bg-dark px-3 py-2">
-            {{ item.vendor | default('Unknown') }}
-          </span>
-          <span class="badge text-bg-light text-dark border px-3 py-2">
-            ${{ "%.2f"|format(item.price | default(0.0)) }}
-          </span>
-
-          <form
-            action="{{ url_for('main.add_to_cart', image_id=item.id) }}"
-            method="post"
-            class="ms-2"
-          >
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}" />
-            {% if current_user_role == 'customer' %}
-            <button type="submit" class="btn btn-primary btn-sm">
-              Add to Cart
-            </button>
-            {% endif %}
-          </form>
-        </div>
-      </div>
-      <p class="lead text-body-secondary mb-4">
-        {{ (item.summary or item.description or "this scene") }}
-      </p>
-    </div>
-
-    <section class="row g-3 align-items-center">
-      <div class="col-6 col-md-3">
-        <div class="small text-muted">Views</div>
-        <div class="h5 mb-0">
-          {{ "{:,}".format(item.views | default(0, true)) }}
-        </div>
-      </div>
-      <div class="col-6 col-md-3">
-        <div class="small text-muted">Downloads</div>
-        <div class="h5 mb-0">
-          {{ "{:,}".format(item.downloads | default(0, true)) }}
-        </div>
-      </div>
-      <div class="col-12 col-md-4">
-        <div class="small text-muted">Featured in</div>
-        <div class="d-flex flex-wrap gap-2">
-          {% for c in item.categories %}
-          <span class="badge badge-category">#{{ c.name.capitalize() }}</span>
-          {% endfor %}
-        </div>
-      </div>
-    </section>
+  <!-- 分類 bar -->
+  <div class="mb-4 d-flex flex-wrap gap-2">
+    <button class="btn btn-category active" data-category="all">全部</button>
+    {% for series in series_list %}
+    <button class="btn btn-category" data-category="{{ series.id }}">{{ series.name }}</button>
+    {% endfor %}
   </div>
-</main>
+
+  <!-- 課程清單 -->
+  <div id="course-list" class="row g-3">
+    {% for course in courses %}
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3">
+      <div class="card h-100 hover-zoom">
+        <div class="ratio ratio-4x3">
+          <img src="{{ url_for('static', filename=course.image_url) }}" class="w-100 h-100 object-fit-cover"
+            alt="{{ course.name }}">
+        </div>
+        <div class="card-body d-flex flex-column">
+          <h6 class="text-truncate">{{ course.name }}</h6>
+
+          <!-- 課程價格 -->
+          {% if course.first_time %}
+          <span class="badge text-bg-success">首次體驗 ${{ '%.2f'|format(course.experience_price) }}</span>
+          {% else %}
+          <span class="badge text-bg-light">${{ '%.2f'|format(course.price) }}</span>
+          {% endif %}
+
+          <!-- 選擇堂數 -->
+          {% if session.get('role') == 'customer' %}
+          <form action="{{ url_for('booking.add') }}" method="POST" class="mt-auto">
+            <input type="hidden" name="course_id" value="{{ course.id }}">
+            <div class="mb-2">
+              <label for="quantity-{{ course.id }}" class="form-label small">堂數</label>
+              <input type="number" id="quantity-{{ course.id }}" name="quantity" min="1" value="1" class="form-control">
+            </div>
+            <button type="submit" class="btn btn-primary w-100">預約課程</button>
+          </form>
+          {% else %}
+          <button class="btn btn-secondary w-100 mt-auto" disabled>請先登入</button>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div id="loading" class="text-center mt-3" style="display:none;">
+    <span class="text-muted">載入中...</span>
+  </div>
+</div>
+
+<script>
+  let page = 1;
+  let loading = false;
+  const courseList = document.getElementById('course-list');
+  const loadingIndicator = document.getElementById('loading');
+
+  // infinite scroll
+  const loadMoreCourses = () => {
+    if (loading) return;
+    const scrollTop = window.scrollY;
+    const windowHeight = window.innerHeight;
+    const docHeight = document.body.scrollHeight;
+
+    if (scrollTop + windowHeight >= docHeight - 300) {
+      loading = true;
+      page += 1;
+      loadingIndicator.style.display = 'block';
+      const category = document.querySelector('.btn-category.active').dataset.category;
+
+      fetch(`/courses?page=${page}&category=${category}`)
+        .then(res => res.text())
+        .then(html => {
+          if (html.trim()) {
+            courseList.insertAdjacentHTML('beforeend', html);
+            loading = false;
+            loadingIndicator.style.display = 'none';
+          } else {
+            window.removeEventListener('scroll', scrollHandler);
+            loadingIndicator.innerHTML = '<span class="text-muted">已載入全部</span>';
+          }
+        });
+    }
+  };
+
+  const scrollHandler = () => loadMoreCourses();
+  window.addEventListener('scroll', scrollHandler);
+
+  // 分類切換
+  document.querySelectorAll('.btn-category').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.btn-category').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const category = btn.dataset.category;
+      fetch(`/courses?page=1&category=${category}`)
+        .then(res => res.text())
+        .then(html => {
+          courseList.innerHTML = html;
+          page = 1;
+          window.addEventListener('scroll', scrollHandler);
+        });
+    });
+  });
+</script>
 {% endblock %}

@@ -1,7 +1,9 @@
 .search-wrap {
-  flex: 0 0 190px;
+  flex: 1;
+  /* 讓搜尋欄撐滿可用空間 */
   min-width: 190px;
 }
+
 
 .gallery-item {
   position: relative;
@@ -30,19 +32,23 @@
     min-height: 420px;
   }
 }
+
 .dz-wrap {
   border-radius: 1rem;
   overflow: hidden;
 }
+
 .dz-wrap .dz-border {
   transition: background-color 0.2s ease, border-color 0.2s ease,
     box-shadow 0.2s ease, transform 0.2s ease;
   border-radius: inherit;
   overflow: hidden;
 }
+
 .dz-wrap:has(input[type="file"]:valid) .dz-ready {
   display: block !important;
 }
+
 .dz-wrap:has(input[type="file"]:valid) .dz-border {
   border-color: #198754 !important;
 }
@@ -60,6 +66,7 @@
 .dz-wrap .dz-border svg {
   transition: opacity 0.2s ease, color 0.2s ease;
 }
+
 .dz-wrap:hover .dz-border svg {
   opacity: 0.85;
 }
@@ -71,6 +78,7 @@
 .hover-zoom {
   transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
+
 .hover-zoom:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
@@ -81,10 +89,12 @@
   border-top-left-radius: 0.75rem;
   border-top-right-radius: 0.75rem;
 }
+
 .hover-zoom img {
   transition: transform 0.35s ease, filter 0.35s ease;
   will-change: transform;
 }
+
 .hover-zoom:hover img {
   transform: scale(1.06);
   filter: brightness(0.95);
@@ -95,6 +105,7 @@
   border-color: #000;
   color: #fff;
 }
+
 .pagination .page-link:hover,
 .pagination .page-link:focus {
   color: #000;
@@ -109,15 +120,18 @@
     transform 0.08s ease;
   text-decoration: none;
 }
+
 .badge-link:hover,
 .badge-link:focus {
   background-color: rgba(0, 0, 0, 0.7);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   text-decoration: none;
 }
+
 .badge-link:active {
   transform: translateY(1px);
 }
+
 .badge-link.disabled {
   cursor: default;
   opacity: 0.85;

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block title %}文章列表 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+
+    <!-- Page Header -->
+    <div class="text-center mb-5">
+        <p class="lead text-muted">探索芳香療法的奧秘，學習更多關於精油與身心健康的知識</p>
+    </div>
+
+    <!-- Blog Posts Grid -->
+    <div class="row g-4 mb-5">
+        {% for post in posts %}
+        <div class="col-md-6 col-lg-4">
+            <article class="card border-0 shadow-sm h-100 hover-card">
+                <a href="{{ url_for('main.post_detail', post_id=post.id) }}" class="text-decoration-none">
+
+                    <!-- Post Image -->
+                    <div class="ratio ratio-16x9">
+                        {% if post.image %}
+                        <img src="{{ url_for('static', filename=post.image) }}" class="card-img-top object-fit-cover"
+                            alt="{{ post.title }}">
+                        {% else %}
+                        <div class="bg-light d-flex align-items-center justify-content-center">
+                            <i class="bi bi-newspaper display-3 text-muted"></i>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <!-- Post Content -->
+                    <div class="card-body">
+                        <h5 class="card-title fw-bold text-dark mb-3">{{ post.title }}</h5>
+
+                        {% if post.summary %}
+                        <p class="card-text text-muted">
+                            {{ post.summary[:120] }}{% if post.summary|length > 120 %}...{% endif %}
+                        </p>
+                        {% endif %}
+
+                        <div class="d-flex justify-content-between align-items-center mt-3 text-muted small">
+                            <span>
+                                <i class="bi bi-calendar3"></i> {{ post.date }}
+                            </span>
+                            <span>
+                                <i class="bi bi-eye"></i> {{ post.views }} 次閱讀
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Read More -->
+                    <div class="card-footer bg-white border-0">
+                        <span class="text-primary fw-bold">
+                            閱讀更多 <i class="bi bi-arrow-right"></i>
+                        </span>
+                    </div>
+                </a>
+            </article>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- No Posts -->
+    {% if posts|length == 0 %}
+    <div class="text-center py-5">
+        <i class="bi bi-inbox display-1 text-muted"></i>
+        <h4 class="text-muted mt-3">目前還沒有文章</h4>
+        <p class="text-muted">敬請期待更多精彩內容</p>
+        <a href="{{ url_for('main.home') }}" class="btn btn-primary">
+            返回首頁
+        </a>
+    </div>
+    {% endif %}
+
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <nav aria-label="文章分頁">
+        <ul class="pagination justify-content-center">
+
+            <!-- Previous -->
+            <li class="page-item {% if page <= 1 %}disabled{% endif %}">
+                <a class="page-link" href="{{ url_for('main.blog', page=page-1) if page > 1 else '#' }}">
+                    <i class="bi bi-chevron-left"></i> 上一頁
+                </a>
+            </li>
+
+            <!-- Page Numbers -->
+            {% for p in range(1, total_pages + 1) %}
+            {% if p == page %}
+            <li class="page-item active">
+                <span class="page-link">{{ p }}</span>
+            </li>
+            {% elif p == 1 or p == total_pages or (p >= page - 2 and p <= page + 2) %} <li class="page-item">
+                <a class="page-link" href="{{ url_for('main.blog', page=p) }}">{{ p }}</a>
+                </li>
+                {% elif p == page - 3 or p == page + 3 %}
+                <li class="page-item disabled">
+                    <span class="page-link">...</span>
+                </li>
+                {% endif %}
+                {% endfor %}
+
+                <!-- Next -->
+                <li class="page-item {% if page >= total_pages %}disabled{% endif %}">
+                    <a class="page-link" href="{{ url_for('main.blog', page=page+1) if page < total_pages else '#' }}">
+                        下一頁 <i class="bi bi-chevron-right"></i>
+                    </a>
+                </li>
+        </ul>
+    </nav>
+
+    <p class="text-center text-muted mt-3">
+        共 {{ total }} 篇文章，第 {{ page }} / {{ total_pages }} 頁
+    </p>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .hover-card {
+        transition: all 0.3s ease;
+    }
+
+    .hover-card:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.2) !important;
+    }
+
+    .object-fit-cover {
+        object-fit: cover;
+    }
+
+    .pagination .page-link {
+        color: #0d6efd;
+    }
+
+    .pagination .page-item.active .page-link {
+        background-color: #0d6efd;
+        border-color: #0d6efd;
+    }
+</style>
+{% endblock %}

@@ -1,0 +1,273 @@
+{% extends "base.html" %}
+{% block title %}{{ post.title }} - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+
+    <!-- Breadcrumb -->
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('main.home') }}">首頁</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('main.blog') }}">文章</a></li>
+            <li class="breadcrumb-item active">{{ post.title }}</li>
+        </ol>
+    </nav>
+
+    <div class="row g-5">
+
+        <!-- Main Article -->
+        <div class="col-lg-8">
+            <article class="blog-post">
+
+                <!-- Article Header -->
+                <header class="mb-4">
+                    <h1 class="display-5 fw-bold mb-3">{{ post.title }}</h1>
+
+                    <div class="d-flex align-items-center gap-3 text-muted mb-4">
+                        {% if post.author_name %}
+                        <span>
+                            <i class="bi bi-person-circle"></i> {{ post.author_name }}
+                        </span>
+                        {% endif %}
+                        <span>
+                            <i class="bi bi-calendar3"></i> {{ post.date }}
+                        </span>
+                        <span>
+                            <i class="bi bi-eye"></i> {{ post.views }} 次閱讀
+                        </span>
+                    </div>
+
+                    {% if post.summary %}
+                    <p class="lead text-muted">{{ post.summary }}</p>
+                    {% endif %}
+                </header>
+
+                <!-- Featured Image -->
+                {% if post.image %}
+                <div class="ratio ratio-16x9 mb-4 rounded-4 overflow-hidden">
+                    <img src="{{ url_for('static', filename=post.image) }}" alt="{{ post.title }}"
+                        class="object-fit-cover">
+                </div>
+                {% endif %}
+
+                <!-- Article Content -->
+                <div class="blog-content">
+                    {{ post.content | safe }}
+                </div>
+
+                <!-- Article Footer -->
+                <footer class="mt-5 pt-4 border-top">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-2">分享這篇文章</h6>
+                            <div class="d-flex gap-2">
+                                <a href="https://www.facebook.com/sharer/sharer.php?u={{ request.url }}" target="_blank"
+                                    class="btn btn-outline-primary btn-sm">
+                                    <i class="bi bi-facebook"></i> Facebook
+                                </a>
+                                <a href="https://social-plugins.line.me/lineit/share?url={{ request.url }}"
+                                    target="_blank" class="btn btn-outline-success btn-sm">
+                                    <i class="bi bi-line"></i> LINE
+                                </a>
+                                <button onclick="copyToClipboard('{{ request.url }}')"
+                                    class="btn btn-outline-secondary btn-sm">
+                                    <i class="bi bi-link-45deg"></i> 複製連結
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </footer>
+
+            </article>
+
+            <!-- Related Posts -->
+            {% if related_posts %}
+            <section class="mt-5">
+                <h3 class="fw-bold mb-4">相關文章</h3>
+                <div class="row g-4">
+                    {% for related in related_posts %}
+                    <div class="col-md-4">
+                        <a href="{{ url_for('main.post_detail', post_id=related.id) }}" class="text-decoration-none">
+                            <div class="card border-0 shadow-sm h-100">
+                                <div class="ratio ratio-16x9">
+                                    {% if related.image %}
+                                    <img src="{{ url_for('static', filename=related.image) }}"
+                                        class="card-img-top object-fit-cover" alt="{{ related.title }}">
+                                    {% else %}
+                                    <div class="bg-light d-flex align-items-center justify-content-center">
+                                        <i class="bi bi-newspaper fs-1 text-muted"></i>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="card-body">
+                                    <h6 class="card-title fw-bold text-dark">{{ related.title }}</h6>
+                                    {% if related.summary %}
+                                    <p class="card-text text-muted small">
+                                        {{ related.summary[:80] }}{% if related.summary|length > 80 %}...{% endif %}
+                                    </p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+        </div>
+
+        <!-- Sidebar -->
+        <div class="col-lg-4">
+
+            <!-- Call to Action -->
+            <div class="card border-0 shadow-sm mb-4 bg-primary text-white">
+                <div class="card-body p-4 text-center">
+                    <h5 class="fw-bold mb-3">準備好開始您的芳療旅程了嗎？</h5>
+                    <p class="mb-4">立即預約，體驗專業的芳香療法服務</p>
+                    <a href="{{ url_for('main.courses') }}" class="btn btn-light w-100">
+                        <i class="bi bi-calendar-check"></i> 立即預約課程
+                    </a>
+                </div>
+            </div>
+
+            <!-- Popular Products -->
+            <div class="card border-0 shadow-sm mb-4">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold">熱門產品</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        <!-- 這裡可以動態載入熱門產品 -->
+                        <a href="{{ url_for('main.products') }}" class="list-group-item list-group-item-action">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">薰衣草精油</h6>
+                                    <small class="text-muted">100% 純天然</small>
+                                </div>
+                                <span class="badge bg-primary">NT$ 580</span>
+                            </div>
+                        </a>
+                    </div>
+                    <div class="card-footer bg-white">
+                        <a href="{{ url_for('main.products') }}" class="btn btn-sm btn-outline-primary w-100">
+                            查看全部產品 <i class="bi bi-arrow-right"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contact Card -->
+            <div class="card border-0 shadow-sm">
+                <div class="card-body p-4">
+                    <h5 class="fw-bold mb-3">聯絡我們</h5>
+                    <div class="d-flex flex-column gap-3">
+                        <div>
+                            <i class="bi bi-geo-alt-fill text-primary me-2"></i>
+                            <small>新北市新莊區思源路195巷37號1樓</small>
+                        </div>
+                        <div>
+                            <i class="bi bi-clock-fill text-primary me-2"></i>
+                            <small>週一至週日 10:00-21:00</small>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <a href="https://www.facebook.com/j.pin9" target="_blank"
+                                class="btn btn-outline-primary btn-sm flex-fill">
+                                <i class="bi bi-facebook"></i>
+                            </a>
+                            <a href="https://www.instagram.com/jpinspa" target="_blank"
+                                class="btn btn-outline-primary btn-sm flex-fill">
+                                <i class="bi bi-instagram"></i>
+                            </a>
+                            <a href="https://line.me/ti/p/~@lhn1950m" target="_blank"
+                                class="btn btn-outline-success btn-sm flex-fill">
+                                <i class="bi bi-line"></i>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+    .blog-content {
+        font-size: 1.1rem;
+        line-height: 1.8;
+        color: #333;
+    }
+
+    .blog-content h2 {
+        font-size: 2rem;
+        font-weight: bold;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+        color: #000;
+    }
+
+    .blog-content h3 {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin-top: 1.5rem;
+        margin-bottom: 0.75rem;
+        color: #222;
+    }
+
+    .blog-content p {
+        margin-bottom: 1.5rem;
+    }
+
+    .blog-content img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        margin: 2rem 0;
+    }
+
+    .blog-content ul,
+    .blog-content ol {
+        margin-bottom: 1.5rem;
+        padding-left: 2rem;
+    }
+
+    .blog-content li {
+        margin-bottom: 0.5rem;
+    }
+
+    .blog-content blockquote {
+        border-left: 4px solid #0d6efd;
+        padding-left: 1.5rem;
+        margin: 2rem 0;
+        font-style: italic;
+        color: #666;
+    }
+
+    .blog-content a {
+        color: #0d6efd;
+        text-decoration: underline;
+    }
+
+    .blog-content a:hover {
+        color: #0a58ca;
+    }
+
+    .object-fit-cover {
+        object-fit: cover;
+    }
+</style>
+
+<script>
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text).then(function () {
+            alert('連結已複製到剪貼簿！');
+        }, function (err) {
+            console.error('複製失敗:', err);
+        });
+    }
+</script>
+{% endblock %}

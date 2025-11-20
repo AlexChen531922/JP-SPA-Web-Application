@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}預約成功{% endblock %}
+
+{% block content %}
+<div class="container-xxl py-4 text-center">
+  <h3 class="mb-3 text-success">預約成功！🎉</h3>
+  <p>感謝您的預約，我們已經收到您的訂單。</p>
+
+  <div class="mt-4">
+    <h5>預約詳情：</h5>
+    <ul class="list-group list-group-flush">
+      {% for item in booked_items %}
+      <li class="list-group-item d-flex justify-content-between align-items-center">
+        {{ item.name }} x {{ item.quantity }}堂
+        <span>${{ '%.2f'|format(item.price * item.quantity) }}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="mt-2">
+      <strong>總金額: ${{ '%.2f'|format(total) }}</strong>
+    </div>
+  </div>
+
+  <div class="mt-4">
+    <p>預約資訊已寄到您的LINE及Email。</p>
+    <a href="{{ url_for('main.index') }}" class="btn btn-primary mt-2">回到首頁</a>
+  </div>
+</div>
+{% endblock %}

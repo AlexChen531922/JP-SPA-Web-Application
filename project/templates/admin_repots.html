@@ -1,0 +1,382 @@
+{% extends "base.html" %}
+{% block title %}統計報表 - 管理後台{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold">
+            <i class="bi bi-graph-up"></i> 統計報表
+        </h2>
+        <button onclick="window.print()" class="btn btn-outline-primary">
+            <i class="bi bi-printer"></i> 列印報表
+        </button>
+    </div>
+
+    <!-- Monthly Sales Chart -->
+    <div class="row g-4 mb-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-graph-up-arrow"></i> 月營收趨勢
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="monthlySalesChart" height="80"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Top Products & Courses -->
+    <div class="row g-4 mb-4">
+
+        <!-- Top Products -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-star-fill text-warning"></i> 熱銷產品 TOP 10
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>排名</th>
+                                    <th>產品名稱</th>
+                                    <th class="text-end">銷售數量</th>
+                                    <th class="text-end">營收</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for product in top_products %}
+                                <tr>
+                                    <td>
+                                        <span
+                                            class="badge {% if loop.index <= 3 %}bg-warning{% else %}bg-secondary{% endif %}">
+                                            #{{ loop.index }}
+                                        </span>
+                                    </td>
+                                    <td>{{ product.name }}</td>
+                                    <td class="text-end">{{ product.total_sold }}</td>
+                                    <td class="text-end fw-bold">NT$ {{ '{:,.0f}'.format(product.revenue) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top Courses -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-star-fill text-success"></i> 熱門課程 TOP 10
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>排名</th>
+                                    <th>課程名稱</th>
+                                    <th class="text-end">預約次數</th>
+                                    <th class="text-end">營收</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for course in top_courses %}
+                                <tr>
+                                    <td>
+                                        <span
+                                            class="badge {% if loop.index <= 3 %}bg-success{% else %}bg-secondary{% endif %}">
+                                            #{{ loop.index }}
+                                        </span>
+                                    </td>
+                                    <td>{{ course.name }}</td>
+                                    <td class="text-end">{{ course.booking_count }}</td>
+                                    <td class="text-end fw-bold">NT$ {{ '{:,.0f}'.format(course.revenue) }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Customer Growth -->
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-people-fill"></i> 客戶成長趨勢
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="customerGrowthChart" height="60"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Low Stock Alert -->
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm border-warning">
+                <div class="card-header bg-warning bg-opacity-10 border-bottom border-warning">
+                    <h5 class="mb-0 fw-bold text-warning">
+                        <i class="bi bi-exclamation-triangle-fill"></i> 庫存警告
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="list-group list-group-flush">
+                        {% for item in low_stock %}
+                        <div class="list-group-item">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <h6 class="mb-1">{{ item.name }}</h6>
+                                    <small class="text-muted">價格: NT$ {{ '{:,.0f}'.format(item.price) }}</small>
+                                </div>
+                                <span class="badge bg-danger">
+                                    剩餘 {{ item.stock_quantity }}
+                                </span>
+                            </div>
+                        </div>
+                        {% else %}
+                        <div class="list-group-item text-center py-4 text-muted">
+                            <i class="bi bi-check-circle fs-3 d-block mb-2"></i>
+                            所有產品庫存充足
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sales Summary Table -->
+    <div class="row g-4">
+        <div class="col-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold">
+                        <i class="bi bi-calendar3"></i> 月度銷售明細
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>月份</th>
+                                    <th class="text-end">訂單數量</th>
+                                    <th class="text-end">營收總額</th>
+                                    <th class="text-end">平均訂單金額</th>
+                                    <th class="text-end">成長率</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for sale in monthly_sales %}
+                                <tr>
+                                    <td>{{ sale.month }}</td>
+                                    <td class="text-end">{{ sale.order_count }}</td>
+                                    <td class="text-end fw-bold">NT$ {{ '{:,.0f}'.format(sale.revenue) }}</td>
+                                    <td class="text-end">
+                                        NT$ {{ '{:,.0f}'.format(sale.revenue / sale.order_count if sale.order_count > 0
+                                        else 0) }}
+                                    </td>
+                                    <td class="text-end">
+                                        {% if loop.index < monthly_sales|length %} {% set
+                                            prev_revenue=monthly_sales[loop.index].revenue %} {% if prev_revenue> 0 %}
+                                            {% set growth = ((sale.revenue - prev_revenue) / prev_revenue * 100) %}
+                                            <span
+                                                class="badge {% if growth >= 0 %}bg-success{% else %}bg-danger{% endif %}">
+                                                {{ '{:+.1f}'.format(growth) }}%
+                                            </span>
+                                            {% endif %}
+                                            {% else %}
+                                            <span class="text-muted">-</span>
+                                            {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot class="table-light fw-bold">
+                                <tr>
+                                    <td>總計</td>
+                                    <td class="text-end">{{ monthly_sales | sum(attribute='order_count') }}</td>
+                                    <td class="text-end">NT$ {{ '{:,.0f}'.format(monthly_sales |
+                                        sum(attribute='revenue')) }}</td>
+                                    <td colspan="2"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+    // Monthly Sales Chart
+    const monthlySalesData = {{ monthly_sales | tojson }};
+    const monthlyLabels = monthlySalesData.map(d => d.month).reverse();
+    const monthlyRevenue = monthlySalesData.map(d => d.revenue).reverse();
+    const monthlyOrders = monthlySalesData.map(d => d.order_count).reverse();
+
+    new Chart(document.getElementById('monthlySalesChart'), {
+        type: 'line',
+        data: {
+            labels: monthlyLabels,
+            datasets: [
+                {
+                    label: '營收 (NT$)',
+                    data: monthlyRevenue,
+                    borderColor: '#0d6efd',
+                    backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y'
+                },
+                {
+                    label: '訂單數量',
+                    data: monthlyOrders,
+                    borderColor: '#198754',
+                    backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                    tension: 0.4,
+                    fill: true,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: {
+                mode: 'index',
+                intersect: false,
+            },
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.datasetIndex === 0) {
+                                label += 'NT$ ' + context.parsed.y.toLocaleString();
+                            } else {
+                                label += context.parsed.y + ' 筆';
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    ticks: {
+                        callback: function (value) {
+                            return 'NT$ ' + value.toLocaleString();
+                        }
+                    }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    grid: {
+                        drawOnChartArea: false,
+                    },
+                    ticks: {
+                        callback: function (value) {
+                            return value + ' 筆';
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    // Customer Growth Chart
+    const customerGrowthData = {{ customer_growth | tojson }};
+    const customerLabels = customerGrowthData.map(d => d.month).reverse();
+    const customerCounts = customerGrowthData.map(d => d.new_customers).reverse();
+
+    new Chart(document.getElementById('customerGrowthChart'), {
+        type: 'bar',
+        data: {
+            labels: customerLabels,
+            datasets: [{
+                label: '新增客戶',
+                data: customerCounts,
+                backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return '新增客戶: ' + context.parsed.y + ' 人';
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+</script>
+
+<style>
+    @media print {
+
+        .btn,
+        nav,
+        .nav-tabs {
+            display: none !important;
+        }
+
+        .card {
+            break-inside: avoid;
+            page-break-inside: avoid;
+        }
+    }
+</style>
+{% endblock %}

@@ -1,1008 +1,1087 @@
-from flask import Blueprint, render_template, request, session, flash, redirect, url_for, abort
-from .models import Image
-import os
-from hashlib import sha256
-from .forms import LoginForm, RegisterForm, AddItemForm, CheckoutForm
-from functools import wraps
+from flask import Blueprint, render_template, request, session, flash, redirect, url_for, jsonify, abort
+from .decorators import login_required, customer_required
 from . import database
-from .db import check_for_user, add_user, check_username_exists, get_current_user_id, get_current_user_role, get_user_role
-from datetime import datetime
-from werkzeug.utils import secure_filename
+from .db import get_current_user_id, get_current_user_role, is_logged_in
+from .notifications import notify_contact_message, notify_new_order, notify_new_booking
 import MySQLdb.cursors
 
-
-bp = Blueprint('main', __name__)
-
-UPLOAD_FOLDER = 'project/static/img'
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
-
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+main_bp = Blueprint('main', __name__)
 
 
-def login_required(f):
-    """Require user to be logged in"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'logged_in' not in session or not session['logged_in']:
-            flash('Please login first', 'warning')
-            return redirect(url_for('main.index'))
-        return f(*args, **kwargs)
-    return decorated_function
+# =====================================================
+# HOME PAGE
+# =====================================================
 
-
-def role_required(*roles):
-    """Require user to have specific role(s)"""
-    def decorator(f):
-        @wraps(f)
-        def decorated_function(*args, **kwargs):
-            if 'logged_in' not in session or not session['logged_in']:
-                flash('Please login first', 'warning')
-                return redirect(url_for('main.login'))
-
-            user_role = get_current_user_role()
-            if user_role not in roles:
-                flash('You do not have permission to access this page', 'error')
-                return redirect(url_for('main.index'))
-            return f(*args, **kwargs)
-        return decorated_function
-    return decorator
-
-
-def save_image(image_file):
-    if image_file and allowed_file(image_file.filename):
-        filename = secure_filename(image_file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        filename = f"{timestamp}_{filename}"
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        image_file.save(filepath)
-        return f"img/{filename}"
-    return None
-
-
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-
-@bp.route('/')
-def index():
-    user = None
-    search_query = request.args.get('q', '').strip()
-    category_filter = request.args.get('category', '').strip().lower()
-    sort = request.args.get('sort', 'latest')
-
-    like_query = f"%{search_query}%" if search_query else None
-    category_query = f"%{category_filter}%" if category_filter else None
-
+@main_bp.route('/')
+def home():
+    """Homepage with latest products and courses"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    base_sql = """
-        SELECT
-            i.id,
-            i.title,
-            i.price,
-            i.url,
-            i.resolution,
-            i.uploaded_at,
-            i.vendor_id,
-            u.username AS vendor_name,
-            e.name     AS event_name,
-            i.views,
-            GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR '||') AS category_names_csv,
-            GROUP_CONCAT(DISTINCT c.id   ORDER BY c.id   SEPARATOR ',')  AS category_ids_csv,
-            GROUP_CONCAT(DISTINCT l.type ORDER BY l.type SEPARATOR '||') AS license_types_csv,
-            GROUP_CONCAT(DISTINCT l.id   ORDER BY l.id   SEPARATOR ',')  AS license_ids_csv
-        FROM images i
-        LEFT JOIN users          u  ON u.id  = i.vendor_id
-        LEFT JOIN events         e  ON e.id  = i.event_id
-        LEFT JOIN image_category ic ON ic.image_id = i.id
-        LEFT JOIN categories     c  ON c.id  = ic.category_id
-        LEFT JOIN image_license  il ON il.image_id = i.id
-        LEFT JOIN licenses       l  ON l.id  = il.license_id
-    """
+    # Get featured products (latest 6)
+    cursor.execute("""
+        SELECT p.id, p.name, p.price, p.image, pc.name as category_name
+        FROM products p
+        LEFT JOIN product_categories pc ON p.category_id = pc.id
+        WHERE p.is_active = TRUE
+        ORDER BY p.created_at DESC
+        LIMIT 6
+    """)
+    featured_products = cursor.fetchall()
 
-    filters = ["i.deleted_at IS NULL"]
-    params = []
-    if like_query:
-        filters.append("""
-            (
-                i.title LIKE %s OR
-                COALESCE(u.firstname, '') LIKE %s OR
-                COALESCE(u.surname,  '') LIKE %s OR
-                e.name LIKE %s OR
-                c.name LIKE %s
-            )
-        """)
-        params += [like_query] * 5
+    # Get featured courses (latest 6)
+    cursor.execute("""
+        SELECT c.id, c.name, c.regular_price, c.experience_price, 
+               c.duration, c.image, cc.name as category_name
+        FROM courses c
+        LEFT JOIN course_categories cc ON c.category_id = cc.id
+        WHERE c.is_active = TRUE
+        ORDER BY c.created_at DESC
+        LIMIT 6
+    """)
+    featured_courses = cursor.fetchall()
 
-    if category_filter:
-        filters.append("LOWER(c.name) LIKE %s")
-        params.append(category_query)
+    # Get published blog posts (latest 3)
+    cursor.execute("""
+        SELECT id, title, summary, image, published_at
+        FROM blog_posts
+        WHERE status = 'published'
+        ORDER BY published_at DESC
+        LIMIT 3
+    """)
+    posts = cursor.fetchall()
 
-    if filters:
-        base_sql += " AND " + " AND ".join(filters)
+    # Convert datetime to string for template
+    for post in posts:
+        if post['published_at']:
+            post['date'] = post['published_at'].strftime('%Y-%m-%d')
+        else:
+            post['date'] = ''
 
-    base_sql += """
-        GROUP BY
-            i.id, i.title, i.price, i.url, i.resolution, i.uploaded_at,
-            i.vendor_id, u.username, e.name, i.views
-    """
+    # Testimonials
+    testimonials = [
+        {
+            'content': '晶品的課程非常專業，讓我的壓力得到很好的釋放，強烈推薦！',
+            'author': '王小姐'
+        },
+        {
+            'content': '產品品質很好，服務也很貼心，會繼續支持！',
+            'author': '李先生'
+        },
+        {
+            'content': '第一次體驗芳療就選擇晶品，真的沒有失望，環境舒適放鬆。',
+            'author': '陳小姐'
+        }
+    ]
 
-    if sort == 'popular':
-        base_sql += " ORDER BY i.views DESC, i.uploaded_at DESC"
-    elif sort == 'price-asc':
-        base_sql += " ORDER BY i.price ASC, i.uploaded_at DESC"
-    elif sort == 'price-desc':
-        base_sql += " ORDER BY i.price DESC, i.uploaded_at DESC"
-    else:
-        base_sql += " ORDER BY i.uploaded_at DESC, i.id DESC"
-
-    cursor.execute(base_sql, params)
-    images = cursor.fetchall()
-    cursor.close()
-
-    for row in images:
-        row['category_names'] = (row.get('category_names_csv') or '').split(
-            '||') if row.get('category_names_csv') else []
-        row['license_types'] = (row.get('license_types_csv') or '').split(
-            '||') if row.get('license_types_csv') else []
-
-    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute("SELECT name FROM categories ORDER BY name")
-    categories = [row['name'] for row in cursor.fetchall()]
     cursor.close()
 
     return render_template(
         'index.html',
-        images=images,
-        user=user,
-        q=search_query,
-        categories=categories,
-        active_category=category_filter,
-        sort=sort
+        featured_products=featured_products,
+        featured_courses=featured_courses,
+        posts=posts,
+        testimonials=testimonials
     )
 
 
-@bp.route('/item_details/<int:id>')
-def item_detail(id):
+# =====================================================
+# PRODUCTS
+# =====================================================
+
+@main_bp.route('/products')
+def products():
+    """Product listing page with infinite scroll"""
+    page = request.args.get('page', 1, type=int)
+    category_id = request.args.get('category', type=int)
+    search = request.args.get('q', '').strip()
+    per_page = 15
+    offset = (page - 1) * per_page
+
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute('SELECT * FROM images WHERE id = %s', (id,))
-    row = cursor.fetchone()
 
-    if row is None:
-        abort(404, description="Image not found")
+    # Build query
+    where_clauses = ["p.is_active = TRUE"]
+    params = []
 
-    cursor.execute(
-        'SELECT firstname, surname FROM users WHERE id = %s', (row['vendor_id'],))
-    vendor_row = cursor.fetchone()
-    vendor = f"{vendor_row['firstname']} {vendor_row['surname']}"
-    cursor.execute("""SELECT c.name
-        FROM image_category AS ic
-        JOIN categories     AS c ON c.id = ic.category_id
-        WHERE ic.image_id = %s
-        ORDER BY c.name;
-        """, (id,))
+    if category_id:
+        where_clauses.append("p.category_id = %s")
+        params.append(category_id)
+
+    if search:
+        where_clauses.append("(p.name LIKE %s OR p.description LIKE %s)")
+        params.extend([f'%{search}%', f'%{search}%'])
+
+    where_sql = " AND ".join(where_clauses)
+
+    # Get products
+    sql = f"""
+        SELECT p.id, p.name, p.price, p.image, p.description,
+               pc.name as category_name
+        FROM products p
+        LEFT JOIN product_categories pc ON p.category_id = pc.id
+        WHERE {where_sql}
+        ORDER BY p.created_at DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([per_page, offset])
+
+    cursor.execute(sql, params)
+    products_list = cursor.fetchall()
+
+    # Get categories
+    cursor.execute("""
+        SELECT id, name FROM product_categories
+        ORDER BY display_order, name
+    """)
     categories = cursor.fetchall()
-    cursor.close()
-
-    image = Image(
-        id=row['id'],
-        vendor=vendor,
-        title=row['title'],
-        description=row['description'],
-        categories=categories,
-        resolution=row['resolution'],
-        format=row['format'],
-        file_name=f"{row['id']}.{row['format']}" if row['format'] else None,
-        uploaded_at=row['uploaded_at'],
-        price=row['price'],
-        event_id=row['event_id'],
-        url=row['url'],
-        featured_in=row.get('featured_in') or [],
-        tags=row.get('tags') or [],
-        views=row.get('views'),
-        downloads=row.get('downloads')
-    )
-
-    return render_template('item_details.html', item=image)
-
-
-@bp.route('/register/', methods=['POST', 'GET'])
-def register():
-    form = RegisterForm()
-    if request.method == 'POST':
-        if form.validate_on_submit():
-            user_exists = check_username_exists(form.username.data)
-            if user_exists:
-                flash('User already exists', 'error')
-                return redirect(url_for('main.index'))
-            form.password.data = sha256(
-                form.password.data.encode()).hexdigest()
-            success = add_user(form)
-
-            try:
-                success
-                flash('Registration successful!')
-                return redirect(url_for('main.index'))
-            except Exception as e:
-                flash(f'Registration failed: {str(e)}', 'error')
-            return redirect(url_for('main.index'))
-        else:
-            for _, errs in form.errors.items():
-                for msg in errs:
-                    flash(msg, 'error')
-            return redirect(url_for('main.index'))
-
-    return render_template('index.html', form=form)
-
-
-@bp.route('/login/', methods=['POST', 'GET'])
-def login():
-    form = LoginForm()
-
-    if request.method == 'POST':
-        if form.validate_on_submit():
-            form.password.data = sha256(
-                form.password.data.encode()).hexdigest()
-
-            user, role = check_for_user(form.username.data, form.password.data)
-            if not user:
-                flash('Invalid username or password', 'error')
-                return redirect(url_for('main.index'))
-
-            session['user'] = {
-                'user_id': user.info.id,
-                'username': user.username,
-                'firstname': user.info.firstname,
-                'surname': user.info.surname,
-                'email': user.info.email,
-                'role': role,
-                'is_admin': role == 'admin',
-                'is_vendor': role == 'vendor',
-                'is_customer': role == 'customer'
-            }
-            session['logged_in'] = True
-            flash('Login successful!')
-
-            if role == 'admin':
-                return redirect(url_for('main.vendor_management'))
-            elif role == 'vendor':
-                return redirect(url_for('vendor.management'))
-            else:
-                return redirect(url_for('main.index'))
-        else:
-            for _, errs in form.errors.items():
-                for msg in errs:
-                    flash(msg, 'error')
-
-    return render_template('index.html', form=form)
-
-
-@bp.route('/logout/')
-def logout():
-    session.pop('user', None)
-    session.pop('logged_in', None)
-    flash('You have been logged out.')
-    return redirect(url_for('main.index'))
-
-
-@bp.route('/admin/')
-@role_required('admin')
-def admin():
-    if 'user' not in session or session['user']['user_id'] == 0:
-        flash('Please log in before managing orders.', 'error')
-        return redirect(url_for('main.login'))
-    if not session['user']['is_admin']:
-        flash('You do not have permission to manage orders.', 'error')
-        return redirect(url_for('main.index'))
-    itemform = AddItemForm()
-    return render_template('vendor_management.html', itemform=itemform)
-
-
-@bp.route('/admin/vendor customer/<int:user_id>/delete', methods=['POST'])
-@role_required('admin')
-def delete_user(user_id):
-    cursor = database.connection.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = %s", (user_id,))
-    users = cursor.fetchone()
-
-    cursor.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
-    database.connection.commit()
-    flash('User deleted successfully', 'success')
 
     cursor.close()
-    return redirect(url_for('main.vendor_management'))
 
-
-@bp.route('/admin/vendor/management', methods=['GET', 'POST'])
-@role_required('admin')
-def vendor_management():
-    tab = request.args.get('tab', 'images')
-    edit_id = request.args.get('edit_id', type=int)
-    edit_user_id = request.args.get('edit_user_id', type=int)
-
-    form = AddItemForm()
-    user_id = get_current_user_id()
-
-    cur = database.connection.cursor(MySQLdb.cursors.DictCursor)
-    cur.execute("SELECT id, name FROM events ORDER BY name")
-    events = cur.fetchall()
-    cur.execute("SELECT id, name FROM categories ORDER BY name")
-    category_list = cur.fetchall()
-    cur.execute("SELECT id, type FROM licenses ORDER BY type")
-    licenses = cur.fetchall()
-    cur.close()
-
-    form.event_id.choices = [(e['id'], e['name']) for e in events]
-    form.category_ids.choices = [(c['id'], c['name']) for c in category_list]
-    form.license_id.choices = [(l['id'], l['type']) for l in licenses]
-
-    if request.method == 'POST':
-        action = request.form.get('action')
-
-        if action == 'edit_user':
-            uid = request.form.get('user_id', type=int)
-            email = (request.form.get('email') or '').strip()
-            role = request.form.get('role')
-
-            if role not in ('admin', 'vendor', 'customer'):
-                flash('Invalid role.', 'danger')
-                return redirect(url_for('main.vendor_management', tab='users'))
-
-            if not email:
-                flash('Email is required.', 'danger')
-                return redirect(url_for('main.vendor_management', tab='users', edit_user_id=uid))
-
-            try:
-                cur = database.connection.cursor()
-                cur.execute("""
-                    UPDATE users SET email=%s, role=%s WHERE id=%s
-                """, (email, role, uid))
-                database.connection.commit()
-                flash('User updated.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Update failed: {e}', 'danger')
-            finally:
-                cur.close()
-
-            return redirect(url_for('main.vendor_management', tab='users'))
-
-        elif action == 'delete_vendor':
-            uid = request.form.get('delete_vendor_id', type=int)
-            try:
-                cur = database.connection.cursor()
-                cur.execute("DELETE FROM users WHERE id=%s", (uid,))
-                database.connection.commit()
-                flash('User deleted.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Delete failed: {e}', 'danger')
-            finally:
-                cur.close()
-
-            return redirect(url_for('main.vendor_management', tab='users'))
-
-        elif action == 'update_order_status':
-            order_id = request.form.get('order_id', type=int)
-            status = request.form.get('status')
-
-            allowed = {'pending', 'paid', 'completed', 'cancelled'}
-            if status not in allowed:
-                flash('Invalid status.', 'danger')
-                return redirect(url_for('main.vendor_management', tab='orders'))
-
-            try:
-                cur = database.connection.cursor()
-                cur.execute(
-                    "UPDATE orders SET status=%s WHERE id=%s", (status, order_id))
-                database.connection.commit()
-                flash('Order status updated.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Failed to update status: {e}', 'danger')
-            finally:
-                cur.close()
-
-            return redirect(url_for('main.vendor_management', tab='orders'))
-
-        elif action == 'add_event':
-            name = (request.form.get('name') or '').strip()
-            if not name:
-                flash('Event name is required.', 'danger')
-            else:
-                try:
-                    cur = database.connection.cursor()
-                    cur.execute(
-                        "INSERT INTO events (name) VALUES (%s)", (name,))
-                    database.connection.commit()
-                    flash('Event added.', 'success')
-                except Exception as e:
-                    database.connection.rollback()
-                    flash(f'Failed to add: {e}', 'danger')
-                finally:
-                    cur.close()
-            return redirect(url_for('main.vendor_management', tab='events'))
-
-        elif action == 'delete_event':
-            _id = request.form.get('id', type=int)
-            try:
-                cur = database.connection.cursor()
-                cur.execute("DELETE FROM events WHERE id=%s", (_id,))
-                database.connection.commit()
-                flash('Event deleted.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Failed to delete: {e}', 'danger')
-            finally:
-                cur.close()
-            return redirect(url_for('main.vendor_management', tab='events'))
-
-        elif action == 'add_category':
-            name = (request.form.get('name') or '').strip()
-            if not name:
-                flash('Category name is required.', 'danger')
-            else:
-                try:
-                    cur = database.connection.cursor()
-                    cur.execute(
-                        "INSERT INTO categories (name) VALUES (%s)", (name,))
-                    database.connection.commit()
-                    flash('Category added.', 'success')
-                except Exception as e:
-                    database.connection.rollback()
-                    flash(f'Failed to add: {e}', 'danger')
-                finally:
-                    cur.close()
-            return redirect(url_for('main.vendor_management', tab='categories'))
-
-        elif action == 'delete_category':
-            _id = request.form.get('id', type=int)
-            try:
-                cur = database.connection.cursor()
-                cur.execute("DELETE FROM categories WHERE id=%s", (_id,))
-                database.connection.commit()
-                flash('Category deleted.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Failed to delete: {e}', 'danger')
-            finally:
-                cur.close()
-            return redirect(url_for('main.vendor_management', tab='categories'))
-
-        elif action == 'add_license':
-            _type = (request.form.get('type') or '').strip()
-            if not _type:
-                flash('License type is required.', 'danger')
-            else:
-                try:
-                    cur = database.connection.cursor()
-                    cur.execute(
-                        "INSERT INTO licenses (type) VALUES (%s)", (_type,))
-                    database.connection.commit()
-                    flash('License added.', 'success')
-                except Exception as e:
-                    database.connection.rollback()
-                    flash(f'Failed to add: {e}', 'danger')
-                finally:
-                    cur.close()
-            return redirect(url_for('main.vendor_management', tab='licenses'))
-
-        elif action == 'delete_license':
-            _id = request.form.get('id', type=int)
-            try:
-                cur = database.connection.cursor()
-                cur.execute("DELETE FROM licenses WHERE id=%s", (_id,))
-                database.connection.commit()
-                flash('License deleted.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Failed to delete: {e}', 'danger')
-            finally:
-                cur.close()
-            return redirect(url_for('main.vendor_management', tab='licenses'))
-
-        elif action == 'add_image':
-            selected_categories = [
-                int(x) for x in request.form.getlist('category_ids')]
-            if not selected_categories:
-                flash("Please select at least one category.", "danger")
-                return redirect(url_for('main.vendor_management', tab='images'))
-
-            if not form.validate_on_submit():
-                for field, errs in form.errors.items():
-                    for err in errs:
-                        flash(f"{field}: {err}", 'danger')
-                return redirect(url_for('main.vendor_management', tab='images'))
-
-            image_filename = save_image(form.image.data)
-            if not image_filename:
-                flash("Image file is required.", "danger")
-                return redirect(url_for('main.vendor_management', tab='images'))
-
-            try:
-                cur = database.connection.cursor()
-                cur.execute("""
-                    INSERT INTO images
-                        (title, description, resolution, format, uploaded_at, price, event_id, vendor_id, url)
-                    VALUES (%s, %s, %s, %s, NOW(), %s, %s, %s, %s)
-                """, (
-                    (form.title.data or '').strip(),
-                    form.description.data or '',
-                    form.resolution.data,
-                    form.format.data,
-                    float(form.price.data or 0),
-                    int(form.event_id.data),
-                    user_id,
-                    image_filename,
-                ))
-                image_id = cur.lastrowid
-                if selected_categories:
-                    cur.executemany(
-                        "INSERT INTO image_category (image_id, category_id) VALUES (%s, %s)",
-                        [(image_id, cid) for cid in selected_categories]
-                    )
-                if form.license_id.data:
-                    cur.execute(
-                        "INSERT INTO image_license (image_id, license_id) VALUES (%s, %s)",
-                        (image_id, int(form.license_id.data))
-                    )
-
-                database.connection.commit()
-                flash('Image added successfully!', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Failed to add: {e}', 'danger')
-            finally:
-                cur.close()
-
-            return redirect(url_for('main.vendor_management', tab='images'))
-
-        elif action == 'delete_image':
-            image_id = request.form.get('image_id', type=int)
-            if not image_id:
-                flash('Invalid image id.', 'danger')
-                return redirect(url_for('main.vendor_management', tab='images'))
-
-            try:
-                cur = database.connection.cursor()
-                cur.execute(
-                    "UPDATE images SET deleted_at = NOW() WHERE id=%s", (image_id,))
-                cur.execute(
-                    "DELETE FROM cart_items WHERE image_id=%s", (image_id,))
-                cur.execute(
-                    "DELETE FROM image_category WHERE image_id=%s", (image_id,))
-                cur.execute(
-                    "DELETE FROM image_license  WHERE image_id=%s", (image_id,))
-                database.connection.commit()
-                flash('Image deleted.', 'success')
-            except Exception as e:
-                database.connection.rollback()
-                flash(f'Failed to delete: {e}', 'danger')
-            finally:
-                cur.close()
-
-            return redirect(url_for('main.vendor_management', tab='images'))
-
-    images, users, orders = [], [], []
-    cur = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    if tab == 'images':
-        cur.execute("""
-            SELECT
-                i.id, i.title, i.price, i.url, i.resolution, i.format, i.uploaded_at,
-                u.username AS vendor_name, e.name AS event_name,
-                GROUP_CONCAT(DISTINCT c.name ORDER BY c.name SEPARATOR '||') AS category_names_csv,
-                GROUP_CONCAT(DISTINCT l.type ORDER BY l.type SEPARATOR '||') AS license_types_csv
-            FROM images i
-            LEFT JOIN users          u  ON u.id  = i.vendor_id
-            LEFT JOIN events         e  ON e.id  = i.event_id
-            LEFT JOIN image_category ic ON ic.image_id = i.id
-            LEFT JOIN categories     c  ON c.id  = ic.category_id
-            LEFT JOIN image_license  il ON il.image_id = i.id
-            LEFT JOIN licenses       l  ON l.id  = il.license_id
-            WHERE i.deleted_at IS NULL
-            GROUP BY i.id, i.title, i.price, i.url, i.resolution, i.format, i.uploaded_at, u.username, e.name
-            ORDER BY i.uploaded_at DESC, i.id DESC
-        """)
-        images = cur.fetchall()
-        for row in images:
-            row['category_names'] = (row.get('category_names_csv') or '').split(
-                '||') if row.get('category_names_csv') else []
-            row['license_types'] = (row.get('license_types_csv') or '').split(
-                '||') if row.get('license_types_csv') else []
-
-    elif tab == 'users':
-        cur.execute("""
-            SELECT u.id, u.username, u.email, u.role, u.created_at,
-                   COUNT(i.id) AS image_count
-            FROM users u
-            LEFT JOIN images i ON u.id = i.vendor_id
-            GROUP BY u.id, u.username, u.email, u.role, u.created_at
-            ORDER BY u.created_at DESC
-        """)
-        users = cur.fetchall()
-
-    elif tab == 'orders':
-        cur.execute("""
-            SELECT o.id, o.created_at, o.status, o.total_amount,
-                   u.username AS customer
-            FROM orders o
-            JOIN users u ON u.id = o.user_id
-            ORDER BY o.created_at DESC, o.id DESC
-        """)
-        orders = cur.fetchall()
-
-    cur.close()
+    # For AJAX requests (infinite scroll)
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return render_template(
+            'products_partial.html',
+            products=products_list
+        )
 
     return render_template(
-        'vendor_management.html',
-        tab=tab,
-        images=images,
-        users=users,
-        orders=orders,
-        events=events,
-        category_list=category_list,
-        licenses=licenses,
-        form=form,
-        edit_id=edit_id,
-        edit_user_id=edit_user_id,
-        current_user_role='admin',
+        'products.html',
+        products=products_list,
+        categories=categories,
+        current_category=category_id,
+        search_query=search
     )
 
 
-@bp.route("/checkout/", methods=['GET', 'POST'])
-def get_cart():
-    cur = database.connection.cursor()
-    form = CheckoutForm()
-    # Fetch the current user_id
-    user_id = get_current_user_id()
-    if not user_id:
-        abort(404, description="We can't find the user")
-
-    # Fetch the corresponding cart which is belong to the current user_id
-    cur.execute("SELECT id FROM carts WHERE user_id = %s", (user_id,))
-    user_cart = cur.fetchone()
-
-    # Fetch the user's infos(name,email) and store in the user_infos
-    cur.execute("SELECT username, email FROM users WHERE id =%s", (user_id,))
-    user_info = cur.fetchone()
-    user_infos = {
-        'name': user_info['username'],
-        'email': user_info['email']
-    }
-
-    # Fetch selected image_id from corresponding cart_items table
-    cur.execute("SELECT image_id from cart_items WHERE cart_id = %s",
-                (user_cart['id'],))
-    image_id_in_cart = cur.fetchall()
-    image_id_in_cart = list(image_id_in_cart)
-
-    cart_details = []
-    total = 0
-    total_items = 0
-
-    # Fetch license, category(type) data of images
-    for ci in image_id_in_cart:
-        cur.execute(
-            "SELECT license_id FROM image_license WHERE image_id = %s", (ci['image_id'],))
-        licenseID = cur.fetchall()
-        for lid in licenseID:
-            cur. execute("SELECT type FROM licenses WHERE id = %s",
-                         (lid['license_id'],))
-            licenseName = cur.fetchall()
-
-        cur.execute(
-            "SELECT category_id FROM image_category WHERE image_id = %s", (ci['image_id'],))
-        typeID = cur.fetchall()
-        for ti in typeID:
-            cur.execute("SELECT name FROM categories WHERE id = %s",
-                        (ti['category_id'],))
-            typeName = cur.fetchall()
-
-        cur.execute("SELECT * FROM images WHERE id = %s", (ci['image_id'],))
-        Image_info = cur.fetchall()
-
-        # Integrate required infos of images into cart_details
-        cart_item_clean = []
-        for item in Image_info:
-            cart_item_clean = {
-                "image_id": item['id'][0] if isinstance(item['id'], list) else item['id'],
-                "title": item['title'][0] if isinstance(item['title'], list) else item['title'],
-                "price": float(item['price'][0]) if isinstance(item['price'], list) else item['price'],
-                "category": typeName,
-                "licenses": licenseName,
-                "url": item['url'][0] if isinstance(item['url'], list) else item['url']
-            }
-        cart_details.append(cart_item_clean)
-        total_items += 1
-        total += item['price']
-
-    # Auto-fill user's information into the form
-    form.username.data = user_info['username']
-    form.email.data = user_info['email']
-
-    cur.close()
-    return render_template("checkout.html", user_id=user_id, cart_item=cart_details,
-                           total=round(total, 2), total_items=total_items, user_infos=user_infos, form=form)
-
-
-@bp.route("/checkout/remove", methods=['GET', 'POST'])
-def remove_item():
-    # Get the selected image ID from the submitted form
-    images_id = request.form.get('image_id')
-    user_id = get_current_user_id()
-
-    # Fetch the cart_id of corresponding user
-    cur = database.connection.cursor()
-    cur.execute("SELECT id FROM carts WHERE user_id = %s", (user_id,))
-    user_cart = cur.fetchone()
-
-    # Fetch user_id and image_id
-    cur.execute("""
-    SELECT ci.cart_id, ci.image_id
-    FROM cart_items ci
-    JOIN carts c ON ci.cart_id = c.id
-    WHERE c.user_id = %s AND ci.image_id = %s
-    """, (user_id, images_id))
-    result = cur.fetchone()
-
-    # If the user' cart exists
-    if result:
-        cart_id = result['cart_id']
-
-        # Delete the selected item from the cart
-        cur.execute(
-            "DELETE FROM cart_items WHERE cart_id = %s AND image_id = %s", (cart_id, images_id))
-        database.connection.commit()
-        flash("Item removed successfully", "info")
-
-        # Check if there are any remaining items in the cart
-        cur.execute(
-            "SELECT image_id FROM cart_items WHERE cart_id=%s", (cart_id,))
-        remaining_items = cur.fetchall()
-        cur.close()
-
-        # If the cart is now empty, show a message and redirect to the cart page
-        if not remaining_items:
-            flash(
-                f'There is nothing in the cart, please choose again. '
-                f'<a href="{url_for("main.index")}" class="btn btn-light btn-sm ms-2">Back to Home</a>',
-                "warning")
-            return redirect(url_for("main.get_cart", user_id=user_id))
-        else:
-            # Otherwise, reload the cart page to show updated items
-            return redirect(url_for("main.get_cart", user_id=user_id))
-
-    # Render the checkout page if the user's cart does not exist or no action was performed
-    return render_template("checkout.html", user_id=user_id)
-
-
-@bp.route("/checkout/clearcart", methods=["GET", "POST"])
-def clear_cart():
-    # Get the currently user's ID
-    user_id = get_current_user_id()
-    cur = database.connection.cursor()
-
-    # Proceed if the request method is POST
-    if request.method == 'POST':
-        # Find the user's cart by user_id
-        cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
-        user_cart = cur.fetchone()
-
-        # If the user's cart exists
-        if user_cart:
-            # Delete all items from the user's cart
-            cur.execute("DELETE FROM cart_items WHERE cart_id=%s",
-                        (user_cart['id'],))
-            database.connection.commit()
-            flash("Cart cleared!", "success")
-            cur.close()
-            return redirect(url_for("main.index"))
-
-    # If the request method is not POST, show a warning message
-    flash("Invalid request method", "danger")
-    cur.close()
-    return redirect(url_for("main.index"))
-
-
-@bp.route("/checkout/download", methods=['GET', 'POST'])
-def get_download():
-    # Fetch the current user_id
-    user_id = get_current_user_id()
-
-    order_details = []
-    # If form submit by POST method
-    if request.method == 'POST':
-        cur = database.connection.cursor()
-
-        # Fetch the selected cart_id by user_id
-        cur.execute("SELECT id FROM carts WHERE user_id = %s", (user_id,))
-        user_cart_download = cur.fetchone()
-
-        # Fetch the selected image_id from the carts
-        cur.execute(
-            "SELECT image_id FROM cart_items WHERE cart_id=%s", (user_cart_download['id'],))
-        image_ids = cur.fetchall()
-
-        # If there is no image in cart, give a hint to users
-        if not image_ids:
-            cur.close()
-            flash("Your cart is empty.")
-            return redirect(url_for("main.get_cart", user_id=user_id))
-
-        # Fetch info of images and add into order details orderly
-        for ci in image_ids:
-            cur.execute("SELECT * FROM images WHERE id = %s",
-                        (ci['image_id'],))
-            Image_info = cur.fetchone()
-
-            if Image_info:
-                order_details.append({
-                    "image_id": Image_info['id'],
-                    "title": Image_info['title'],
-                    "price": float(Image_info['price']),
-                    "url": Image_info['url']
-                })
-
-        cur.close()
-
-        # Render cart_download template, and show the download link with selected images
-        return render_template("cart_download.html", user_id=user_id, order_item=order_details)
-
-    # fetch the order details from the session
-    order_details = session.get('order_details', [])
-
-    # Render template
-    return render_template("cart_download.html", user_id=user_id, order_item=order_details)
-
-
-@bp.route("/checkout/payment", methods=['GET', 'POST'])
-def payment_info():
-    cur = database.connection.cursor()
-    form = CheckoutForm()
-    user_id = get_current_user_id()
-
-    # Fetch user's infos
-    cur.execute("SELECT username, email FROM users WHERE id=%s", (user_id,))
-    user_info = cur.fetchone()
-
-    # Fetch user's cart
-    cur.execute("SELECT id FROM carts WHERE user_id=%s", (user_id,))
-    cart_id = cur.fetchone()
-
-    # Fetch images from cart
-    cur.execute("SELECT image_id FROM cart_items WHERE cart_id=%s",
-                (cart_id['id'],))
-    order_items_id = cur.fetchall()
-
-    if not order_items_id:
-        cur.close()
-        flash("Your cart is empty. Please add items before checkout!", "warning")
-        return redirect(url_for("main.get_cart", user_id=user_id))
-
-    # Integrate infos of images
-    total_amount = 0
-    order_items_info = []
-    for item in order_items_id:
-        cur.execute("SELECT * FROM images WHERE id=%s", (item['image_id'],))
-        row = cur.fetchone()
-        if row:
-            order_items_info.append(row)
-
-            total_amount += row['price']
-
-    # store details into session, for download page use
-    session['order_details'] = order_items_info
-    session['total_amount'] = total_amount
-
-    # Auto-fill user's infos
-    if request.method == "GET" and user_info:
-        form.username.data = user_info["username"]
-        form.email.data = user_info["email"]
-
-    # If POST form submit
-    if form.validate_on_submit():
-        # Retrieve user input values from the Checkout form
-        username = form.username.data
-        email = form.email.data
-        accountname = form.accountname.data
-        cardnumber = form.cardnumber.data
-        expiry = form.expiry.data
-        cvc = form.cvc.data
-
-        payment_status = "paid"
-        order_status = "completed"
-        method = "credit_card"
-
-        # Add a new order
-        cur.execute("""
-            INSERT INTO orders (user_id, created_at, status, total_amount)
-            VALUES (%s,%s,%s,%s)
-        """, (user_id, datetime.now(), order_status, total_amount))
-
-        # Auto generate the ID for orders and payments using auto-increment
-        order_id = cur.lastrowid
-        payment_id = cur.lastrowid
-
-        # Add images from the cart into the order
-        for item in order_items_info:
-            cur.execute(
-                "SELECT license_id FROM image_license where image_id=%s", (item['id'],))
-            licenseid = cur.fetchone()
-
-            license_id = licenseid['license_id']
-            cur.execute("""
-                INSERT INTO order_items (order_id, image_id, license_id, price, quantity,image_title,image_url) VALUES (%s,%s,%s,%s,%s,%s,%s)
-            """, (order_id, item['id'], license_id, item['price'], 1, item['title'], item['url']))
-
-        # Add a new payment record into database
-        cur.execute("""
-            INSERT INTO payments (id,order_id, amount, method, status, paid_at, account_name) VALUES (%s,%s,%s,%s,%s,%s,%s)
-        """, (payment_id, order_id, total_amount, method, payment_status, datetime.now(), accountname))
-
-        # Clear the images from the cart
-        cur.execute("DELETE FROM cart_items where cart_id=%s",
-                    (cart_id['id'],))
-        database.connection.commit()
-        cur.close()
-
-        flash("Payment Succeed！", "success")
-        return redirect(url_for("main.get_download", user_id=user_id))
-
-    else:
-        # If form validation fails, prompt the user to re-fill the form
-        flash("There is something wrong with the information, please check and do it again!", "warning")
-        return redirect(url_for("main.get_cart", form=form, user_id=user_id))
-
-
-@bp.route('/add_to_cart/<int:image_id>', methods=['POST'])
-def add_to_cart(image_id):
-    user_id = get_current_user_id()
-    if not user_id:
-        flash('You need to log in to add items to your cart.', 'warning')
-        return redirect(url_for('main.login'))
-
-    cursor = database.connection.cursor()
-    cursor.execute("SELECT id FROM carts WHERE user_id = %s", (user_id,))
-    cart = cursor.fetchone()
-
-    if cart:
-        cart_id = cart['id'] if isinstance(cart, dict) else cart[0]
-    else:
-        cursor.execute(
-            "INSERT INTO carts (user_id, created_at) VALUES (%s, NOW())",
-            (user_id,)
-        )
-        database.connection.commit()
-        cart_id = cursor.lastrowid
+@main_bp.route('/product/<int:product_id>')
+def product_detail(product_id):
+    """Product detail page"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     cursor.execute("""
-        SELECT 1 FROM cart_items WHERE cart_id = %s AND image_id = %s
-    """, (cart_id, image_id))
-    existing_item = cursor.fetchone()
+        SELECT p.*, pc.name as category_name
+        FROM products p
+        LEFT JOIN product_categories pc ON p.category_id = pc.id
+        WHERE p.id = %s AND p.is_active = TRUE
+    """, (product_id,))
 
-    if existing_item:
-        flash("This item is already in your cart.", "info")
+    product = cursor.fetchone()
+    cursor.close()
+
+    if not product:
+        abort(404)
+
+    return render_template('product_detail.html', product=product)
+
+
+# =====================================================
+# COURSES
+# =====================================================
+
+@main_bp.route('/courses')
+def courses():
+    """Course listing page with infinite scroll"""
+    page = request.args.get('page', 1, type=int)
+    category_id = request.args.get('category', type=int)
+    search = request.args.get('q', '').strip()
+    per_page = 15
+    offset = (page - 1) * per_page
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # Build query
+    where_clauses = ["c.is_active = TRUE"]
+    params = []
+
+    if category_id:
+        where_clauses.append("c.category_id = %s")
+        params.append(category_id)
+
+    if search:
+        where_clauses.append("(c.name LIKE %s OR c.description LIKE %s)")
+        params.extend([f'%{search}%', f'%{search}%'])
+
+    where_sql = " AND ".join(where_clauses)
+
+    # Get courses
+    sql = f"""
+        SELECT c.id, c.name, c.regular_price, c.experience_price,
+               c.duration, c.sessions, c.image, c.description,
+               cc.name as category_name
+        FROM courses c
+        LEFT JOIN course_categories cc ON c.category_id = cc.id
+        WHERE {where_sql}
+        ORDER BY c.created_at DESC
+        LIMIT %s OFFSET %s
+    """
+    params.extend([per_page, offset])
+
+    cursor.execute(sql, params)
+    courses_list = cursor.fetchall()
+
+    # Get categories
+    cursor.execute("""
+        SELECT id, name FROM course_categories
+        ORDER BY display_order, name
+    """)
+    categories = cursor.fetchall()
+
+    # Check if user has previous bookings
+    user_id = get_current_user_id()
+    has_bookings = False
+
+    if user_id:
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM bookings
+            WHERE customer_id = %s
+        """, (user_id,))
+        result = cursor.fetchone()
+        has_bookings = result['count'] > 0
+
+    cursor.close()
+
+    # For AJAX requests (infinite scroll)
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return render_template(
+            'courses_partial.html',
+            courses=courses_list,
+            has_bookings=has_bookings
+        )
+
+    return render_template(
+        'courses.html',
+        courses=courses_list,
+        categories=categories,
+        current_category=category_id,
+        search_query=search,
+        has_bookings=has_bookings
+    )
+
+
+@main_bp.route('/course/<int:course_id>')
+def course_detail(course_id):
+    """Course detail page"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    cursor.execute("""
+        SELECT c.*, cc.name as category_name
+        FROM courses c
+        LEFT JOIN course_categories cc ON c.category_id = cc.id
+        WHERE c.id = %s AND c.is_active = TRUE
+    """, (course_id,))
+
+    course = cursor.fetchone()
+
+    # Check if user has previous bookings
+    user_id = get_current_user_id()
+    has_bookings = False
+
+    if user_id:
+        cursor.execute("""
+            SELECT COUNT(*) as count FROM bookings
+            WHERE customer_id = %s
+        """, (user_id,))
+        result = cursor.fetchone()
+        has_bookings = result['count'] > 0
+
+    cursor.close()
+
+    if not course:
+        abort(404)
+
+    return render_template(
+        'course_detail.html',
+        course=course,
+        has_bookings=has_bookings
+    )
+# =====================================================
+# POSTS
+# =====================================================
+
+
+@main_bp.route('/post/<int:post_id>')
+def post_detail(post_id):
+    """Blog post detail page"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # Get post
+    cursor.execute("""
+        SELECT p.*, u.firstname, u.surname,
+               CONCAT(u.firstname, ' ', u.surname) as author_name
+        FROM blog_posts p
+        LEFT JOIN users u ON p.author_id = u.id
+        WHERE p.id = %s AND p.status = 'published'
+    """, (post_id,))
+    post = cursor.fetchone()
+
+    if not post:
         cursor.close()
-        return redirect(url_for('main.item_detail', id=image_id))
+        abort(404)
+
+    # Increment view count
+    cursor.execute("""
+        UPDATE blog_posts 
+        SET views = views + 1 
+        WHERE id = %s
+    """, (post_id,))
+    database.connection.commit()
+
+    # Get related posts
+    cursor.execute("""
+        SELECT id, title, summary, image, published_at
+        FROM blog_posts
+        WHERE status = 'published' AND id != %s
+        ORDER BY published_at DESC
+        LIMIT 3
+    """, (post_id,))
+    related_posts = cursor.fetchall()
+
+    cursor.close()
+
+    # Format date
+    if post['published_at']:
+        post['date'] = post['published_at'].strftime('%Y-%m-%d')
+    else:
+        post['date'] = ''
+
+    return render_template(
+        'post_detail.html',
+        post=post,
+        related_posts=related_posts
+    )
+
+# =====================================================
+# BLOG
+# =====================================================
+
+
+@main_bp.route('/blog')
+def blog():
+    """Blog listing page"""
+    page = request.args.get('page', 1, type=int)
+    per_page = 12
+    offset = (page - 1) * per_page
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # Get published posts
+    cursor.execute("""
+        SELECT p.id, p.title, p.summary, p.image, p.published_at, p.views,
+               u.firstname, u.surname
+        FROM blog_posts p
+        LEFT JOIN users u ON p.author_id = u.id
+        WHERE p.status = 'published'
+        ORDER BY p.published_at DESC
+        LIMIT %s OFFSET %s
+    """, (per_page, offset))
+    posts = cursor.fetchall()
+
+    # Get total count
+    cursor.execute("""
+        SELECT COUNT(*) as total
+        FROM blog_posts
+        WHERE status = 'published'
+    """)
+    total = cursor.fetchone()['total']
+
+    cursor.close()
+
+    # Format dates
+    for post in posts:
+        if post['published_at']:
+            post['date'] = post['published_at'].strftime('%Y-%m-%d')
+        else:
+            post['date'] = ''
+
+    total_pages = (total + per_page - 1) // per_page
+
+    return render_template(
+        'blog.html',
+        posts=posts,
+        page=page,
+        total_pages=total_pages,
+        total=total
+    )
+
+# =====================================================
+# ABOUT & CONTACT
+# =====================================================
+
+
+@main_bp.route('/about')
+def about():
+    """About page"""
+    return render_template('about.html')
+
+
+@main_bp.route('/contact', methods=['GET', 'POST'])
+def contact():
+    """Contact form - handled in home page, this is just for direct access"""
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        email = request.form.get('email', '').strip()
+        phone = request.form.get('phone', '').strip()
+        line_id = request.form.get('line', '').strip()
+        message = request.form.get('message', '').strip()
+
+        if not name or not email or not message:
+            flash('請填寫所有必填欄位', 'error')
+            return redirect(url_for('main.home'))
+
+        # Save to database
+        cursor = database.connection.cursor()
+        cursor.execute("""
+            INSERT INTO contact_messages (name, email, phone, line_id, message)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (name, email, phone, line_id, message))
+        database.connection.commit()
+        cursor.close()
+
+        # Send notifications
+        try:
+            notify_contact_message(name, email, phone, line_id, message)
+        except:
+            pass
+
+        flash('感謝您的來信！我們將盡快回覆', 'success')
+        return redirect(url_for('main.home'))
+
+    return redirect(url_for('main.home'))
+
+
+# =====================================================
+# SHOPPING CART
+# =====================================================
+
+@main_bp.route('/cart')
+@login_required
+@customer_required
+def cart():
+    """View shopping cart"""
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # Get or create cart
+    cursor.execute("SELECT id FROM carts WHERE customer_id = %s", (user_id,))
+    cart_data = cursor.fetchone()
+
+    if not cart_data:
+        cursor.execute(
+            "INSERT INTO carts (customer_id) VALUES (%s)", (user_id,))
+        database.connection.commit()
+        cart_id = cursor.lastrowid
+    else:
+        cart_id = cart_data['id']
+
+    # Get cart items
+    cursor.execute("""
+        SELECT ci.id, ci.quantity, 
+               p.id as product_id, p.name, p.price, p.image
+        FROM cart_items ci
+        JOIN products p ON ci.product_id = p.id
+        WHERE ci.cart_id = %s AND p.is_active = TRUE
+    """, (cart_id,))
+
+    cart_items = cursor.fetchall()
+    cursor.close()
+
+    # Calculate total
+    total = sum(item['price'] * item['quantity'] for item in cart_items)
+
+    return render_template(
+        'cart.html',
+        cart_items=cart_items,
+        total=total
+    )
+
+
+@main_bp.route('/cart/update', methods=['POST'])
+@login_required
+@customer_required
+def update_cart():
+    """Update cart quantities"""
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    cursor.execute("SELECT id FROM carts WHERE customer_id = %s", (user_id,))
+    cart_data = cursor.fetchone()
+
+    if not cart_data:
+        cursor.close()
+        flash('購物車是空的', 'warning')
+        return redirect(url_for('main.cart'))
+
+    cart_id = cart_data['id']
+
+    # Update each item
+    for key, value in request.form.items():
+        if key.startswith('quantity_'):
+            item_id = int(key.replace('quantity_', ''))
+            quantity = int(value)
+
+            if quantity < 1:
+                cursor.execute(
+                    "DELETE FROM cart_items WHERE id = %s AND cart_id = %s", (item_id, cart_id))
+            else:
+                cursor.execute(
+                    "UPDATE cart_items SET quantity = %s WHERE id = %s AND cart_id = %s", (quantity, item_id, cart_id))
+
+    database.connection.commit()
+    cursor.close()
+
+    flash('購物車已更新', 'success')
+    return redirect(url_for('main.cart'))
+
+
+@main_bp.route('/cart/remove/<int:item_id>', methods=['POST'])
+@login_required
+@customer_required
+def remove_from_cart(item_id):
+    """Remove item from cart"""
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    cursor.execute("SELECT id FROM carts WHERE customer_id = %s", (user_id,))
+    cart_data = cursor.fetchone()
+
+    if cart_data:
+        cursor.execute(
+            "DELETE FROM cart_items WHERE id = %s AND cart_id = %s", (item_id, cart_data['id']))
+        database.connection.commit()
+        flash('已移除商品', 'info')
+
+    cursor.close()
+    return redirect(url_for('main.cart'))
+
+
+# =====================================================
+# COURSE BOOKING
+# =====================================================
+
+@main_bp.route('/course/<int:course_id>/book', methods=['POST'])
+@login_required
+@customer_required
+def book_course(course_id):
+    """Book a course"""
+    user_id = get_current_user_id()
+    sessions = request.form.get('sessions', 1, type=int)
+
+    if sessions < 1:
+        flash('預約堂數必須大於 0', 'error')
+        return redirect(url_for('main.course_detail', course_id=course_id))
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # Get course
+    cursor.execute("""
+        SELECT id, name, regular_price, experience_price
+        FROM courses WHERE id = %s AND is_active = TRUE
+    """, (course_id,))
+    course = cursor.fetchone()
+
+    if not course:
+        cursor.close()
+        flash('此課程不存在', 'error')
+        return redirect(url_for('main.courses'))
+
+    # Check first time
+    cursor.execute(
+        "SELECT COUNT(*) as count FROM bookings WHERE customer_id = %s", (user_id,))
+    result = cursor.fetchone()
+    is_first_time = result['count'] == 0
+
+    # Calculate price
+    if is_first_time and course['experience_price']:
+        price_per_session = course['experience_price']
+    else:
+        price_per_session = course['regular_price']
+
+    # Apply discount
+    if sessions >= 10:
+        price_per_session *= 0.9
+    elif sessions >= 5:
+        price_per_session *= 0.95
+
+    total_amount = price_per_session * sessions
+
+    # Create booking
+    cursor.execute("""
+        INSERT INTO bookings (customer_id, course_id, sessions_purchased, 
+                             sessions_remaining, total_amount, is_first_time, status)
+        VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+    """, (user_id, course_id, sessions, sessions, total_amount, is_first_time))
+    booking_id = cursor.lastrowid
+    database.connection.commit()
+
+    # Get user info
+    cursor.execute(
+        "SELECT username, email, firstname, surname FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+
+    # Send notifications
+    try:
+        notify_new_booking(
+            booking_id,
+            f"{user['firstname']} {user['surname']}",
+            user['email'],
+            course['name'],
+            sessions,
+            total_amount,
+            is_first_time
+        )
+    except:
+        pass
+
+    flash('課程預約成功！我們將盡快與您聯絡', 'success')
+    return redirect(url_for('main.booking_success', booking_id=booking_id))
+
+# =====================================================
+# CHECKOUT WITH INVENTORY AUTO-SYNC
+# =====================================================
+
+
+@main_bp.route('/cart/checkout', methods=['POST'])
+@login_required
+@customer_required
+def checkout():
+    """
+    Checkout and create order
+    Automatically reduces inventory when order is placed
+    Includes:
+    - cart validation
+    - stock validation
+    - insert order + order_items
+    - reduce stock
+    - write inventory log
+    - clear cart
+    """
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     try:
+        # -------------------------
+        # 1. Get cart
+        # -------------------------
+        cursor.execute(
+            "SELECT id FROM carts WHERE customer_id = %s", (user_id,))
+        cart_data = cursor.fetchone()
+
+        if not cart_data:
+            flash('購物車是空的', 'warning')
+            cursor.close()
+            return redirect(url_for('main.cart'))
+
+        cart_id = cart_data['id']
+
+        # -------------------------
+        # 2. Get cart items + product stock
+        # -------------------------
         cursor.execute("""
-            INSERT INTO cart_items (cart_id, image_id, added_at)
-            VALUES (%s, %s, NOW())
-        """, (cart_id, image_id))
+            SELECT 
+                ci.id, ci.quantity, ci.product_id,
+                p.name, p.price, p.stock_quantity
+            FROM cart_items ci
+            JOIN products p ON ci.product_id = p.id
+            WHERE ci.cart_id = %s AND p.is_active = TRUE
+        """, (cart_id,))
+        items = cursor.fetchall()
+
+        if not items:
+            flash('購物車是空的', 'warning')
+            cursor.close()
+            return redirect(url_for('main.cart'))
+
+        # -------------------------
+        # 3. Stock validation
+        # -------------------------
+        for item in items:
+            if item['stock_quantity'] < item['quantity']:
+                flash(f'「{item["name"]}」庫存不足', 'error')
+                cursor.close()
+                return redirect(url_for('main.cart'))
+
+        # -------------------------
+        # 4. Calculate total
+        # -------------------------
+        total = sum(item['price'] * item['quantity'] for item in items)
+
+        # -------------------------
+        # 5. Create order
+        # -------------------------
+        cursor.execute("""
+            INSERT INTO orders (customer_id, total_amount, status)
+            VALUES (%s, %s, 'pending')
+        """, (user_id, total))
+        order_id = cursor.lastrowid
+
+        # -------------------------
+        # 6. Insert order_items + reduce stock + log
+        # -------------------------
+        for item in items:
+            subtotal = item['price'] * item['quantity']
+
+            # Insert order item record
+            cursor.execute("""
+                INSERT INTO order_items 
+                (order_id, product_id, quantity, unit_price, subtotal)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (order_id, item['product_id'], item['quantity'], item['price'], subtotal))
+
+            # Reduce inventory
+            cursor.execute("""
+                UPDATE products 
+                SET stock_quantity = stock_quantity - %s 
+                WHERE id = %s
+            """, (item['quantity'], item['product_id']))
+
+            # Write inventory log
+            cursor.execute("""
+                INSERT INTO inventory_logs 
+                (product_id, change_amount, change_type, reference_id, created_by)
+                VALUES (%s, %s, 'sale', %s, %s)
+            """, (item['product_id'], -item['quantity'], order_id, user_id))
+
+        # -------------------------
+        # 7. Clear cart
+        # -------------------------
+        cursor.execute("DELETE FROM cart_items WHERE cart_id = %s", (cart_id,))
         database.connection.commit()
-        flash('Item added to cart!', 'success')
-    except Exception as e:
-        database.connection.rollback()
-        flash(f'Error adding item: {e}', 'danger')
-    finally:
+
+        # -------------------------
+        # 8. Get user info for notify
+        # -------------------------
+        cursor.execute("""
+            SELECT username, email, firstname, surname 
+            FROM users 
+            WHERE id = %s
+        """, (user_id,))
+        user = cursor.fetchone()
+
         cursor.close()
 
-    return redirect(url_for('main.item_detail', id=image_id))
+        # -------------------------
+        # 9. Send notification (not affecting checkout)
+        # -------------------------
+        try:
+            items_text = '\n'.join([
+                f"- {item['name']} x {item['quantity']}"
+                for item in items
+            ])
+            notify_new_order(
+                order_id,
+                f"{user['firstname']} {user['surname']}",
+                user['email'],
+                total,
+                items_text
+            )
+        except Exception as e:
+            print(f"Notification failed: {e}")
+
+        flash('訂單已送出！我們將盡快為您處理', 'success')
+        return redirect(url_for('main.checkout_success', order_id=order_id))
+
+    except Exception as e:
+        database.connection.rollback()
+        cursor.close()
+        flash(f'結帳失敗：{str(e)}', 'error')
+        return redirect(url_for('main.cart'))
 
 
-@bp.get('/500')
-def boom():
-    abort(500)
+# =====================================================
+# ORDER CANCELLATION WITH INVENTORY RESTORE
+# =====================================================
+
+
+@main_bp.route('/order/<int:order_id>/cancel', methods=['POST'])
+@login_required
+@customer_required
+def cancel_order(order_id):
+    """
+    Cancel order and restore inventory
+    """
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    try:
+        # Verify order ownership
+        cursor.execute("""
+            SELECT id, status 
+            FROM orders 
+            WHERE id = %s AND customer_id = %s
+        """, (order_id, user_id))
+
+        order = cursor.fetchone()
+
+        if not order:
+            flash('訂單不存在', 'error')
+            cursor.close()
+            return redirect(url_for('customer.orders'))
+
+        if order['status'] != 'pending':
+            flash('只能取消待確認的訂單', 'error')
+            cursor.close()
+            return redirect(url_for('customer.orders'))
+
+        # Get order items
+        cursor.execute("""
+            SELECT product_id, quantity 
+            FROM order_items 
+            WHERE order_id = %s
+        """, (order_id,))
+
+        items = cursor.fetchall()
+
+        # ⭐ RESTORE INVENTORY
+        for item in items:
+            cursor.execute("""
+                UPDATE products 
+                SET stock_quantity = stock_quantity + %s 
+                WHERE id = %s
+            """, (item['quantity'], item['product_id']))
+
+            # ⭐ LOG INVENTORY RESTORATION
+            cursor.execute("""
+                INSERT INTO inventory_logs 
+                (product_id, change_amount, change_type, reference_id, created_by)
+                VALUES (%s, %s, 'return', %s, %s)
+            """, (item['product_id'], item['quantity'], order_id, user_id))
+
+        # Update order status
+        cursor.execute("""
+            UPDATE orders 
+            SET status = 'cancelled' 
+            WHERE id = %s
+        """, (order_id,))
+
+        database.connection.commit()
+        cursor.close()
+
+        flash('訂單已取消,庫存已恢復', 'success')
+        return redirect(url_for('customer.orders'))
+
+    except Exception as e:
+        database.connection.rollback()
+        cursor.close()
+        flash(f'取消失敗: {str(e)}', 'error')
+        return redirect(url_for('customer.orders'))
+
+# =====================================================
+# ADMIN ORDER STATUS UPDATE WITH INVENTORY SYNC
+# =====================================================
+
+
+def admin_update_order_with_inventory(order_id, new_status, admin_id):
+    """
+    Update order status and handle inventory accordingly
+    Called from admin.py when status is changed
+    """
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    try:
+        # Get current order status
+        cursor.execute("""
+            SELECT status 
+            FROM orders 
+            WHERE id = %s
+        """, (order_id,))
+
+        order = cursor.fetchone()
+        old_status = order['status']
+
+        # If changing from non-cancelled to cancelled
+        if old_status != 'cancelled' and new_status == 'cancelled':
+            # Get order items
+            cursor.execute("""
+                SELECT product_id, quantity 
+                FROM order_items 
+                WHERE order_id = %s
+            """, (order_id,))
+
+            items = cursor.fetchall()
+
+            # ⭐ RESTORE INVENTORY
+            for item in items:
+                cursor.execute("""
+                    UPDATE products 
+                    SET stock_quantity = stock_quantity + %s 
+                    WHERE id = %s
+                """, (item['quantity'], item['product_id']))
+
+                # ⭐ LOG RESTORATION
+                cursor.execute("""
+                    INSERT INTO inventory_logs 
+                    (product_id, change_amount, change_type, reference_id, notes, created_by)
+                    VALUES (%s, %s, 'return', %s, 'Order cancelled by admin', %s)
+                """, (item['product_id'], item['quantity'], order_id, admin_id))
+
+        # Update order status
+        cursor.execute("""
+            UPDATE orders 
+            SET status = %s 
+            WHERE id = %s
+        """, (new_status, order_id))
+
+        database.connection.commit()
+        cursor.close()
+        return True
+
+    except Exception as e:
+        database.connection.rollback()
+        cursor.close()
+        print(f"Error updating order status: {e}")
+        return False
+
+# =====================================================
+# ADD TO CART (Keep existing)
+# =====================================================
+
+
+@main_bp.route('/cart/add/<int:product_id>', methods=['POST'])
+@login_required
+@customer_required
+def add_to_cart(product_id):
+    """Add product to cart"""
+    user_id = get_current_user_id()
+    quantity = request.form.get('quantity', 1, type=int)
+
+    # Validate quantity
+    if quantity < 1:
+        flash('數量必須大於 0', 'error')
+        return redirect(request.referrer or url_for('main.products'))
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # -------------------------
+    # 1. Check product
+    # -------------------------
+    cursor.execute("""
+        SELECT id, name, stock_quantity 
+        FROM products 
+        WHERE id = %s AND is_active = TRUE
+    """, (product_id,))
+    product = cursor.fetchone()
+
+    if not product:
+        cursor.close()
+        flash('此商品不存在', 'error')
+        return redirect(request.referrer or url_for('main.products'))
+
+    # -------------------------
+    # 2. Check stock
+    # -------------------------
+    if product['stock_quantity'] < quantity:
+        cursor.close()
+        flash('庫存不足', 'error')
+        return redirect(request.referrer or url_for('main.products'))
+
+    # -------------------------
+    # 3. Get or create cart
+    # -------------------------
+    cursor.execute("SELECT id FROM carts WHERE customer_id = %s", (user_id,))
+    cart_data = cursor.fetchone()
+
+    if not cart_data:
+        cursor.execute(
+            "INSERT INTO carts (customer_id) VALUES (%s)", (user_id,))
+        database.connection.commit()
+        cart_id = cursor.lastrowid
+    else:
+        cart_id = cart_data['id']
+
+    # -------------------------
+    # 4. Check if item already in cart
+    # -------------------------
+    cursor.execute("""
+        SELECT id, quantity 
+        FROM cart_items
+        WHERE cart_id = %s AND product_id = %s
+    """, (cart_id, product_id))
+    existing = cursor.fetchone()
+
+    if existing:
+        new_quantity = existing['quantity'] + quantity
+
+        # Prevent total > stock
+        if product['stock_quantity'] < new_quantity:
+            cursor.close()
+            flash('加入數量超過庫存', 'error')
+            return redirect(request.referrer or url_for('main.products'))
+
+        cursor.execute("""
+            UPDATE cart_items 
+            SET quantity = %s
+            WHERE id = %s
+        """, (new_quantity, existing['id']))
+    else:
+        cursor.execute("""
+            INSERT INTO cart_items (cart_id, product_id, quantity)
+            VALUES (%s, %s, %s)
+        """, (cart_id, product_id, quantity))
+
+    # -------------------------
+    # 5. Commit + close
+    # -------------------------
+    database.connection.commit()
+    cursor.close()
+
+    flash(f'已將「{product["name"]}」加入購物車', 'success')
+    return redirect(request.referrer or url_for('main.products'))
+
+
+# =====================================================
+# SUCCESS PAGES
+# =====================================================
+
+@main_bp.route('/checkout/success/<int:order_id>')
+@login_required
+@customer_required
+def checkout_success(order_id):
+    """Order success page"""
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    cursor.execute("""
+        SELECT o.id, o.total_amount, o.created_at
+        FROM orders o WHERE o.id = %s AND o.customer_id = %s
+    """, (order_id, user_id))
+    order = cursor.fetchone()
+
+    if not order:
+        cursor.close()
+        abort(404)
+
+    cursor.execute("""
+        SELECT oi.quantity, oi.unit_price, oi.subtotal, p.name
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        WHERE oi.order_id = %s
+    """, (order_id,))
+    items = cursor.fetchall()
+    cursor.close()
+
+    return render_template('checkout_success.html', order=order, items=items)
+
+
+@main_bp.route('/booking/success/<int:booking_id>')
+@login_required
+@customer_required
+def booking_success(booking_id):
+    """Booking success page"""
+    user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    cursor.execute("""
+        SELECT b.id, b.sessions_purchased, b.total_amount, b.is_first_time,
+               b.created_at, c.name as course_name
+        FROM bookings b
+        JOIN courses c ON b.course_id = c.id
+        WHERE b.id = %s AND b.customer_id = %s
+    """, (booking_id, user_id))
+    booking = cursor.fetchone()
+    cursor.close()
+
+    if not booking:
+        abort(404)
+
+    return render_template('booking_success.html', booking=booking)

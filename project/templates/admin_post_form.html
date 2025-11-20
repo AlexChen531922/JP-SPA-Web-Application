@@ -1,0 +1,244 @@
+{% extends "base.html" %}
+{% block title %}{% if post %}編輯文章{% else %}撰寫文章{% endif %} - 管理後台{% endblock %}
+
+{% block head %}
+<!-- TinyMCE Editor -->
+<script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('admin.dashboard') }}">管理後台</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admin.posts') }}">文章管理</a></li>
+            <li class="breadcrumb-item active">{% if post %}編輯文章{% else %}撰寫文章{% endif %}</li>
+        </ol>
+    </nav>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-4">
+            <h3 class="fw-bold mb-4">
+                <i class="bi bi-newspaper"></i> {% if post %}編輯文章{% else %}撰寫新文章{% endif %}
+            </h3>
+
+            <form method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if post %}<input type="hidden" name="current_image" value="{{ post.image or '' }}">{% endif %}
+
+                <div class="row g-4">
+
+                    <!-- Title -->
+                    <div class="col-12">
+                        <label class="form-label fw-bold">
+                            文章標題 <span class="text-danger">*</span>
+                        </label>
+                        <input type="text" name="title" class="form-control form-control-lg"
+                            value="{{ post.title if post else '' }}" placeholder="輸入吸引人的標題..." required>
+                    </div>
+
+                    <!-- Summary -->
+                    <div class="col-12">
+                        <label class="form-label fw-bold">文章摘要</label>
+                        <textarea name="summary" class="form-control" rows="3"
+                            placeholder="簡短描述文章內容（建議 50-150 字）...">{{ post.summary if post else '' }}</textarea>
+                        <small class="text-muted">此摘要將顯示在文章列表中</small>
+                    </div>
+
+                    <!-- Featured Image -->
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">特色圖片</label>
+                        <input type="file" name="image" class="form-control" accept="image/*" id="imageInput">
+                        <small class="text-muted">建議尺寸：1200x630px，格式：JPG、PNG</small>
+
+                        {% if post and post.image %}
+                        <div class="mt-3">
+                            <img src="{{ url_for('static', filename=post.image) }}" alt="Current image"
+                                class="img-thumbnail" style="max-width: 200px;">
+                        </div>
+                        {% endif %}
+
+                        <!-- Image Preview -->
+                        <div id="imagePreview" class="mt-3" style="display:none;">
+                            <img id="preview" class="img-thumbnail" style="max-width: 200px;">
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold">發布狀態 <span class="text-danger">*</span></label>
+                        <select name="status" class="form-select" required>
+                            <option value="draft" {% if post and post.status=='draft' %}selected{% endif %}>
+                                草稿 - 僅自己可見
+                            </option>
+                            <option value="published" {% if post and post.status=='published' %}selected{% elif not post
+                                %}selected{% endif %}>
+                                發布 - 公開顯示
+                            </option>
+                            <option value="archived" {% if post and post.status=='archived' %}selected{% endif %}>
+                                封存 - 隱藏不顯示
+                            </option>
+                        </select>
+                        <small class="text-muted">選擇「發布」將立即公開此文章</small>
+                    </div>
+
+                    <!-- Content Editor -->
+                    <div class="col-12">
+                        <label class="form-label fw-bold">
+                            文章內容 <span class="text-danger">*</span>
+                        </label>
+                        <textarea id="contentEditor" name="content"
+                            class="form-control">{{ post.content if post else '' }}</textarea>
+                    </div>
+
+                    <!-- SEO Tips -->
+                    <div class="col-12">
+                        <div class="alert alert-info">
+                            <h6 class="alert-heading">
+                                <i class="bi bi-lightbulb"></i> 撰寫建議
+                            </h6>
+                            <ul class="mb-0 small">
+                                <li>使用清晰的標題和副標題組織內容</li>
+                                <li>添加相關圖片增加文章吸引力</li>
+                                <li>使用列表和段落使內容易於閱讀</li>
+                                <li>包含內部連結到相關產品或課程</li>
+                                <li>確保內容原創且有價值</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="col-12">
+                        <hr>
+                        <div class="d-flex gap-2 justify-content-end">
+                            <a href="{{ url_for('admin.posts') }}" class="btn btn-outline-secondary">
+                                <i class="bi bi-x-circle"></i> 取消
+                            </a>
+                            <button type="submit" name="status" value="draft" class="btn btn-outline-primary">
+                                <i class="bi bi-save"></i> 儲存草稿
+                            </button>
+                            <button type="submit" name="status" value="published" class="btn btn-primary">
+                                <i class="bi bi-check-circle"></i> {% if post and post.status == 'published' %}更新{% else
+                                %}發布{% endif %}文章
+                            </button>
+                        </div>
+                    </div>
+
+                </div>
+            </form>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Initialize TinyMCE Editor
+    tinymce.init({
+        selector: '#contentEditor',
+        height: 600,
+        menubar: true,
+        plugins: [
+            'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
+            'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
+            'insertdatetime', 'media', 'table', 'help', 'wordcount'
+        ],
+        toolbar: 'undo redo | blocks | bold italic underline strikethrough | ' +
+            'alignleft aligncenter alignright alignjustify | ' +
+            'bullist numlist outdent indent | link image | ' +
+            'forecolor backcolor | removeformat | help',
+        content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 16px; line-height: 1.6; }',
+
+        // 圖片上傳處理
+        images_upload_handler: function (blobInfo, success, failure) {
+            // 這裡可以實現圖片上傳到服務器的邏輯
+            // 目前使用 base64 編碼
+            const reader = new FileReader();
+            reader.onload = function () {
+                success(reader.result);
+            };
+            reader.readAsDataURL(blobInfo.blob());
+        },
+
+        // 中文化
+        language: 'zh_TW',
+        language_url: 'https://cdn.jsdelivr.net/npm/tinymce-lang/langs5/zh_TW.js',
+
+        // 自動儲存
+        autosave_ask_before_unload: true,
+        autosave_interval: '30s',
+        autosave_prefix: 'tinymce-autosave-{path}{query}-{id}-',
+        autosave_restore_when_empty: true,
+
+        // 內容樣式
+        content_css: [
+            'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css'
+        ]
+    });
+
+    // Image preview
+    document.getElementById('imageInput').addEventListener('change', function (e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                document.getElementById('preview').src = e.target.result;
+                document.getElementById('imagePreview').style.display = 'block';
+            };
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // Form submission with validation
+    document.querySelector('form').addEventListener('submit', function (e) {
+        const title = document.querySelector('[name="title"]').value.trim();
+        const content = tinymce.get('contentEditor').getContent();
+
+        if (!title) {
+            e.preventDefault();
+            alert('請輸入文章標題');
+            return false;
+        }
+
+        if (!content || content === '<p></p>' || content.length < 50) {
+            e.preventDefault();
+            alert('請輸入文章內容（至少 50 個字元）');
+            return false;
+        }
+
+        // Show loading
+        const submitBtn = e.submitter;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>處理中...';
+    });
+
+    // Warn before leaving with unsaved changes
+    let contentChanged = false;
+    tinymce.get('contentEditor').on('change', function () {
+        contentChanged = true;
+    });
+
+    window.addEventListener('beforeunload', function (e) {
+        if (contentChanged) {
+            e.preventDefault();
+            e.returnValue = '';
+            return '';
+        }
+    });
+</script>
+
+<style>
+    .tox-tinymce {
+        border-radius: 0.375rem;
+        border: 1px solid #dee2e6;
+    }
+
+    .alert-info {
+        background-color: #e7f3ff;
+        border-color: #b3d9ff;
+        color: #004085;
+    }
+</style>
+{% endblock %}

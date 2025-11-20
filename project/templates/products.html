@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}產品介紹 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+  <!-- Page Header -->
+  <div class="text-center mb-4">
+    <p class="lead text-muted">選擇適合您的芳療產品，讓身心得到完整的放鬆與療癒</p>
+  </div>
+
+  <!-- Search & Filter Section -->
+  <div class="d-flex flex-wrap justify-content-between align-items-start mb-4 g-3">
+
+    <!-- Category Filter (左側) -->
+    <div class="d-flex flex-wrap gap-2">
+      <a href="{{ url_for('main.products') }}"
+        class="btn btn-sm {% if not current_category %}btn-primary{% else %}btn-outline-primary{% endif %}">全部</a>
+      {% for category in categories %}
+      <a href="{{ url_for('main.products', category=category.id) }}"
+        class="btn btn-sm {% if current_category == category.id %}btn-primary{% else %}btn-outline-primary{% endif %}">{{
+        category.name }}</a>
+      {% endfor %}
+    </div>
+
+    <!-- Search Bar (右側) -->
+    <div style="min-width: 280px;">
+      <form method="GET" action="{{ url_for('main.products') }}" class="input-group input-group-lg">
+        <input type="text" name="q" class="form-control" placeholder="搜尋產品名稱或關鍵字..." value="{{ search_query or '' }}"
+          aria-label="搜尋產品">
+        <button class="btn btn-primary" type="submit">
+          <i class="bi bi-search"></i> 搜尋
+        </button>
+
+        {% if search_query %}
+        <a href="{{ url_for('main.products') }}" class="btn btn-outline-secondary">
+          <i class="bi bi-x-circle"></i> 清除
+        </a>
+        {% endif %}
+      </form>
+    </div>
+
+  </div>
+
+  <!-- Product Grid -->
+  <div id="product-list" class="row g-4">
+    {% for product in products %}
+    <div class="col-6 col-md-4 col-lg-3">
+      <div class="card h-100 hover-zoom shadow-sm">
+
+        <!-- 卡片 body 觸發 modal -->
+        <div data-bs-toggle="modal" data-bs-target="#productModal{{ product.id }}" style="cursor:pointer;">
+          <div class="ratio ratio-1x1">
+            {% if product.image %}
+            <img src="{{ url_for('static', filename=product.image) }}" class="card-img-top object-fit-cover"
+              alt="{{ product.name }}" loading="lazy">
+            {% else %}
+            <div class="bg-light d-flex align-items-center justify-content-center">
+              <i class="bi bi-image fs-1 text-muted"></i>
+            </div>
+            {% endif %}
+          </div>
+          <div class="card-body">
+            <h6 class="card-title text-truncate mb-2">{{ product.name }}</h6>
+            <p class="text-primary fw-bold mb-2">NT$ {{ '{:,.0f}'.format(product.price) }}</p>
+            {% if product.category_name %}
+            <span class="badge bg-light text-dark">{{ product.category_name }}</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <!-- Footer 不觸發 modal -->
+        <div class="card-footer bg-white border-0 pt-0">
+          {% if session.get('role') == 'customer' %}
+          <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="quantity" value="1">
+            <button type="submit" class="btn btn-primary btn-sm w-100">
+              <i class="bi bi-cart-plus"></i> 加入購物車
+            </button>
+          </form>
+          {% else %}
+          <button class="btn btn-secondary btn-sm w-100" disabled>請先登入</button>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <!-- Loading Indicator -->
+  <div id="loading" class="text-center mt-4" style="display:none;">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">載入中...</span>
+    </div>
+    <p class="text-muted mt-2">載入更多產品...</p>
+  </div>
+
+  <!-- No More Products -->
+  <div id="no-more" class="text-center text-muted mt-4" style="display:none;">
+    <p>已顯示全部產品</p>
+  </div>
+
+  <!-- Empty State -->
+  {% if products|length == 0 %}
+  <div class="text-center py-5">
+    <i class="bi bi-inbox fs-1 text-muted"></i>
+    <p class="text-muted mt-3">目前沒有產品</p>
+    <a href="{{ url_for('main.products') }}" class="btn btn-primary">瀏覽全部產品</a>
+  </div>
+  {% endif %}
+
+  <!-- Product Modals -->
+  {% for product in products %}
+  <div class="modal fade" id="productModal{{ product.id }}" tabindex="-1"
+    aria-labelledby="productModalLabel{{ product.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content">
+
+        <!-- Header -->
+        <div class="modal-header">
+          <h5 class="modal-title fw-bold" id="productModalLabel{{ product.id }}">
+            {{ product.name }}
+          </h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+
+        <!-- Body -->
+        <div class="modal-body">
+
+          <!-- Image -->
+          <div class="text-center mb-4">
+            {% if product.image %}
+            <img src="{{ url_for('static', filename=product.image) }}" class="img-fluid rounded shadow-sm"
+              alt="{{ product.name }}">
+            {% else %}
+            <div class="bg-light d-flex align-items-center justify-content-center rounded" style="height:300px;">
+              <i class="bi bi-image fs-1 text-muted"></i>
+            </div>
+            {% endif %}
+          </div>
+
+          <!-- Info Section -->
+          <div class="px-2">
+
+            <!-- Price -->
+            <p class="text-primary fw-bold fs-4 mb-2">
+              NT$ {{ '{:,.0f}'.format(product.price | default(0)) }}
+            </p>
+
+            <!-- Category -->
+            {% if product.category_name %}
+            <span class="badge bg-light text-dark mb-3">
+              {{ product.category_name }}
+            </span>
+            {% endif %}
+
+            <!-- Description -->
+            {% if product.description %}
+            <div class="mt-3">
+              <h6 class="fw-bold">產品介紹</h6>
+              <p class="text-muted mb-0" style="white-space: pre-line;">
+                {{ product.description }}
+              </p>
+            </div>
+            {% endif %}
+
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let page = 1;
+  let loading = false;
+  let hasMore = {{ 'true' if products| length >= 15 else 'false' }};
+  const productList = document.getElementById('product-list');
+  const loadingIndicator = document.getElementById('loading');
+  const noMoreIndicator = document.getElementById('no-more');
+  const currentCategory = {{ current_category| tojson }};
+  const searchQuery = {{ search_query| tojson }};
+
+  // Infinite scroll
+  function loadMoreProducts() {
+    if (loading || !hasMore) return;
+
+    const scrollTop = window.scrollY;
+    const windowHeight = window.innerHeight;
+    const docHeight = document.documentElement.scrollHeight;
+
+    if (scrollTop + windowHeight >= docHeight - 300) {
+      loading = true;
+      page += 1;
+      loadingIndicator.style.display = 'block';
+
+      let url = `/products?page=${page}`;
+      if (currentCategory) url += `&category=${currentCategory}`;
+      if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+
+      fetch(url, {
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      })
+        .then(res => res.text())
+        .then(html => {
+          loadingIndicator.style.display = 'none';
+
+          if (html.trim()) {
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            const newItems = tempDiv.querySelectorAll('.col-6');
+
+            if (newItems.length > 0) {
+              newItems.forEach(item => {
+                productList.appendChild(item);
+              });
+              loading = false;
+            } else {
+              hasMore = false;
+              noMoreIndicator.style.display = 'block';
+            }
+          } else {
+            hasMore = false;
+            noMoreIndicator.style.display = 'block';
+          }
+        })
+        .catch(err => {
+          console.error('載入失敗:', err);
+          loadingIndicator.style.display = 'none';
+          loading = false;
+        });
+    }
+  }
+
+  if (hasMore) {
+    window.addEventListener('scroll', loadMoreProducts);
+  }
+
+  // Hover effect
+  document.querySelectorAll('.hover-zoom').forEach(card => {
+    card.addEventListener('mouseenter', function () { this.style.transform = 'translateY(-5px)'; });
+    card.addEventListener('mouseleave', function () { this.style.transform = 'translateY(0)'; });
+  });
+</script>
+
+<style>
+  .hover-zoom {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .hover-zoom:hover {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
+  }
+
+  .object-fit-cover {
+    object-fit: cover;
+  }
+</style>
+{% endblock %}

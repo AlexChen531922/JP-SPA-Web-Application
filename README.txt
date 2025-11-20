@@ -2,7 +2,7 @@
 This project is a stock image service centred on event and festival photography.
 It connects users who need authentic event photos with photographers or organisers who provide them.
 Users can search and filter images by event type, date, and location, and sort results by latest or popularity. Each photo contains metadata such as event name, shooting date, location, and photographer. Based on the chosen license, images can be added to the cart and downloaded after payment.
-Vendors can upload and tag new images, set license types (e.g., free, editorial, commercial), and manage their portfolio. These features provide a reliable way for vendors to distribute and profit from their work, while users can efficiently access the images they need.
+staffs can upload and tag new images, set license types (e.g., free, editorial, commercial), and manage their portfolio. These features provide a reliable way for staffs to distribute and profit from their work, while users can efficiently access the images they need.
 
 ✨ Features
 🔍 Discover event photos with search & filters
@@ -10,7 +10,7 @@ Vendors can upload and tag new images, set license types (e.g., free, editorial,
    * Search bar on top of the home page, get result by typing at least first 2 characters.
    * Filter by (latest, popular, price Low to High, price High to Low) The uploaded date, views, price shows on the images cards. 
 📷 public gallery for customer
-   * view image thumbnail, title, uploaded_date, price, resolution, license, event, categories, vendor_name
+   * view image thumbnail, title, uploaded_date, price, resolution, license, event, categories, staff_name
    * go to item detail page
 🛒 Add to Cart and Secure Checkout
    * Users can add an unlimited number of images to their shopping cart from the item detail page.
@@ -20,20 +20,20 @@ Vendors can upload and tag new images, set license types (e.g., free, editorial,
    * Users can complete the payment by entering valid credit card details.
    * Credit card details are validated during the checkout process.
    * After a successful payment, users can see the “Download” button on the download page.
-📊 Vendor gallery for specific vendor
-   * vendor can view their own gallery
-   * every vendor can view other vendor's gallery
-🎆 Vendor management (Dashboard)
-   * every vendor can manage their own images (upload, read, edit, delete)
-   * not permitted for accessing another vendor's gallery
+📊 staff gallery for specific staff
+   * staff can view their own gallery
+   * every staff can view other staff's gallery
+🎆 staff management (Dashboard)
+   * every staff can manage their own images (upload, read, edit, delete)
+   * not permitted for accessing another staff's gallery
 🟣 Admin management (Dashboard)
    * Admin tabs for managing all images, users, orders, categories, events, licenses (create, read, edit, delete)
-👤 Role-based access for admins, vendors, and users
+👤 Role-based access for admins, staffs, and users
 
 ✅ Authentication and Access Controls
 💼 User Authentication System
 Implement a complete user authentication system, including registration, login, and logout, using hashed passwords and session-based authentication.
-   * Clicking the top-right "Sign In" button on the homepage allows users to log in as an admin, vendor, or customer.
+   * Clicking the top-right "Sign In" button on the homepage allows users to log in as an admin, staff, or customer.
    * If the user does not have an account, they can switch to the Sign Up tab.
 🪪Passwords are hashed using SHA-256 during registration and login.
    * Login details are stored in the session for further use.
@@ -43,8 +43,8 @@ Implement a complete user authentication system, including registration, login, 
      2. Manage users and orders
      3. Add, edit, and delete events, categories, and licenses
    * These functions are accessible through different tabs on the management page.
-👤Vendor Access Control
-   * Logging in as a vendor redirects to the management page, where the vendor can:
+👤staff Access Control
+   * Logging in as a staff redirects to the management page, where the staff can:
      1. Upload, edit, and delete their own images
      2. Uploaded images are displayed on both the dashboard and gallery pages.
 👤Customer Access Control

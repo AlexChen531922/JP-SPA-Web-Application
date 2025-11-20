@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+{% block title %}購物車 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+
+    <h2 class="fw-bold mb-4"><i class="bi bi-cart3"></i> 購物車</h2>
+
+    {% if cart_items|length == 0 %}
+    <!-- Empty Cart -->
+    <div class="text-center py-5">
+        <i class="bi bi-cart-x fs-1 text-muted"></i>
+        <h4 class="text-muted mt-3">購物車是空的</h4>
+        <p class="text-muted">快去選購喜歡的產品吧！</p>
+        <a href="{{ url_for('main.products') }}" class="btn btn-primary">
+            <i class="bi bi-bag"></i> 前往選購
+        </a>
+    </div>
+    {% else %}
+    <!-- Cart Items -->
+    <form action="{{ url_for('main.update_cart') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="row g-4">
+            <div class="col-lg-8">
+                <!-- Cart Items List -->
+                <div class="card shadow-sm">
+                    <div class="card-body">
+                        {% for item in cart_items %}
+                        <div class="row align-items-center py-3 {% if not loop.last %}border-bottom{% endif %}">
+                            <!-- Product Image -->
+                            <div class="col-3 col-md-2">
+                                <a href="{{ url_for('main.product_detail', product_id=item.product_id) }}">
+                                    {% if item.image %}
+                                    <img src="{{ url_for('static', filename=item.image) }}" class="img-fluid rounded"
+                                        alt="{{ item.name }}">
+                                    {% else %}
+                                    <div class="bg-light rounded d-flex align-items-center justify-content-center"
+                                        style="height: 80px;">
+                                        <i class="bi bi-image text-muted"></i>
+                                    </div>
+                                    {% endif %}
+                                </a>
+                            </div>
+
+                            <!-- Product Info -->
+                            <div class="col-5 col-md-4">
+                                <h6 class="mb-1">
+                                    <a href="{{ url_for('main.product_detail', product_id=item.product_id) }}"
+                                        class="text-decoration-none text-dark">
+                                        {{ item.name }}
+                                    </a>
+                                </h6>
+                                <p class="text-muted small mb-0">NT$ {{ '{:,.0f}'.format(item.price) }}</p>
+                            </div>
+
+                            <!-- Quantity -->
+                            <div class="col-2 col-md-3">
+                                <div class="input-group input-group-sm">
+                                    <button class="btn btn-outline-secondary" type="button"
+                                        onclick="updateQuantity({{ item.id }}, -1)">
+                                        <i class="bi bi-dash"></i>
+                                    </button>
+                                    <input type="number" class="form-control text-center" name="quantity_{{ item.id }}"
+                                        id="qty_{{ item.id }}" value="{{ item.quantity }}" min="1"
+                                        onchange="calculateTotal()">
+                                    <button class="btn btn-outline-secondary" type="button"
+                                        onclick="updateQuantity({{ item.id }}, 1)">
+                                        <i class="bi bi-plus"></i>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Subtotal -->
+                            <div class="col-2 col-md-2 text-end">
+                                <p class="fw-bold mb-0" id="subtotal_{{ item.id }}">
+                                    NT$ {{ '{:,.0f}'.format(item.price * item.quantity) }}
+                                </p>
+                            </div>
+
+                            <!-- Remove Button -->
+                            <div class="col-12 col-md-1 text-end mt-2 mt-md-0">
+                                <form action="{{ url_for('main.remove_from_cart', item_id=item.id) }}" method="POST"
+                                    style="display:inline;" onsubmit="return confirm('確定要移除此商品嗎？');">
+                                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                    <button type="submit" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Update Cart Button -->
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-secondary">
+                        <i class="bi bi-arrow-clockwise"></i> 更新購物車
+                    </button>
+                    <a href="{{ url_for('main.products') }}" class="btn btn-outline-secondary">
+                        <i class="bi bi-arrow-left"></i> 繼續購物
+                    </a>
+                </div>
+            </div>
+
+            <!-- Order Summary -->
+            <div class="col-lg-4">
+                <div class="card shadow-sm sticky-top" style="top: 100px;">
+                    <div class="card-body">
+                        <h5 class="fw-bold mb-4">訂單摘要</h5>
+
+                        <div class="d-flex justify-content-between mb-2">
+                            <span>商品小計</span>
+                            <span id="subtotalAmount">NT$ {{ '{:,.0f}'.format(total) }}</span>
+                        </div>
+
+                        <div class="d-flex justify-content-between mb-3">
+                            <span>運費</span>
+                            <span class="text-success">店內取貨免運</span>
+                        </div>
+
+                        <hr>
+
+                        <div class="d-flex justify-content-between mb-4">
+                            <h5 class="fw-bold mb-0">總計</h5>
+                            <h5 class="text-primary fw-bold mb-0" id="totalAmount">
+                                NT$ {{ '{:,.0f}'.format(total) }}
+                            </h5>
+                        </div>
+
+                        <div class="alert alert-info small mb-3">
+                            <i class="bi bi-info-circle"></i> 訂單將於送出後由店家確認，完成後線下付款與取貨
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </form>
+
+    <!-- Checkout Button (Outside form to use different action) -->
+    <div class="row mt-4">
+        <div class="col-lg-8 offset-lg-0 col-12">
+            <form action="{{ url_for('main.checkout') }}" method="POST" class="d-inline">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-success btn-lg w-100">
+                    <i class="bi bi-check-circle"></i> 送出訂單
+                </button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function updateQuantity(itemId, change) {
+        const input = document.getElementById(`qty_${itemId}`);
+        let newValue = parseInt(input.value) + change;
+        if (newValue < 1) newValue = 1;
+        input.value = newValue;
+        calculateTotal();
+    }
+
+    function calculateTotal() {
+        let total = 0;
+
+        document.querySelectorAll('[id^="qty_"]').forEach(input => {
+            const itemId = input.id.replace('qty_', '');
+            const quantity = parseInt(input.value);
+            const priceText = input.closest('.row').querySelector('.text-muted.small').textContent;
+            const price = parseInt(priceText.replace(/[^0-9]/g, ''));
+            const subtotal = price * quantity;
+
+            // Update subtotal display
+            document.getElementById(`subtotal_${itemId}`).textContent =
+                `NT$ ${subtotal.toLocaleString('zh-TW')}`;
+
+            total += subtotal;
+        });
+
+        // Update totals
+        document.getElementById('subtotalAmount').textContent = `NT$ ${total.toLocaleString('zh-TW')}`;
+        document.getElementById('totalAmount').textContent = `NT$ ${total.toLocaleString('zh-TW')}`;
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', calculateTotal);
+</script>
+{% endblock %}

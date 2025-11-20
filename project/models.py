@@ -2,6 +2,7 @@ from typing import Optional, List
 from dataclasses import dataclass, field
 from typing import List
 
+
 @dataclass
 class UserInfo:
     id: str
@@ -22,7 +23,7 @@ class UserAccount:
 @dataclass
 class Image:
     id: int
-    vendor: str
+    staff: str
     title: str
     description: Optional[str]
     categories: List[str]

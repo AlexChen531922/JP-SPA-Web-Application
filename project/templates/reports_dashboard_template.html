@@ -1,0 +1,342 @@
+{% extends "base.html" %}
+{% block title %}進階報表 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold"><i class="bi bi-graph-up"></i> 進階報表分析</h2>
+        <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回管理後台
+        </a>
+    </div>
+
+    <!-- Date Range Filter -->
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="GET" action="{{ url_for('reports.dashboard') }}" class="row g-3">
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">時間範圍</label>
+                    <select name="period" id="periodSelect" class="form-select" onchange="toggleCustomDates()">
+                        <option value="today" {% if period=='today' %}selected{% endif %}>今天</option>
+                        <option value="yesterday" {% if period=='yesterday' %}selected{% endif %}>昨天</option>
+                        <option value="week" {% if period=='week' %}selected{% endif %}>本週</option>
+                        <option value="last_week" {% if period=='last_week' %}selected{% endif %}>上週</option>
+                        <option value="month" {% if period=='month' %}selected{% endif %}>本月</option>
+                        <option value="last_month" {% if period=='last_month' %}selected{% endif %}>上月</option>
+                        <option value="quarter" {% if period=='quarter' %}selected{% endif %}>本季</option>
+                        <option value="year" {% if period=='year' %}selected{% endif %}>今年</option>
+                        <option value="custom" {% if period=='custom' %}selected{% endif %}>自訂範圍</option>
+                    </select>
+                </div>
+
+                <div class="col-md-3" id="customStartDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">開始日期</label>
+                    <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+
+                <div class="col-md-3" id="customEndDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">結束日期</label>
+                    <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> 查詢
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="row g-4 mb-4">
+
+        <!-- Total Revenue -->
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">總營業額</h6>
+                            <h3 class="fw-bold text-primary mb-0">NT$ {{ '{:,.0f}'.format(total_revenue) }}</h3>
+                        </div>
+                        <div class="bg-primary bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-currency-dollar fs-2 text-primary"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Total Cost -->
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">總成本</h6>
+                            <h3 class="fw-bold text-danger mb-0">NT$ {{ '{:,.0f}'.format(total_cost) }}</h3>
+                        </div>
+                        <div class="bg-danger bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-cash-stack fs-2 text-danger"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Net Profit -->
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">淨利潤</h6>
+                            <h3 class="fw-bold text-success mb-0">NT$ {{ '{:,.0f}'.format(net_profit) }}</h3>
+                        </div>
+                        <div class="bg-success bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-graph-up-arrow fs-2 text-success"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Profit Margin -->
+        <div class="col-md-3">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-muted mb-1">利潤率</h6>
+                            <h3 class="fw-bold text-info mb-0">{{ '{:.1f}'.format(profit_margin) }}%</h3>
+                        </div>
+                        <div class="bg-info bg-opacity-10 p-3 rounded-circle">
+                            <i class="bi bi-percent fs-2 text-info"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Quick Links to Detailed Reports -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-3">
+            <a href="{{ url_for('reports.product_rankings', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn btn-outline-primary w-100 py-3">
+                <i class="bi bi-box-seam me-2"></i> 產品銷售排行
+            </a>
+        </div>
+        <div class="col-md-3">
+            <a href="{{ url_for('reports.course_rankings', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn btn-outline-success w-100 py-3">
+                <i class="bi bi-calendar-check me-2"></i> 課程預約排行
+            </a>
+        </div>
+        <div class="col-md-3">
+            <a href="{{ url_for('reports.event_analytics', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn btn-outline-warning w-100 py-3">
+                <i class="bi bi-calendar-event me-2"></i> 活動分析
+            </a>
+        </div>
+        <div class="col-md-3">
+            <a href="{{ url_for('reports.customer_analytics', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn btn-outline-info w-100 py-3">
+                <i class="bi bi-people me-2"></i> 客戶分析
+            </a>
+        </div>
+    </div>
+
+    <!-- Revenue Breakdown -->
+    <div class="row g-4 mb-4">
+
+        <!-- Orders Revenue -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-cart-check"></i> 產品訂單</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center mb-3">
+                        <div class="col-4">
+                            <h6 class="text-muted small">訂單數</h6>
+                            <h4 class="fw-bold text-primary">{{ revenue_summary.order_count }}</h4>
+                        </div>
+                        <div class="col-4">
+                            <h6 class="text-muted small">總金額</h6>
+                            <h4 class="fw-bold text-success">NT$ {{ '{:,.0f}'.format(revenue_summary.total_revenue) }}
+                            </h4>
+                        </div>
+                        <div class="col-4">
+                            <h6 class="text-muted small">平均訂單</h6>
+                            <h4 class="fw-bold text-info">NT$ {{ '{:,.0f}'.format(revenue_summary.avg_order_value) }}
+                            </h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bookings Revenue -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-calendar2-check"></i> 課程預約</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center mb-3">
+                        <div class="col-4">
+                            <h6 class="text-muted small">預約數</h6>
+                            <h4 class="fw-bold text-primary">{{ booking_summary.booking_count }}</h4>
+                        </div>
+                        <div class="col-4">
+                            <h6 class="text-muted small">總金額</h6>
+                            <h4 class="fw-bold text-success">NT$ {{ '{:,.0f}'.format(booking_summary.total_revenue) }}
+                            </h4>
+                        </div>
+                        <div class="col-4">
+                            <h6 class="text-muted small">平均預約</h6>
+                            <h4 class="fw-bold text-info">NT$ {{ '{:,.0f}'.format(booking_summary.avg_booking_value) }}
+                            </h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Daily Trend Charts -->
+    <div class="row g-4">
+
+        <div class="col-lg-12">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white border-bottom">
+                    <h5 class="mb-0 fw-bold"><i class="bi bi-graph-up"></i> 每日營收趨勢</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="revenueChart" height="80"></canvas>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    // Toggle custom date inputs
+    function toggleCustomDates() {
+        const period = document.getElementById('periodSelect').value;
+        const showCustom = period === 'custom';
+        document.getElementById('customStartDiv').style.display = showCustom ? 'block' : 'none';
+        document.getElementById('customEndDiv').style.display = showCustom ? 'block' : 'none';
+    }
+
+    // Revenue Chart
+    const dailyOrders = {{ daily_orders | tojson }};
+    const dailyBookings = {{ daily_bookings | tojson }};
+
+    // Combine and sort dates
+    const allDates = new Set();
+    dailyOrders.forEach(d => allDates.add(d.date));
+    dailyBookings.forEach(d => allDates.add(d.date));
+    const dates = Array.from(allDates).sort();
+
+    // Create data maps
+    const orderMap = {};
+    const bookingMap = {};
+    dailyOrders.forEach(d => orderMap[d.date] = parseFloat(d.revenue));
+    dailyBookings.forEach(d => bookingMap[d.date] = parseFloat(d.revenue));
+
+    // Build datasets
+    const orderData = dates.map(d => orderMap[d] || 0);
+    const bookingData = dates.map(d => bookingMap[d] || 0);
+    const totalData = dates.map((d, i) => orderData[i] + bookingData[i]);
+
+    const ctx = document.getElementById('revenueChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: dates,
+            datasets: [
+                {
+                    label: '產品訂單',
+                    data: orderData,
+                    borderColor: '#0d6efd',
+                    backgroundColor: 'rgba(13, 110, 253, 0.1)',
+                    tension: 0.4
+                },
+                {
+                    label: '課程預約',
+                    data: bookingData,
+                    borderColor: '#198754',
+                    backgroundColor: 'rgba(25, 135, 84, 0.1)',
+                    tension: 0.4
+                },
+                {
+                    label: '總營收',
+                    data: totalData,
+                    borderColor: '#6f42c1',
+                    backgroundColor: 'rgba(111, 66, 193, 0.1)',
+                    borderWidth: 2,
+                    tension: 0.4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top'
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function (context) {
+                            return context.dataset.label + ': NT$ ' + context.parsed.y.toLocaleString('zh-TW');
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function (value) {
+                            return 'NT$ ' + value.toLocaleString('zh-TW');
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
+
+<style>
+    .card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .card:hover {
+        transform: translateY(-2px);
+    }
+
+    .bg-opacity-10 {
+        width: 60px;
+        height: 60px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+</style>
+
+{% endblock %}

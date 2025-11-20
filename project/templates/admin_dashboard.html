@@ -1,0 +1,1401 @@
+{% extends "base.html" %}
+{% block title %}管理後台 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold">
+      <i class="bi bi-speedometer2"></i> 管理後台
+    </h2>
+    <div class="text-muted">
+      歡迎回來，{{ session.get('user', {}).get('firstname') }}
+    </div>
+  </div>
+
+  <!-- Tabs Navigation -->
+  <ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link {% if not tab or tab == 'overview' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#overview">
+        <i class="bi bi-grid"></i> 總覽
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'products' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#products">
+        <i class="bi bi-box"></i> 產品管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'courses' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#courses">
+        <i class="bi bi-calendar-check"></i> 課程管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'posts' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#posts">
+        <i class="bi bi-newspaper"></i> 文章管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'orders' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#orders">
+        <i class="bi bi-cart"></i> 訂單管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'bookings' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#bookings">
+        <i class="bi bi-calendar2-week"></i> 預約管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'customers' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#customers">
+        <i class="bi bi-people"></i> 客戶管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'categories' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#categories">
+        <i class="bi bi-tags"></i> 分類管理
+      </button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'events' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#events">
+        <i class="bi bi-calendar-event"></i> 活動管理
+      </button>
+    </li>
+  </ul>
+
+  <!-- Tab Content -->
+  <div class="tab-content">
+
+    <!-- ========================== OVERVIEW TAB ========================== -->
+    <div class="tab-pane fade {% if not tab or tab == 'overview' %}show active{% endif %}" id="overview">
+
+      <!-- Statistics Cards -->
+      <div class="row g-4 mb-4">
+        <div class="col-md-3">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="text-muted mb-1">產品總數</h6>
+                  <h3 class="fw-bold mb-0">{{ stats.products }}</h3>
+                </div>
+                <div class="bg-primary bg-opacity-10 p-3 rounded-circle">
+                  <i class="bi bi-box fs-2 text-primary"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="text-muted mb-1">課程總數</h6>
+                  <h3 class="fw-bold mb-0">{{ stats.courses }}</h3>
+                </div>
+                <div class="bg-success bg-opacity-10 p-3 rounded-circle">
+                  <i class="bi bi-calendar-check fs-2 text-success"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="text-muted mb-1">訂單總數</h6>
+                  <h3 class="fw-bold mb-0">{{ stats.orders }}</h3>
+                </div>
+                <div class="bg-warning bg-opacity-10 p-3 rounded-circle">
+                  <i class="bi bi-cart fs-2 text-warning"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-md-3">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center">
+                <div>
+                  <h6 class="text-muted mb-1">總營收</h6>
+                  <h3 class="fw-bold mb-0">NT$ {{ '{:,.0f}'.format(stats.revenue) }}</h3>
+                </div>
+                <div class="bg-info bg-opacity-10 p-3 rounded-circle">
+                  <i class="bi bi-currency-dollar fs-2 text-info"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Actions -->
+      <div class="row g-3 mb-4">
+        <div class="col-md-3">
+          <a href="{{ url_for('admin.add_product_modal') }}" class="btn btn-outline-primary w-100 py-3">
+            <i class="bi bi-plus-circle me-2"></i> 新增產品
+          </a>
+        </div>
+        <div class="col-md-3">
+          <a href="{{ url_for('admin.add_course_modal') }}" class="btn btn-outline-success w-100 py-3">
+            <i class="bi bi-plus-circle me-2"></i> 新增課程
+          </a>
+        </div>
+        <div class="col-md-3">
+          <a href="{{ url_for('admin.add_post') }}" class="btn btn-outline-info w-100 py-3">
+            <i class="bi bi-plus-circle me-2"></i> 撰寫文章
+          </a>
+        </div>
+        <div class="col-md-3">
+          <a href="{{ url_for('reports.dashboard') }}" class="btn btn-outline-warning w-100 py-3">
+            <i class="bi bi-graph-up me-2"></i> 查看報表
+          </a>
+        </div>
+      </div>
+
+      <!-- Recent Activities -->
+      <div class="row g-4">
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom">
+              <h5 class="mb-0 fw-bold"><i class="bi bi-cart-check"></i> 最新訂單</h5>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>訂單編號</th>
+                      <th>客戶</th>
+                      <th>金額</th>
+                      <th>狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for order in recent_orders[:5] %}
+                    <tr>
+                      <td>#{{ order.id }}</td>
+                      <td>{{ order.firstname }} {{ order.surname }}</td>
+                      <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
+                      <td>
+                        {% if order.status == 'pending' %}
+                        <span class="badge bg-warning">待確認</span>
+                        {% elif order.status == 'confirmed' %}
+                        <span class="badge bg-info">已確認</span>
+                        {% elif order.status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ order.status }}</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                      <td colspan="4" class="text-center text-muted py-4">目前沒有訂單</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-header bg-white border-bottom">
+              <h5 class="mb-0 fw-bold"><i class="bi bi-calendar2-check"></i> 最新預約</h5>
+            </div>
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>預約編號</th>
+                      <th>客戶</th>
+                      <th>課程</th>
+                      <th>狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for booking in recent_bookings[:5] %}
+                    <tr>
+                      <td>#{{ booking.id }}</td>
+                      <td>{{ booking.firstname }} {{ booking.surname }}</td>
+                      <td>{{ booking.course_name }}</td>
+                      <td>
+                        {% if booking.status == 'pending' %}
+                        <span class="badge bg-warning">待確認</span>
+                        {% elif booking.status == 'confirmed' %}
+                        <span class="badge bg-info">已確認</span>
+                        {% elif booking.status == 'completed' %}
+                        <span class="badge bg-success">已完成</span>
+                        {% else %}
+                        <span class="badge bg-secondary">{{ booking.status }}</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                      <td colspan="4" class="text-center text-muted py-4">目前沒有預約</td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== PRODUCTS TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'products' %}show active{% endif %}" id="products">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0"><i class="bi bi-box"></i> 產品管理</h4>
+        <a href="{{ url_for('admin.add_product_modal') }}" class="btn btn-primary">
+          <i class="bi bi-plus-circle"></i> 新增產品
+        </a>
+      </div>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 80px;">圖片</th>
+                  <th>產品名稱</th>
+                  <th>分類</th>
+                  <th>價格</th>
+                  <th>庫存</th>
+                  <th>狀態</th>
+                  <th class="text-end" style="width: 150px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for product in products %}
+                <tr>
+                  <td>
+                    <img src="{{ url_for('static', filename=product.image or 'img/placeholder.jpg') }}"
+                      alt="{{ product.name }}" style="width: 50px; height: 50px; object-fit: cover;" class="rounded">
+                  </td>
+                  <td class="fw-bold">{{ product.name }}</td>
+                  <td>
+                    <span class="badge bg-light text-dark">{{ product.category_name or '未分類' }}</span>
+                  </td>
+                  <td>NT$ {{ '{:,.0f}'.format(product.price) }}</td>
+                  <td>
+                    {% if product.stock_quantity < 10 %} <span class="badge bg-danger">{{ product.stock_quantity
+                      }}</span>
+                      {% else %}
+                      <span class="badge bg-success">{{ product.stock_quantity }}</span>
+                      {% endif %}
+                  </td>
+                  <td>
+                    {% if product.is_active %}
+                    <span class="badge bg-success">啟用</span>
+                    {% else %}
+                    <span class="badge bg-secondary">停用</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+                    <a href="{{ url_for('admin.update_product_modal', product_id=product.id) }}"
+                      class="btn btn-sm btn-outline-primary" title="編輯">
+                      <i class="bi bi-pencil"></i>
+                    </a>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_product_modal', product_id=product.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除「{{ product.name }}」？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="7" class="text-center text-muted py-5">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    目前沒有產品
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== COURSES TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'courses' %}show active{% endif %}" id="courses">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0"><i class="bi bi-calendar-check"></i> 課程管理</h4>
+        <a href="{{ url_for('admin.add_course_modal') }}" class="btn btn-primary">
+          <i class="bi bi-plus-circle"></i> 新增課程
+        </a>
+      </div>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 80px;">圖片</th>
+                  <th>課程名稱</th>
+                  <th>分類</th>
+                  <th>正式價格</th>
+                  <th>體驗價格</th>
+                  <th>時長</th>
+                  <th>狀態</th>
+                  <th class="text-end" style="width: 150px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for course in courses %}
+                <tr>
+                  <td>
+                    <img src="{{ url_for('static', filename=course.image or 'img/placeholder.jpg') }}"
+                      alt="{{ course.name }}" style="width: 50px; height: 50px; object-fit: cover;" class="rounded">
+                  </td>
+                  <td class="fw-bold">{{ course.name }}</td>
+                  <td>
+                    <span class="badge bg-light text-dark">{{ course.category_name or '未分類' }}</span>
+                  </td>
+                  <td>NT$ {{ '{:,.0f}'.format(course.regular_price) }}</td>
+                  <td>
+                    {% if course.experience_price %}
+                    <span class="badge bg-success">NT$ {{ '{:,.0f}'.format(course.experience_price) }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ course.duration }} 分鐘</td>
+                  <td>
+                    {% if course.is_active %}
+                    <span class="badge bg-success">啟用</span>
+                    {% else %}
+                    <span class="badge bg-secondary">停用</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+                    <a href="{{ url_for('admin.update_course_modal', course_id=course.id) }}"
+                      class="btn btn-sm btn-outline-primary" title="編輯">
+                      <i class="bi bi-pencil"></i>
+                    </a>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_course_modal', course_id=course.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除「{{ course.name }}」？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="8" class="text-center text-muted py-5">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    目前沒有課程
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== POSTS TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'posts' %}show active{% endif %}" id="posts">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0"><i class="bi bi-newspaper"></i> 文章管理</h4>
+        <a href="{{ url_for('admin.add_post') }}" class="btn btn-primary">
+          <i class="bi bi-plus-circle"></i> 撰寫文章
+        </a>
+      </div>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>標題</th>
+                  <th>作者</th>
+                  <th>狀態</th>
+                  <th>瀏覽次數</th>
+                  <th>發布日期</th>
+                  <th class="text-end" style="width: 180px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for post in posts %}
+                <tr>
+                  <td class="fw-bold">{{ post.title }}</td>
+                  <td>{{ post.author_name or '系統' }}</td>
+                  <td>
+                    {% if post.status == 'published' %}
+                    <span class="badge bg-success">已發布</span>
+                    {% elif post.status == 'draft' %}
+                    <span class="badge bg-warning">草稿</span>
+                    {% else %}
+                    <span class="badge bg-secondary">已封存</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ post.views }}</td>
+                  <td>{{ post.published_at.strftime('%Y-%m-%d') if post.published_at else '-' }}</td>
+                  <td class="text-end">
+                    <a href="{{ url_for('main.post_detail', post_id=post.id) }}" class="btn btn-sm btn-outline-info"
+                      target="_blank" title="預覽">
+                      <i class="bi bi-eye"></i>
+                    </a>
+                    <a href="{{ url_for('admin.edit_post', post_id=post.id) }}" class="btn btn-sm btn-outline-primary"
+                      title="編輯">
+                      <i class="bi bi-pencil"></i>
+                    </a>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_post', post_id=post.id) }}" class="d-inline"
+                      onsubmit="return confirm('確定要刪除「{{ post.title }}」？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="6" class="text-center text-muted py-5">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    目前沒有文章
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== ORDERS TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'orders' %}show active{% endif %}" id="orders">
+      <h4 class="fw-bold mb-3"><i class="bi bi-cart"></i> 訂單管理</h4>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>訂單編號</th>
+                  <th>客戶</th>
+                  <th>Email</th>
+                  <th>金額</th>
+                  <th>狀態</th>
+                  <th>日期</th>
+                  <th class="text-end">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for order in orders %}
+                <tr>
+                  <td class="fw-bold">#{{ order.id }}</td>
+                  <td>{{ order.firstname }} {{ order.surname }}</td>
+                  <td>{{ order.email }}</td>
+                  <td class="fw-bold">NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
+                  <td>
+                    <form method="POST" action="{{ url_for('admin.update_order_status', order_id=order.id) }}"
+                      class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="pending" {% if order.status=='pending' %}selected{% endif %}>待確認</option>
+                        <option value="confirmed" {% if order.status=='confirmed' %}selected{% endif %}>已確認</option>
+                        <option value="completed" {% if order.status=='completed' %}selected{% endif %}>已完成</option>
+                        <option value="cancelled" {% if order.status=='cancelled' %}selected{% endif %}>已取消</option>
+                      </select>
+                    </form>
+                  </td>
+                  <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-outline-info" onclick="alert('訂單詳情功能開發中')" title="查看詳情">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="7" class="text-center text-muted py-5">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    目前沒有訂單
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== BOOKINGS TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'bookings' %}show active{% endif %}" id="bookings">
+      <h4 class="fw-bold mb-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>預約編號</th>
+                  <th>客戶</th>
+                  <th>課程</th>
+                  <th>堂數</th>
+                  <th>金額</th>
+                  <th>狀態</th>
+                  <th>日期</th>
+                  <th class="text-end">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for booking in bookings %}
+                <tr>
+                  <td class="fw-bold">#{{ booking.id }}</td>
+                  <td>{{ booking.firstname }} {{ booking.surname }}</td>
+                  <td>{{ booking.course_name }}</td>
+                  <td>
+                    <span class="badge bg-info">{{ booking.sessions_purchased }} 堂</span>
+                    <span class="badge bg-success">剩 {{ booking.sessions_remaining }}</span>
+                  </td>
+                  <td class="fw-bold">NT$ {{ '{:,.0f}'.format(booking.total_amount) }}</td>
+                  <td>
+                    <form method="POST" action="{{ url_for('admin.update_booking_status', booking_id=booking.id) }}"
+                      class="d-inline">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                        <option value="pending" {% if booking.status=='pending' %}selected{% endif %}>待確認</option>
+                        <option value="confirmed" {% if booking.status=='confirmed' %}selected{% endif %}>已確認</option>
+                        <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>已完成</option>
+                        <option value="cancelled" {% if booking.status=='cancelled' %}selected{% endif %}>已取消</option>
+                      </select>
+                    </form>
+                  </td>
+                  <td>{{ booking.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-outline-info" onclick="alert('預約詳情功能開發中')" title="查看詳情">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="8" class="text-center text-muted py-5">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    目前沒有預約
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== CUSTOMERS TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'customers' %}show active{% endif %}" id="customers">
+      <h4 class="fw-bold mb-3"><i class="bi bi-people"></i> 客戶管理</h4>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>姓名</th>
+                  <th>Email</th>
+                  <th>電話</th>
+                  <th>訂單數</th>
+                  <th>預約數</th>
+                  <th>註冊日期</th>
+                  <th class="text-end">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for customer in customers %}
+                <tr>
+                  <td class="fw-bold">{{ customer.firstname }} {{ customer.surname }}</td>
+                  <td>{{ customer.email }}</td>
+                  <td>{{ customer.phone or '-' }}</td>
+                  <td>
+                    <span class="badge bg-primary">{{ customer.order_count }}</span>
+                  </td>
+                  <td>
+                    <span class="badge bg-success">{{ customer.booking_count }}</span>
+                  </td>
+                  <td>{{ customer.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="text-end">
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除此客戶？此操作無法恢復！');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="7" class="text-center text-muted py-5">
+                    <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                    目前沒有客戶
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== CATEGORIES TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'categories' %}show active{% endif %}" id="categories">
+      <h4 class="fw-bold mb-4"><i class="bi bi-tags"></i> 分類管理</h4>
+
+      <div class="row g-4">
+
+        <!-- Product Categories -->
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+              <h5 class="mb-0 fw-bold">產品分類</h5>
+            </div>
+            <div class="card-body">
+              <form method="POST" action="{{ url_for('admin.add_product_category') }}" class="mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="input-group">
+                  <input type="text" name="name" class="form-control" placeholder="輸入新分類名稱..." required>
+                  <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> 新增
+                  </button>
+                </div>
+              </form>
+
+              <div class="list-group">
+                {% for category in product_categories %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <span class="fw-bold">{{ category.name }}</span>
+                  <div>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_product_category', category_id=category.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除「{{ category.name }}」分類？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
+                </div>
+                {% else %}
+                <div class="list-group-item text-center text-muted">
+                  目前沒有產品分類
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Course Categories -->
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+              <h5 class="mb-0 fw-bold">課程分類</h5>
+            </div>
+            <div class="card-body">
+              <form method="POST" action="{{ url_for('admin.add_course_category') }}" class="mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="input-group">
+                  <input type="text" name="name" class="form-control" placeholder="輸入新分類名稱..." required>
+                  <button type="submit" class="btn btn-success">
+                    <i class="bi bi-plus-circle"></i> 新增
+                  </button>
+                </div>
+              </form>
+
+              <div class="list-group">
+                {% for category in course_categories %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <span class="fw-bold">{{ category.name }}</span>
+                  <div>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_course_category', category_id=category.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除「{{ category.name }}」分類？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
+                </div>
+                {% else %}
+                <div class="list-group-item text-center text-muted">
+                  目前沒有課程分類
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========================== EVENTS TAB ========================== -->
+        <div class="tab-pane fade {% if tab == 'events' %}show active{% endif %}" id="events">
+
+          <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0"><i class="bi bi-calendar-event"></i> 活動管理</h4>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
+              <i class="bi bi-plus-circle"></i> 新增事件
+            </button>
+          </div>
+
+          <div class="card border-0 shadow-sm">
+            <div class="card-body p-0">
+              <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>標題</th>
+                      <th>客戶</th>
+                      <th>開始時間</th>
+                      <th>結束時間</th>
+                      <th>時長</th>
+                      <th class="text-end">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for event in events %}
+                    <tr>
+                      <td>{{ event.title }}</td>
+                      <td>{{ event.customer_name or '-' }}</td>
+                      <td>{{ event.start_date }}</td>
+                      <td>{{ event.end_date }}</td>
+                      <td>{{ event.duration }} 分鐘</td>
+                      <td class="text-end">
+
+                        <!-- Edit -->
+                        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
+                          data-bs-target="#editEventModal{{ event.id }}">
+                          <i class="bi bi-pencil"></i>
+                        </button>
+
+                        <!-- Delete -->
+                        <form action="{{ url_for('admin.delete_event', event_id=event.id) }}" method="POST"
+                          class="d-inline" onsubmit="return confirm('確定要刪除事件「{{ event.title }}」？');">
+                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                          <button type="submit" class="btn btn-sm btn-outline-danger">
+                            <i class="bi bi-trash"></i>
+                          </button>
+                        </form>
+
+                      </td>
+                    </tr>
+
+                    {% else %}
+                    <tr>
+                      <td colspan="6" class="text-center text-muted py-5">
+                        <i class="bi bi-inbox display-4 d-block mb-3"></i>
+                        尚無事件
+                      </td>
+                    </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+      </div>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+  .card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .card:hover {
+    transform: translateY(-2px);
+  }
+
+  .table-hover tbody tr {
+    transition: background-color 0.2s ease;
+  }
+
+  .table-hover tbody tr:hover {
+    background-color: #f8f9fa;
+  }
+
+  .nav-tabs .nav-link {
+    color: #6c757d;
+    font-weight: 500;
+  }
+
+  .nav-tabs .nav-link.active {
+    color: #0d6efd;
+    font-weight: 600;
+  }
+
+  .nav-tabs .nav-link:hover {
+    color: #0d6efd;
+  }
+
+  .badge {
+    font-weight: 500;
+  }
+
+  .btn-sm {
+    padding: 0.25rem 0.5rem;
+  }
+
+  /* Statistics Cards */
+  .card-body .bg-opacity-10 {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* Table Actions */
+  .table td {
+    vertical-align: middle;
+  }
+
+  /* Quick Actions */
+  .btn.py-3 {
+    font-weight: 600;
+  }
+
+  /* Form Select Small */
+  .form-select-sm {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+  }
+
+  /* List Group Item Hover */
+  .list-group-item {
+    transition: background-color 0.2s ease;
+  }
+
+  .list-group-item:hover {
+    background-color: #f8f9fa;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .table-responsive {
+      font-size: 0.875rem;
+    }
+
+    .btn-sm {
+      padding: 0.2rem 0.4rem;
+      font-size: 0.75rem;
+    }
+
+    .card-body .bg-opacity-10 {
+      width: 50px;
+      height: 50px;
+    }
+
+    .card-body h3 {
+      font-size: 1.5rem;
+    }
+  }
+
+  /* Empty State */
+  .bi-inbox {
+    opacity: 0.3;
+  }
+
+  /* Loading State */
+  .spinner-border-sm {
+    width: 1rem;
+    height: 1rem;
+    border-width: 0.15em;
+  }
+</style>
+
+<!-- ===================== MODALS: PRODUCTS / COURSES / EVENTS / INVENTORY ===================== -->
+
+<!-- Add Product Modal -->
+<div class="modal fade" id="addProductModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.add_product_modal') }}" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">新增產品</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label">產品名稱</label>
+              <input name="name" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">分類</label>
+              <select name="category_id" class="form-select">
+                <option value="">未分類</option>
+                {% for cat in product_categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">價格</label>
+              <input name="price" type="number" step="0.01" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">成本</label>
+              <input name="cost" type="number" step="0.01" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">庫存數量</label>
+              <input name="stock" type="number" class="form-control" value="0">
+            </div>
+            <div class="col-12">
+              <label class="form-label">單位</label>
+              <input name="unit" class="form-control" value="件">
+            </div>
+            <div class="col-12">
+              <label class="form-label">描述</label>
+              <textarea name="description" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">圖片</label>
+              <input name="image" type="file" accept="image/*" class="form-control"
+                onchange="previewImage(this,'addProductPreview')">
+            </div>
+            <div class="col-md-6 d-flex align-items-center">
+              <img id="addProductPreview" src="{{ url_for('static', filename='img/placeholder.jpg') }}" alt="preview"
+                style="max-width:140px; max-height:100px; object-fit:cover;">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+          <button class="btn btn-primary" type="submit">新增產品</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Product Modal -->
+<div class="modal fade" id="editProductModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form id="editProductForm" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="current_image" id="edit_product_current_image">
+        <div class="modal-header">
+          <h5 class="modal-title">編輯產品</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8">
+              <label class="form-label">產品名稱</label>
+              <input name="name" id="edit_product_name" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">分類</label>
+              <select name="category_id" id="edit_product_category" class="form-select">
+                <option value="">未分類</option>
+                {% for cat in product_categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">價格</label>
+              <input name="price" id="edit_product_price" type="number" step="0.01" class="form-control" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">成本</label>
+              <input name="cost" id="edit_product_cost" type="number" step="0.01" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">庫存數量</label>
+              <input name="stock" id="edit_product_stock" type="number" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">單位</label>
+              <input name="unit" id="edit_product_unit" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">描述</label>
+              <textarea name="description" id="edit_product_description" class="form-control" rows="3"></textarea>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">圖片 (可選)</label>
+              <input name="image" id="edit_product_image" type="file" accept="image/*" class="form-control"
+                onchange="previewImage(this,'editProductPreview')">
+            </div>
+            <div class="col-md-6 d-flex align-items-center">
+              <img id="editProductPreview" src="{{ url_for('static', filename='img/placeholder.jpg') }}" alt="preview"
+                style="max-width:140px; max-height:100px; object-fit:cover;">
+            </div>
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="edit_product_is_active" name="is_active">
+                <label class="form-check-label" for="edit_product_is_active">啟用</label>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+          <button class="btn btn-primary" type="submit">更新產品</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Course Modal -->
+<div class="modal fade" id="addCourseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.add_course_modal') }}" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">新增課程</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8"><label class="form-label">課程名稱</label><input name="name" class="form-control"
+                required></div>
+            <div class="col-md-4"><label class="form-label">分類</label>
+              <select name="category_id" class="form-select">
+                <option value="">未分類</option>
+                {% for cat in course_categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label">正式價格</label><input name="regular_price" type="number"
+                step="0.01" class="form-control" required></div>
+            <div class="col-md-4"><label class="form-label">體驗價格</label><input name="experience_price" type="number"
+                step="0.01" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">時長（分鐘）</label><input name="duration" type="number"
+                class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">堂數</label><input name="sessions" type="number"
+                class="form-control" value="1"></div>
+            <div class="col-12"><label class="form-label">描述</label><textarea name="description" class="form-control"
+                rows="3"></textarea></div>
+            <div class="col-md-6"><label class="form-label">圖片</label><input name="image" type="file" accept="image/*"
+                class="form-control" onchange="previewImage(this,'addCoursePreview')"></div>
+            <div class="col-md-6 d-flex align-items-center"><img id="addCoursePreview"
+                src="{{ url_for('static', filename='img/placeholder.jpg') }}"
+                style="max-width:140px; max-height:100px; object-fit:cover;"></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal"
+            type="button">取消</button><button class="btn btn-primary" type="submit">新增課程</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Course Modal -->
+<div class="modal fade" id="editCourseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form id="editCourseForm" method="POST" enctype="multipart/form-data">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="current_image" id="edit_course_current_image">
+        <div class="modal-header">
+          <h5 class="modal-title">編輯課程</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-8"><label class="form-label">課程名稱</label><input name="name" id="edit_course_name"
+                class="form-control" required></div>
+            <div class="col-md-4"><label class="form-label">分類</label>
+              <select name="category_id" id="edit_course_category" class="form-select">
+                <option value="">未分類</option>
+                {% for cat in course_categories %}
+                <option value="{{ cat.id }}">{{ cat.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4"><label class="form-label">正式價格</label><input name="regular_price"
+                id="edit_course_regular_price" type="number" step="0.01" class="form-control" required></div>
+            <div class="col-md-4"><label class="form-label">體驗價格</label><input name="experience_price"
+                id="edit_course_experience_price" type="number" step="0.01" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">時長（分鐘）</label><input name="duration"
+                id="edit_course_duration" type="number" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label">堂數</label><input name="sessions" id="edit_course_sessions"
+                type="number" class="form-control"></div>
+            <div class="col-12"><label class="form-label">描述</label><textarea name="description"
+                id="edit_course_description" class="form-control" rows="3"></textarea></div>
+            <div class="col-md-6"><label class="form-label">圖片 (可選)</label><input name="image" id="edit_course_image"
+                type="file" accept="image/*" class="form-control" onchange="previewImage(this,'editCoursePreview')">
+            </div>
+            <div class="col-md-6 d-flex align-items-center"><img id="editCoursePreview"
+                src="{{ url_for('static', filename='img/placeholder.jpg') }}"
+                style="max-width:140px; max-height:100px; object-fit:cover;"></div>
+            <div class="col-12">
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="edit_course_is_active"
+                  name="is_active"><label class="form-check-label" for="edit_course_is_active">啟用</label></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal"
+            type="button">取消</button><button class="btn btn-primary" type="submit">更新課程</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Event Modal -->
+<div class="modal fade" id="addEventModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.add_event') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">新增活動</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label">標題</label><input name="title" class="form-control" required></div>
+          <div class="mb-3"><label class="form-label">客戶（可選）</label>
+            <select name="customer_id" class="form-select">
+              <option value="">無</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.firstname }} {{
+                c.surname }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">開始時間</label><input name="start_date"
+                type="datetime-local" class="form-control"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">結束時間</label><input name="end_date"
+                type="datetime-local" class="form-control"></div>
+          </div>
+          <div class="mb-3"><label class="form-label">時長（分鐘）</label><input name="duration" type="number"
+              class="form-control"></div>
+          <div class="mb-3"><label class="form-label">備註</label><textarea name="description"
+              class="form-control"></textarea></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal"
+            type="button">取消</button><button class="btn btn-primary" type="submit">新增</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Event Modal -->
+<div class="modal fade" id="editEventModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form id="editEventForm" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">編輯活動</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label">標題</label><input name="title" id="edit_event_title"
+              class="form-control" required></div>
+          <div class="mb-3"><label class="form-label">客戶（可選）</label>
+            <select name="customer_id" id="edit_event_customer" class="form-select">
+              <option value="">無</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.firstname }} {{
+                c.surname }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="row">
+            <div class="col-md-6 mb-3"><label class="form-label">開始時間</label><input name="start_date"
+                id="edit_event_start" type="datetime-local" class="form-control"></div>
+            <div class="col-md-6 mb-3"><label class="form-label">結束時間</label><input name="end_date" id="edit_event_end"
+                type="datetime-local" class="form-control"></div>
+          </div>
+          <div class="mb-3"><label class="form-label">時長（分鐘）</label><input name="duration" id="edit_event_duration"
+              type="number" class="form-control"></div>
+          <div class="mb-3"><label class="form-label">備註</label><textarea name="description" id="edit_event_description"
+              class="form-control"></textarea></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal"
+            type="button">取消</button><button class="btn btn-primary" type="submit">更新</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Inventory Adjust Modal -->
+<div class="modal fade" id="adjustInventoryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.adjust_inventory_modal') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">庫存調整</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="mb-3"><label class="form-label">產品</label>
+            <select name="product_id" class="form-select" required>
+              <option value="">請選擇</option>
+              {% for p in inventory_products %}
+              <option value="{{ p.id }}">{{ p.name }} (現有：{{ p.stock_quantity }})</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="mb-3"><label class="form-label">數量（正為增加，負為減少）</label><input name="change_amount" type="number"
+              class="form-control" required></div>
+          <div class="mb-3"><label class="form-label">類型</label>
+            <select name="change_type" class="form-select">
+              <option value="adjustment">調整</option>
+              <option value="purchase">進貨</option>
+              <option value="sale">銷售</option>
+              <option value="return">退貨</option>
+            </select>
+          </div>
+          <div class="mb-3"><label class="form-label">備註</label><textarea name="notes" class="form-control"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal"
+            type="button">取消</button><button class="btn btn-primary" type="submit">提交</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== END MODALS ===================== -->
+
+<!-- ===== JS: populate edit modals (call when click edit buttons) ===== -->
+<script>
+  // Helper: preview image before upload
+  function previewImage(input, previewId) {
+    if (input.files && input.files[0]) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        document.getElementById(previewId).src = e.target.result;
+      };
+      reader.readAsDataURL(input.files[0]);
+    }
+  }
+
+  // ================= Edit Product Modal =================
+  function openEditProductModal(product) {
+    product = product || {}; // safety fallback
+
+    document.getElementById('edit_product_name').value = product.name || '';
+    document.getElementById('edit_product_category').value = product.category_id || '';
+    document.getElementById('edit_product_price').value = product.price || '';
+    document.getElementById('edit_product_cost').value = product.cost || '';
+    document.getElementById('edit_product_stock').value = product.stock_quantity || 0;
+    document.getElementById('edit_product_unit').value = product.unit || '件';
+    document.getElementById('edit_product_description').value = product.description || '';
+    document.getElementById('edit_product_current_image').value = product.image || '';
+    document.getElementById('editProductPreview').src = product.image ? ("/static/" + product.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
+    document.getElementById('edit_product_is_active').checked = !!product.is_active;
+
+    // set form action safely
+    if (product.id) {
+      document.getElementById('editProductForm').action = "{{ url_for('admin.update_product_modal', product_id=0) }}".replace('/0/', '/' + product.id + '/');
+    }
+
+    // show modal
+    var modal = new bootstrap.Modal(document.getElementById('editProductModal'));
+    modal.show();
+  }
+
+  // ================= Edit Course Modal =================
+  function openEditCourseModal(course) {
+    course = course || {}; // safety fallback
+
+    document.getElementById('edit_course_name').value = course.name || '';
+    document.getElementById('edit_course_category').value = course.category_id || '';
+    document.getElementById('edit_course_regular_price').value = course.regular_price || '';
+    document.getElementById('edit_course_experience_price').value = course.experience_price || '';
+    document.getElementById('edit_course_duration').value = course.duration || '';
+    document.getElementById('edit_course_sessions').value = course.sessions || 1;
+    document.getElementById('edit_course_description').value = course.description || '';
+    document.getElementById('edit_course_current_image').value = course.image || '';
+    document.getElementById('editCoursePreview').src = course.image ? ("/static/" + course.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
+    document.getElementById('edit_course_is_active').checked = !!course.is_active;
+
+    if (course.id) {
+      document.getElementById('editCourseForm').action = "{{ url_for('admin.update_course_modal', course_id=0) }}".replace('/0/', '/' + course.id + '/');
+    }
+
+    var modal = new bootstrap.Modal(document.getElementById('editCourseModal'));
+    modal.show();
+  }
+
+  // ================= Edit Event Modal =================
+  function openEditEventModal(event) {
+    event = event || {}; // safety fallback
+
+    document.getElementById('edit_event_title').value = event.title || '';
+    document.getElementById('edit_event_customer').value = event.customer_id || '';
+
+    function toLocalInput(dt) {
+      if (!dt) return '';
+      let s = dt.replace(' ', 'T');
+      return s.length > 16 ? s.substring(0, 16) : s;
+    }
+
+    document.getElementById('edit_event_start').value = toLocalInput(event.start_date);
+    document.getElementById('edit_event_end').value = toLocalInput(event.end_date);
+    document.getElementById('edit_event_duration').value = event.duration || '';
+    document.getElementById('edit_event_description').value = event.description || '';
+
+    if (event.id) {
+      document.getElementById('editEventForm').action = "{{ url_for('admin.update_event', event_id=0) }}".replace('/0/', '/' + event.id + '/');
+    }
+
+    var modal = new bootstrap.Modal(document.getElementById('editEventModal'));
+    modal.show();
+  }
+
+  // ================= Example Usage =================
+  // Safe example for reference (won't error if `product` is undefined)
+  // {# <button onclick="openEditProductModal({{ product|default({})|tojson }})">Edit</button> #}
+</script>
+
+
+{% endblock %}

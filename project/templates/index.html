@@ -1,93 +1,232 @@
-{% extends "base.html" %} {% block title %}Home{% endblock %} {% block content
-%}
-<div class="container-xxl py-4">
-  <div class="row g-3">
-    {% if images|length == 0 %}
-    <div class="col-12">
-      <p class="text-muted mb-0">No images yet.</p>
+{% extends "base.html" %}
+{% block title %}首頁 - 晶品芳療{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+
+  <!-- Featured Products -->
+  {% if featured_products %}
+  <section class="mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h3 class="fw-bold mb-0">精選產品</h3>
+      <a href="{{ url_for('main.products') }}" class="btn btn-sm btn-outline-secondary">查看全部 <i
+          class="bi bi-arrow-right"></i></a>
     </div>
-    {% endif %} {% for item in images %}
-    <div class="col-12 col-sm-6 col-md-4 col-lg-3">
-      <div class="card h-100 rounded-4 shadow-sm hover-zoom">
-        <div class="ratio ratio-4x3">
-          <a
-            href="{{ url_for('main.item_detail', id=item.id) }}"
-            class="d-block w-100 h-100"
-            aria-label="Open {{ item.title }} details"
-          >
-            <img
-              src="{{ url_for('static', filename=item.url) }}"
-              class="w-100 h-100 object-fit-cover"
-              alt="{{ item.title }}"
-              loading="lazy"
-            />
+
+    <div class="row g-4">
+      {% for product in featured_products %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card h-100 shadow-sm hover-zoom">
+          <a href="{{ url_for('main.product_detail', product_id=product.id) }}" class="text-decoration-none text-dark">
+            <div class="ratio ratio-1x1">
+              <img src="{{ url_for('static', filename='img/gallery_1.jpg') }}" class="card-img-top object-fit-cover">
+            </div>
+            <div class="card-body">
+              <h6 class="fw-bold text-truncate">{{ product.name }}</h6>
+              <p class="text-primary fw-bold">NT$ {{ product.price|int }}</p>
+            </div>
           </a>
         </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
-        <div class="card-body noclick">
-          <div>
-            <div
-              class="d-flex align-images-center justify-content-between mb-1"
-            >
-              <h6 class="mb-0 me-2 text-truncate" title="{{ item.title }}">
-                {{ item.title or 'Untitled' }}
-              </h6>
+  <!-- Featured Courses -->
+  {% if featured_courses %}
+  <section class="mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h3 class="fw-bold mb-0">熱門課程</h3>
+      <a href="{{ url_for('main.courses') }}" class="btn btn-sm btn-outline-secondary">查看全部 <i
+          class="bi bi-arrow-right"></i></a>
+    </div>
 
-              {% set vendor_label = item.vendor_name or ('Vendor #' ~
-              item.vendor_id) %} {% if session.get('role') == 'vendor' %}
-              <a
-                class="badge badge-link vendor-badge d-inline-block text-truncate"
-                href="{{ url_for('vendor.gallery', vendor_id=item.vendor_id) }}"
-                aria-label="Open {{ vendor_label }} gallery"
-                title="{{ vendor_label }}"
-                style="max-width: 160px"
-              >
-                {{ vendor_label }}
-              </a>
+    <div class="row g-4">
+      {% for course in featured_courses %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <div class="card h-100 hover-zoom shadow-sm">
+          <a href="{{ url_for('main.course_detail', course_id=course.id) }}" class="text-decoration-none text-dark">
+            <div class="ratio ratio-16x9">
+              {% if course.image %}
+              <img src="{{ url_for('static', filename='img/gallery_1.jpg') }}">
+              class="card-img-top object-fit-cover" alt="{{ course.name }}">
               {% else %}
-              <span
-                class="badge badge-link rounded-pill disabled vendor-badge d-inline-block text-truncate"
-                title="{{ vendor_label }}"
-                style="max-width: 160px"
-              >
-                {{ vendor_label }}
-              </span>
+              <div class="bg-light d-flex align-items-center justify-content-center">
+                <i class="bi bi-calendar-check fs-1 text-muted"></i>
+              </div>
               {% endif %}
             </div>
-            <div class="d-flex justify-content-between mb-1">
-              <div class="small text-muted badge text-bg-light">
-                {% if item.uploaded_at and item.uploaded_at.__class__.__name__
-                in ['date','datetime'] %} {{
-                item.uploaded_at.strftime('%Y-%m-%d') }} {% else %} {{
-                item.uploaded_at or '-' }} {% endif %}
+            <div class="card-body">
+              <h5 class="card-title">{{ course.name }}</h5>
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <div>
+                  {% if course.experience_price %}
+                  <span class="badge bg-success">首次體驗</span>
+                  <span class="text-success fw-bold">NT$ {{ '{:,.0f}'.format(course.experience_price) }}</span>
+                  {% endif %}
+                  <p
+                    class="mb-0 {% if course.experience_price %}text-muted text-decoration-line-through small{% else %}text-primary fw-bold{% endif %}">
+                    NT$ {{ '{:,.0f}'.format(course.regular_price) }}
+                  </p>
+                </div>
+                {% if course.duration %}
+                <span class="text-muted small"><i class="bi bi-clock"></i> {{ course.duration }} 分鐘</span>
+                {% endif %}
               </div>
-              <span class="badge text-bg-dark float-end"
-                >{{ item.license_types[0] }}</span
-              >
+              {% if course.category_name %}
+              <span class="badge bg-light text-dark">{{ course.category_name }}</span>
+              {% endif %}
             </div>
-          </div>
-          <div class="d-flex small text-muted">
-            <span class="badge text-bg-light"
-              >${{ '%.2f'|format(item.price or 0) }}</span
-            >
-            <span class="badge text-bg-light"
-              >{{ item.resolution or '-' }}</span
-            >
-          </div>
-
-          <div class="d-flex flex-wrap gap-1 mt-2">
-            {% if item.event_name %}
-            <span class="badge badge-event">{{ item.event_name }}</span>
-            {% endif %}
-            <span class="badge badge-event">👀 {{ item.views or 0 }}</span>
-          </div>
-          {% for c in item.category_names %}
-          <span class="badge badge-category mt-2">#{{ c|capitalize }}</span>
-          {% endfor %}
+          </a>
         </div>
       </div>
+      {% endfor %}
     </div>
-    {% endfor %}
-  </div>
+  </section>
+  {% endif %}
+
+  <!-- Blog Posts -->
+  <!-- ⭐ 最新文章（雜誌風） -->
+  {% if posts %}
+  <section class="mb-5">
+    <h3 class="fw-bold mb-4">最新文章</h3>
+
+    <div class="row g-4">
+      {% for post in posts %}
+      <div class="col-12 col-md-6 col-lg-4">
+        <a href="{{ url_for('main.post_detail', post_id=post.id) }}" class="text-decoration-none"
+          style="text-decoration: none;">
+          <div style="
+          border-radius: 15px;
+          overflow: hidden;
+          position: relative;
+          transition: transform 0.3s ease, box-shadow 0.3s ease;
+          border: 0;
+          box-shadow: 0 1px 5px rgba(0,0,0,0.1);
+        " onmouseover="this.style.transform='translateY(-5px) scale(1.02)'; this.style.boxShadow='0 10px 25px rgba(0,0,0,0.15)';"
+            onmouseout="this.style.transform='translateY(0) scale(1)'; this.style.boxShadow='0 1px 5px rgba(0,0,0,0.1)';">
+
+            <!-- 圖片 -->
+            <div style="position: relative; width: 100%; padding-top: 56.25%; overflow: hidden;">
+              <img src="{{ url_for('static', filename='img/gallery_1.jpg') }}" alt="{{ post.title }}" style="
+                   position: absolute;
+                   top: 0; left: 0;
+                   width: 100%; height: 100%;
+                   object-fit: cover;
+                 ">
+              <!-- 漸層遮罩 -->
+              <div style="
+              position: absolute;
+              top: 0; left: 0;
+              width: 100%; height: 100%;
+              background: linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.25));
+              pointer-events: none;
+            "></div>
+            </div>
+
+            <!-- 文章內容 -->
+            <div style="padding: 1rem;">
+              <h5 style="font-size: 1.1rem; line-height: 1.4; font-weight: bold; color: #000;">{{ post.title }}</h5>
+              <p style="font-size: 0.85rem; line-height: 1.4; color: #6c757d; margin-bottom: 0.5rem;">
+                <i class="bi bi-calendar3 me-1"></i> {{ post.date }}
+              </p>
+              <p style="font-size: 0.95rem; line-height: 1.5; color: #6c757d;">{{ post.summary }}</p>
+              <span style="font-weight: bold; color: #0d6efd;">閱讀更多 →</span>
+            </div>
+
+          </div>
+        </a>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+
+  <!-- Testimonials -->
+  {% if testimonials %}
+  <section class="mb-5">
+    <h3 class="fw-bold mb-4 text-center">使用者推薦</h3>
+
+    <div id="testimonialCarousel" class="carousel slide" data-bs-ride="carousel">
+      <div class="carousel-inner">
+        {% for testimonial in testimonials %}
+        <div class="carousel-item {% if loop.first %}active{% endif %}">
+          <div class="p-5 bg-light rounded-4 shadow text-center">
+            <i class="bi bi-quote fs-1 text-primary"></i>
+            <p class="fs-5 my-4">{{ testimonial.content }}</p>
+            <p class="fw-bold text-primary">— {{ testimonial.author }}</p>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      <button class="carousel-control-prev" type="button" data-bs-target="#testimonialCarousel" data-bs-slide="prev">
+        <span class="carousel-control-prev-icon bg-dark rounded-circle p-3"></span>
+      </button>
+      <button class="carousel-control-next" type="button" data-bs-target="#testimonialCarousel" data-bs-slide="next">
+        <span class="carousel-control-next-icon bg-dark rounded-circle p-3"></span>
+      </button>
+    </div>
+  </section>
+  {% endif %}
+
+
+  <!-- Contact & Map Section -->
+  <section class="row g-5">
+    <!-- Contact Form -->
+    <div class="col-12 col-lg-6">
+      <h4 class="fw-bold mb-3">聯絡我們</h4>
+
+      <form action="{{ url_for('main.contact') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="mb-3">
+          <label class="form-label">姓名 <span class="text-danger">*</span></label>
+          <input type="text" name="name" class="form-control" required>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Email <span class="text-danger">*</span></label>
+          <input type="email" name="email" class="form-control" required>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">電話</label>
+          <input type="tel" name="phone" class="form-control">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">LINE 帳號</label>
+          <input type="text" name="line" class="form-control">
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">訊息 <span class="text-danger">*</span></label>
+          <textarea name="message" rows="4" class="form-control" required></textarea>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100">送出</button>
+      </form>
+    </div>
+
+    <!-- Map & Info -->
+    <div class="col-12 col-lg-6 d-flex flex-column">
+      <h4 class="fw-bold mb-3">交通資訊</h4>
+      <div class="mb-4">
+        <p class="mb-2"><i class="bi bi-geo-alt-fill text-primary"></i> 新北市新莊區思源路196巷37號1樓</p>
+        <p class="mb-2"><i class="bi bi-train-front-fill text-primary"></i> 捷運幸福站 1 號出口</p>
+        <p class="mb-2"><i class="bi bi-p-square-fill text-primary"></i> 遠東好停幸福站停車場</p>
+      </div>
+
+      <!-- Google Map -->
+      <div class="flex-grow-1">
+        <iframe
+          src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d903.6300122500033!2d121.46053552850924!3d25.05035699860708!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a862815f21fd%3A0xcaaa930671c6c827!2z5pm25ZOB6Iqz55mC!5e0!3m2!1szh-TW!2sau!4v1763110421398!5m2!1szh-TW!2sau"
+          class="w-100 h-100 rounded-4 shadow" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
+      </div>
+    </div>
+  </section>
+
 </div>
 {% endblock %}

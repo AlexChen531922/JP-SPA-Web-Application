@@ -1,12 +1,27 @@
 {% extends "base.html" %}
+{% block title %}錯誤 {{ code }} - 晶品芳療{% endblock %}
+
 {% block content %}
-  <h1>Error {{ code }}</h1>
-  <p>{{ message }}</p>
+<div class="container py-5 text-center">
+    <h1 class="display-1 fw-bold text-muted">{{ code }}</h1>
+    <p class="fs-3"><span class="text-danger">糟糕！</span> {{ message }}</p>
+    <p class="lead">{{ message }}</p>
 
-
-  {% if code == 404 %}
-    <a href="{{ url_for('main.index') }}">Go Home</a>
-  {% elif code == 500 %}
-    <p>Please try again later. If the problem persists, contact support.</p>
-  {% endif %}
+    {% if code == 404 %}
+    <p class="mb-4">您訪問的頁面不存在</p>
+    <a href="{{ url_for('main.home') }}" class="btn btn-primary">
+        <i class="bi bi-house"></i> 回到首頁
+    </a>
+    {% elif code == 403 %}
+    <p class="mb-4">您沒有權限訪問此頁面</p>
+    <a href="{{ url_for('main.home') }}" class="btn btn-primary">
+        <i class="bi bi-house"></i> 回到首頁
+    </a>
+    {% elif code == 500 %}
+    <p class="mb-4">伺服器發生錯誤，請稍後再試</p>
+    <a href="{{ url_for('main.home') }}" class="btn btn-primary">
+        <i class="bi bi-house"></i> 回到首頁
+    </a>
+    {% endif %}
+</div>
 {% endblock %}
