@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}產品銷售排行 - 進階報表{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold"><i class="bi bi-box-seam"></i> 產品銷售排行</h2>
+            <p class="text-muted mb-0">分析產品銷售表現與獲利能力</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('reports.export_report', report_type='products', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn btn-success">
+                <i class="bi bi-file-earmark-excel"></i> 匯出 CSV
+            </a>
+            <a href="{{ url_for('reports.dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 返回報表總覽
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3 align-items-end">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">時間範圍</label>
+                    <select name="period" id="periodSelect" class="form-select" onchange="toggleCustomDates()">
+                        <option value="today" {% if period=='today' %}selected{% endif %}>今天</option>
+                        <option value="week" {% if period=='week' %}selected{% endif %}>本週</option>
+                        <option value="month" {% if period=='month' %}selected{% endif %}>本月</option>
+                        <option value="quarter" {% if period=='quarter' %}selected{% endif %}>本季</option>
+                        <option value="year" {% if period=='year' %}selected{% endif %}>今年</option>
+                        <option value="custom" {% if period=='custom' %}selected{% endif %}>自訂範圍</option>
+                    </select>
+                </div>
+
+                <div class="col-md-3" id="customStartDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">開始日期</label>
+                    <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+
+                <div class="col-md-3" id="customEndDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">結束日期</label>
+                    <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-search"></i> 篩選
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <div class="btn-group">
+            <a href="{{ url_for('reports.product_rankings', sort='quantity', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn {% if sort_by == 'quantity' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                按銷售數量排序
+            </a>
+            <a href="{{ url_for('reports.product_rankings', sort='revenue', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn {% if sort_by == 'revenue' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                按營收金額排序
+            </a>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">排名</th>
+                            <th>產品資訊</th>
+                            <th>分類</th>
+                            <th class="text-end">銷售數量</th>
+                            <th class="text-end">平均單價</th>
+                            <th class="text-end">總營收</th>
+                            <th class="text-end">總成本</th>
+                            <th class="text-end">淨利</th>
+                            <th class="text-end pe-4">利潤率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for product in products %}
+                        <tr>
+                            <td class="ps-4">
+                                <span
+                                    class="badge {% if loop.index <= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %} rounded-pill">
+                                    #{{ loop.index }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <img src="{{ url_for('static', filename=product.image or 'img/placeholder.jpg') }}"
+                                        class="rounded me-2" style="width: 40px; height: 40px; object-fit: cover;">
+                                    <span class="fw-bold">{{ product.name }}</span>
+                                </div>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">{{ product.category_name or '無' }}</span>
+                            </td>
+                            <td class="text-end fw-bold">{{ product.total_quantity }}</td>
+                            <td class="text-end text-muted small">NT$ {{ '{:,.0f}'.format(product.avg_price) }}</td>
+                            <td class="text-end fw-bold text-primary">NT$ {{ '{:,.0f}'.format(product.total_revenue) }}
+                            </td>
+                            <td class="text-end text-muted small">NT$ {{ '{:,.0f}'.format(product.total_cost) }}</td>
+                            <td class="text-end text-success fw-bold">NT$ {{ '{:,.0f}'.format(product.total_profit) }}
+                            </td>
+                            <td class="text-end pe-4">
+                                <span
+                                    class="badge {% if product.profit_margin > 30 %}bg-success{% elif product.profit_margin > 10 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+                                    {{ '{:.1f}'.format(product.profit_margin) }}%
+                                </span>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="9" class="text-center py-5 text-muted">此期間無銷售數據</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleCustomDates() {
+        const period = document.getElementById('periodSelect').value;
+        const showCustom = period === 'custom';
+        document.getElementById('customStartDiv').style.display = showCustom ? 'block' : 'none';
+        document.getElementById('customEndDiv').style.display = showCustom ? 'block' : 'none';
+    }
+</script>
+{% endblock %}

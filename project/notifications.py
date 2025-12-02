@@ -4,11 +4,12 @@ Supports Email and LINE Notify
 """
 
 from flask import current_app
-import requests
+from linebot import LineBotApi
+from linebot.models import TextSendMessage
+from linebot.exceptions import LineBotApiError
+import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import smtplib
-import logging
 
 
 # ==========================================
@@ -543,3 +544,81 @@ def notify_booking_status_update(booking_id, customer_name, customer_email, cour
     """
 
     return send_email(customer_email, subject, body)
+
+# ==========================================
+# LINE MESSAGING API (給顧客)
+# ==========================================
+
+
+def send_customer_line_message(user_line_id, message_text):
+    """
+    使用 Messaging API 發送訊息給特定顧客
+    需在 Config 加入 LINE_CHANNEL_ACCESS_TOKEN
+    """
+    channel_access_token = current_app.config.get('LINE_CHANNEL_ACCESS_TOKEN')
+
+    if not channel_access_token or not user_line_id:
+        return False
+
+    line_bot_api = LineBotApi(channel_access_token)
+
+    try:
+        line_bot_api.push_message(
+            user_line_id, TextSendMessage(text=message_text))
+        return True
+    except LineBotApiError as e:
+        current_app.logger.error(f"LINE Messaging API failed: {e}")
+        return False
+
+# ==========================================
+# 更新版預約通知 (整合行事曆資訊)
+# ==========================================
+
+
+def notify_new_booking_v2(booking_id, customer, course, schedule, total_amount):
+    """
+    發送預約通知 (Admin: LINE Notify / Email, Customer: LINE Messaging / Email)
+    """
+
+    # 1. 準備訊息內容
+    booking_time_str = schedule['start_time'].strftime('%Y-%m-%d %H:%M')
+
+    msg_content = f"""
+【預約確認】
+親愛的 {customer['firstname']}，您已成功預約！
+
+單號：#{booking_id}
+課程：{course['name']}
+時間：{booking_time_str}
+金額：NT$ {total_amount:,.0f}
+
+請準時蒞臨，如需更改請提前告知。
+"""
+
+    # 2. 寄送 Email 給顧客
+    send_email(
+        to=customer['email'],
+        subject=f"預約成功通知 - {booking_time_str}",
+        body=msg_content
+    )
+
+    # 3. 寄送 LINE 給顧客 (前提是 user.line_id 是有效的 User ID)
+    if customer.get('line_id'):
+        send_customer_line_message(customer['line_id'], msg_content)
+
+    # 4. 通知管理員 (使用原本的 LINE Notify)
+    # 這裡可以沿用您原本 notifications.py 的 send_line_notify 函式
+    from .notifications import send_line_notify
+
+    admin_msg = f"""
+📅 新增預約通知
+客戶：{customer['firstname']} {customer['surname']}
+課程：{course['name']}
+時間：{booking_time_str}
+"""
+    send_line_notify(admin_msg)
+
+    # 5. 通知管理員 Email (可選)
+    admin_email = current_app.config.get('MAIL_USERNAME')  # 或其他設定的管理員信箱
+    if admin_email:
+        send_email(to=admin_email, subject="新預約通知", body=admin_msg)

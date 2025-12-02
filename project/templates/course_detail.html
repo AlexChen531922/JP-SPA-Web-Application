@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block head %}
+<script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+<style>
+    /* 行事曆容器 */
+    #calendar {
+        background: #fff;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        min-height: 500px;
+    }
+
+    /* 強制修改 FullCalendar 事件樣式，讓它看起來像可點擊的按鈕 */
+    .fc-event {
+        cursor: pointer !important;
+        border: none !important;
+        padding: 5px !important;
+        margin-bottom: 2px !important;
+        text-align: center;
+        border-radius: 4px !important;
+        transition: transform 0.1s, box-shadow 0.1s;
+    }
+
+    .fc-event:hover {
+        transform: scale(1.02);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    /* 可預約狀態 (綠色) */
+    .status-available {
+        background-color: #28a745 !important;
+        /* Green */
+        color: white !important;
+    }
+
+    /* 已額滿狀態 (紅色) */
+    .status-full {
+        background-color: #dc3545 !important;
+        /* Red */
+        color: white !important;
+        opacity: 0.7;
+        cursor: not-allowed !important;
+    }
+
+    /* 今天的背景色 */
+    .fc-day-today {
+        background-color: rgba(255, 240, 245, 0.5) !important;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-5">
+    <div class="row g-5">
+        <div class="col-lg-4">
+            <div class="sticky-top" style="top: 100px;">
+                <h2 class="fw-bold mb-3">{{ course.name }}</h2>
+                {% if course.image %}
+                <img src="{{ url_for('static', filename=course.image) }}"
+                    class="img-fluid rounded-4 shadow-sm mb-4 w-100 object-fit-cover" style="max-height: 250px;">
+                {% endif %}
+
+                <div class="card border-0 bg-light rounded-4 mb-4">
+                    <div class="card-body">
+                        <h5 class="fw-bold"><i class="bi bi-info-circle-fill text-primary"></i> 預約說明</h5>
+                        <p class="mb-2">{{ course.description }}</p>
+                        <hr>
+                        <ul class="list-unstyled mb-0">
+                            <li class="mb-2"><i class="bi bi-clock text-muted"></i> 時長：{{ course.duration }} 分鐘</li>
+                            <li class="mb-2"><i class="bi bi-currency-dollar text-muted"></i> 價格：NT$ {{
+                                '{:,.0f}'.format(course.regular_price) }}</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="alert alert-primary d-flex align-items-center" role="alert">
+                    <i class="bi bi-hand-index-thumb-fill fs-4 me-3"></i>
+                    <div>
+                        <strong>如何預約？</strong><br>
+                        請點擊右側日曆上的 <span class="badge bg-success">綠色時段</span> 即可預約。
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-8">
+            <div id='calendar'></div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="bookingModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <form action="{{ url_for('main.book_course_slot') }}" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="course_id" value="{{ course.id }}">
+                <input type="hidden" name="schedule_id" id="modalScheduleId">
+
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-calendar-check"></i> 確認預約</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <h4 class="text-primary fw-bold mb-3">{{ course.name }}</h4>
+                    <p class="fs-5">您選擇的時段為：</p>
+                    <div class="bg-light p-3 rounded-3 d-inline-block mb-3">
+                        <strong id="modalTimeStr" class="fs-4"></strong>
+                    </div>
+                    <p class="text-muted mb-0">確定要預約此時段嗎？</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">再想想</button>
+                    <button type="submit" class="btn btn-primary px-4">確定預約</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var calendarEl = document.getElementById('calendar');
+        var calendar = new FullCalendar.Calendar(calendarEl, {
+            // ⭐ 關鍵設定：類似 Google 預約的視圖
+            initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
+            headerToolbar: {
+                left: 'prev,next today',
+                center: 'title',
+                right: 'dayGridMonth,timeGridWeek,listWeek'
+            },
+            locale: 'zh-tw',
+            navLinks: true, // 可以點擊日期進入當天
+            businessHours: { // 強調營業時間
+                daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+                startTime: '10:00',
+                endTime: '21:00',
+            },
+
+            // 資料來源
+            events: '/api/course/{{ course.id }}/schedule',
+
+            // ⭐ 點擊事件 (修復無法點擊的問題)
+            eventClick: function (info) {
+                // 1. 額滿檢查
+                if (info.event.extendedProps.isFull) {
+                    alert('抱歉，該時段已額滿，請選擇其他時段。');
+                    return;
+                }
+
+                // 2. 填入 Modal 並顯示
+                document.getElementById('modalTimeStr').textContent = info.event.extendedProps.dateStr;
+                document.getElementById('modalScheduleId').value = info.event.extendedProps.scheduleId;
+
+                var modal = new bootstrap.Modal(document.getElementById('bookingModal'));
+                modal.show();
+            },
+
+            // 滑鼠懸停效果
+            eventMouseEnter: function (info) {
+                info.el.style.cursor = 'pointer';
+                info.el.style.transform = 'scale(1.05)';
+                info.el.style.transition = '0.2s';
+            },
+            eventMouseLeave: function (info) {
+                info.el.style.transform = 'scale(1)';
+            }
+        });
+        calendar.render();
+    });
+</script>
+{% endblock %}

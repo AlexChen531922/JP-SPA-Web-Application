@@ -14,7 +14,7 @@ def login_required(f):
 
 
 def customer_required(f):
-    """Decorator to require customer role"""
+    """Decorator to require customer role OR admin role"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not session.get('logged_in'):
@@ -22,7 +22,8 @@ def customer_required(f):
             return redirect(url_for('main.home'))
 
         user = session.get('user', {})
-        if user.get('role') != 'customer':
+        # 修改：允許 customer 或 admin 或 staff
+        if user.get('role') not in ['customer', 'admin']:
             flash('此功能僅限會員使用', 'error')
             return redirect(url_for('main.home'))
         return f(*args, **kwargs)

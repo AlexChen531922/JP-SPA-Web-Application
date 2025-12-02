@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}客戶分析 - 進階報表{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold"><i class="bi bi-people"></i> 客戶分析</h2>
+            <p class="text-muted mb-0">了解客戶成長趨勢與 VIP 客戶名單</p>
+        </div>
+        <a href="{{ url_for('reports.dashboard') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回
+        </a>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">時間範圍</label>
+                    <select name="period" id="periodSelect" class="form-select" onchange="toggleCustomDates()">
+                        <option value="month" {% if period=='month' %}selected{% endif %}>本月</option>
+                        <option value="quarter" {% if period=='quarter' %}selected{% endif %}>本季</option>
+                        <option value="year" {% if period=='year' %}selected{% endif %}>今年</option>
+                        <option value="custom" {% if period=='custom' %}selected{% endif %}>自訂範圍</option>
+                    </select>
+                </div>
+                <div class="col-md-3" id="customStartDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">開始日期</label>
+                    <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="col-md-3" id="customEndDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">結束日期</label>
+                    <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> 查詢</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+        <div class="card-header bg-white border-bottom">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-graph-up"></i> 新增客戶趨勢</h5>
+        </div>
+        <div class="card-body">
+            <canvas id="acquisitionChart" height="80"></canvas>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white border-bottom">
+            <h5 class="mb-0 fw-bold"><i class="bi bi-trophy text-warning"></i> 高貢獻客戶 TOP 50</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">排名</th>
+                            <th>客戶姓名</th>
+                            <th>聯絡方式</th>
+                            <th class="text-end">訂單數</th>
+                            <th class="text-end">預約數</th>
+                            <th class="text-end">產品消費</th>
+                            <th class="text-end">課程消費</th>
+                            <th class="text-end pe-4">總消費金額</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for customer in top_customers %}
+                        <tr>
+                            <td class="ps-4">
+                                <span
+                                    class="badge {% if loop.index <= 3 %}bg-warning text-dark{% else %}bg-secondary{% endif %} rounded-pill">
+                                    #{{ loop.index }}
+                                </span>
+                            </td>
+                            <td class="fw-bold">{{ customer.name }}</td>
+                            <td>
+                                <small class="d-block">{{ customer.email }}</small>
+                                <small class="d-block text-muted">{{ customer.phone or '-' }}</small>
+                            </td>
+                            <td class="text-end">{{ customer.order_count }}</td>
+                            <td class="text-end">{{ customer.booking_count }}</td>
+                            <td class="text-end">NT$ {{ '{:,.0f}'.format(customer.order_total) }}</td>
+                            <td class="text-end">NT$ {{ '{:,.0f}'.format(customer.booking_total) }}</td>
+                            <td class="text-end pe-4 fw-bold text-primary">NT$ {{ '{:,.0f}'.format(customer.total_spent)
+                                }}</td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="8" class="text-center py-5 text-muted">此期間無客戶消費數據</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    function toggleCustomDates() {
+        const period = document.getElementById('periodSelect').value;
+        const showCustom = period === 'custom';
+        document.getElementById('customStartDiv').style.display = showCustom ? 'block' : 'none';
+        document.getElementById('customEndDiv').style.display = showCustom ? 'block' : 'none';
+    }
+
+    // Customer Acquisition Chart
+    const acquisitionData = {{ acquisition_data | tojson }};
+    const labels = acquisitionData.map(d => d.date);
+    const counts = acquisitionData.map(d => d.new_customers);
+
+    new Chart(document.getElementById('acquisitionChart'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: '新增客戶數',
+                data: counts,
+                borderColor: '#0dcaf0',
+                backgroundColor: 'rgba(13, 202, 240, 0.1)',
+                tension: 0.4,
+                fill: true
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { position: 'top' }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { stepSize: 1 }
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

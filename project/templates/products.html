@@ -16,10 +16,11 @@
     <div class="d-flex flex-wrap gap-2">
       <a href="{{ url_for('main.products') }}"
         class="btn btn-sm {% if not current_category %}btn-primary{% else %}btn-outline-primary{% endif %}">全部</a>
-      {% for category in categories %}
+      {% for category in product_categories %}
       <a href="{{ url_for('main.products', category=category.id) }}"
-        class="btn btn-sm {% if current_category == category.id %}btn-primary{% else %}btn-outline-primary{% endif %}">{{
-        category.name }}</a>
+        class="btn btn-sm {% if current_category == category.id %}btn-primary{% else %}btn-outline-primary{% endif %}">
+        {{ category.name }}
+      </a>
       {% endfor %}
     </div>
 
@@ -62,21 +63,33 @@
           </div>
           <div class="card-body">
             <h6 class="card-title text-truncate mb-2">{{ product.name }}</h6>
-            <p class="text-primary fw-bold mb-2">NT$ {{ '{:,.0f}'.format(product.price) }}</p>
-            {% if product.category_name %}
-            <span class="badge bg-light text-dark">{{ product.category_name }}</span>
-            {% endif %}
+
+            <p class="text-primary fw-bold mb-2">
+              {% if product.price > 0 %}
+              NT$ {{ '{:,.0f}'.format(product.price) }}
+              {% else %}
+              &nbsp;
+              {% endif %}
+            </p>
+
+            <div>
+              {% if product.category_name %}
+              <span class="badge bg-light text-dark">{{ product.category_name }}</span>
+              {% else %}
+              <span class="badge" style="visibility: hidden;">&nbsp;</span>
+              {% endif %}
+            </div>
           </div>
         </div>
 
         <!-- Footer 不觸發 modal -->
         <div class="card-footer bg-white border-0 pt-0">
-          {% if session.get('role') == 'customer' %}
+          {% if session.get('user', {}).get('role') in ['customer', 'admin'] %}
           <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="quantity" value="1">
             <button type="submit" class="btn btn-primary btn-sm w-100">
-              <i class="bi bi-cart-plus"></i> 加入購物車
+              <i class="bi bi-cart-plus"></i> 現在預訂
             </button>
           </form>
           {% else %}
@@ -145,9 +158,11 @@
           <div class="px-2">
 
             <!-- Price -->
+            {% if product.price > 0 %}
             <p class="text-primary fw-bold fs-4 mb-2">
               NT$ {{ '{:,.0f}'.format(product.price | default(0)) }}
             </p>
+            {% endif %}
 
             <!-- Category -->
             {% if product.category_name %}

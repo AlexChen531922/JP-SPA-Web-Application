@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}課程預約排行 - 進階報表{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h2 class="fw-bold"><i class="bi bi-calendar-check"></i> 課程預約排行</h2>
+            <p class="text-muted mb-0">分析課程受歡迎程度與收益表現</p>
+        </div>
+        <div class="d-flex gap-2">
+            <a href="{{ url_for('reports.export_report', report_type='courses', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn btn-success">
+                <i class="bi bi-file-earmark-excel"></i> 匯出 CSV
+            </a>
+            <a href="{{ url_for('reports.dashboard') }}" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> 返回報表總覽
+            </a>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <form method="GET" class="row g-3 align-items-end">
+                <input type="hidden" name="sort" value="{{ sort_by }}">
+                <div class="col-md-3">
+                    <label class="form-label fw-bold">時間範圍</label>
+                    <select name="period" id="periodSelect" class="form-select" onchange="toggleCustomDates()">
+                        <option value="today" {% if period=='today' %}selected{% endif %}>今天</option>
+                        <option value="week" {% if period=='week' %}selected{% endif %}>本週</option>
+                        <option value="month" {% if period=='month' %}selected{% endif %}>本月</option>
+                        <option value="quarter" {% if period=='quarter' %}selected{% endif %}>本季</option>
+                        <option value="year" {% if period=='year' %}selected{% endif %}>今年</option>
+                        <option value="custom" {% if period=='custom' %}selected{% endif %}>自訂範圍</option>
+                    </select>
+                </div>
+                <div class="col-md-3" id="customStartDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">開始日期</label>
+                    <input type="date" name="start_date" class="form-control" value="{{ start_date }}">
+                </div>
+                <div class="col-md-3" id="customEndDiv"
+                    style="display: {% if period == 'custom' %}block{% else %}none{% endif %};">
+                    <label class="form-label fw-bold">結束日期</label>
+                    <input type="date" name="end_date" class="form-control" value="{{ end_date }}">
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary w-100"><i class="bi bi-search"></i> 查詢</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="mb-3">
+        <div class="btn-group">
+            <a href="{{ url_for('reports.course_rankings', sort='quantity', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn {% if sort_by == 'quantity' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                按預約堂數排序
+            </a>
+            <a href="{{ url_for('reports.course_rankings', sort='revenue', period=period, start_date=start_date, end_date=end_date) }}"
+                class="btn {% if sort_by == 'revenue' %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                按營收金額排序
+            </a>
+        </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">排名</th>
+                            <th>課程名稱</th>
+                            <th>分類</th>
+                            <th class="text-center">時長</th>
+                            <th class="text-end">預約堂數</th>
+                            <th class="text-end">預約次數</th>
+                            <th class="text-end">客戶數</th>
+                            <th class="text-end">總營收</th>
+                            <th class="text-end">利潤率</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for course in courses %}
+                        <tr>
+                            <td class="ps-4">
+                                <span
+                                    class="badge {% if loop.index <= 3 %}bg-success{% else %}bg-secondary{% endif %} rounded-pill">
+                                    #{{ loop.index }}
+                                </span>
+                            </td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <img src="{{ url_for('static', filename=course.image or 'img/placeholder.jpg') }}"
+                                        class="rounded me-2" style="width: 40px; height: 40px; object-fit: cover;">
+                                    <span class="fw-bold">{{ course.name }}</span>
+                                </div>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">{{ course.category_name or '無' }}</span>
+                            </td>
+                            <td class="text-center">{{ course.duration }} 分</td>
+                            <td class="text-end fw-bold">{{ course.total_sessions }}</td>
+                            <td class="text-end">{{ course.booking_count }}</td>
+                            <td class="text-end">{{ course.unique_customers }}</td>
+                            <td class="text-end fw-bold text-success">NT$ {{ '{:,.0f}'.format(course.total_revenue) }}
+                            </td>
+                            <td class="text-end pe-4">
+                                <span
+                                    class="badge {% if course.profit_margin > 50 %}bg-success{% else %}bg-warning text-dark{% endif %}">
+                                    {{ '{:.1f}'.format(course.profit_margin) }}%
+                                </span>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="9" class="text-center py-5 text-muted">此期間無預約數據</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function toggleCustomDates() {
+        const period = document.getElementById('periodSelect').value;
+        const showCustom = period === 'custom';
+        document.getElementById('customStartDiv').style.display = showCustom ? 'block' : 'none';
+        document.getElementById('customEndDiv').style.display = showCustom ? 'block' : 'none';
+    }
+</script>
+{% endblock %}

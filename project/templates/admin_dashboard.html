@@ -66,6 +66,19 @@
         <i class="bi bi-calendar-event"></i> 活動管理
       </button>
     </li>
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'inventory' %}active{% endif %}" data-bs-toggle="tab"
+        data-bs-target="#inventory">
+        <i class="bi bi-boxes"></i> 庫存管理
+      </button>
+    </li>
+    {% if session.get('user', {}).get('role') == 'admin' %}
+    <li class="nav-item">
+      <button class="nav-link {% if tab == 'logs' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#logs">
+        <i class="bi bi-clock-history"></i> 操作紀錄
+      </button>
+    </li>
+    {% endif %}
   </ul>
 
   <!-- Tab Content -->
@@ -144,14 +157,16 @@
       <!-- Quick Actions -->
       <div class="row g-3 mb-4">
         <div class="col-md-3">
-          <a href="{{ url_for('admin.add_product_modal') }}" class="btn btn-outline-primary w-100 py-3">
+          <button type="button" class="btn btn-outline-primary w-100 py-3" data-bs-toggle="modal"
+            data-bs-target="#addProductModal">
             <i class="bi bi-plus-circle me-2"></i> 新增產品
-          </a>
+          </button>
         </div>
         <div class="col-md-3">
-          <a href="{{ url_for('admin.add_course_modal') }}" class="btn btn-outline-success w-100 py-3">
+          <button type="button" class="btn btn-outline-success w-100 py-3" data-bs-toggle="modal"
+            data-bs-target="#addCourseModal">
             <i class="bi bi-plus-circle me-2"></i> 新增課程
-          </a>
+          </button>
         </div>
         <div class="col-md-3">
           <a href="{{ url_for('admin.add_post') }}" class="btn btn-outline-info w-100 py-3">
@@ -265,9 +280,9 @@
     <div class="tab-pane fade {% if tab == 'products' %}show active{% endif %}" id="products">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="fw-bold mb-0"><i class="bi bi-box"></i> 產品管理</h4>
-        <a href="{{ url_for('admin.add_product_modal') }}" class="btn btn-primary">
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
           <i class="bi bi-plus-circle"></i> 新增產品
-        </a>
+        </button>
       </div>
 
       <div class="card border-0 shadow-sm">
@@ -279,6 +294,9 @@
                   <th style="width: 80px;">圖片</th>
                   <th>產品名稱</th>
                   <th>分類</th>
+                  {% if session.get('user', {}).get('role') == 'admin' %}
+                  <th>成本</th>
+                  {% endif %}
                   <th>價格</th>
                   <th>庫存</th>
                   <th>狀態</th>
@@ -296,6 +314,9 @@
                   <td>
                     <span class="badge bg-light text-dark">{{ product.category_name or '未分類' }}</span>
                   </td>
+                  {% if session.get('user', {}).get('role') == 'admin' %}
+                  <td>NT$ {{ '{:,.0f}'.format(product.cost) }}</td>
+                  {% endif %}
                   <td>NT$ {{ '{:,.0f}'.format(product.price) }}</td>
                   <td>
                     {% if product.stock_quantity < 10 %} <span class="badge bg-danger">{{ product.stock_quantity
@@ -312,10 +333,23 @@
                     {% endif %}
                   </td>
                   <td class="text-end">
-                    <a href="{{ url_for('admin.update_product_modal', product_id=product.id) }}"
-                      class="btn btn-sm btn-outline-primary" title="編輯">
+                    {% set safe_product_data = {
+                    'id': product.id,
+                    'name': product.name,
+                    'category_id': product.category_id,
+                    'price': product.price,
+                    'cost': product.cost,
+                    'stock_quantity': product.stock_quantity,
+                    'unit': product.unit,
+                    'description': product.description,
+                    'image': product.image,
+                    'is_active': product.is_active
+                    } %}
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="編輯"
+                      onclick="openEditProductModal({{ safe_product_data | tojson | forceescape }})">
                       <i class="bi bi-pencil"></i>
-                    </a>
+                    </button>
                     {% if session.get('user', {}).get('role') == 'admin' %}
                     <form method="POST" action="{{ url_for('admin.delete_product_modal', product_id=product.id) }}"
                       class="d-inline" onsubmit="return confirm('確定要刪除「{{ product.name }}」？');">
@@ -346,9 +380,9 @@
     <div class="tab-pane fade {% if tab == 'courses' %}show active{% endif %}" id="courses">
       <div class="d-flex justify-content-between align-items-center mb-3">
         <h4 class="fw-bold mb-0"><i class="bi bi-calendar-check"></i> 課程管理</h4>
-        <a href="{{ url_for('admin.add_course_modal') }}" class="btn btn-primary">
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCourseModal">
           <i class="bi bi-plus-circle"></i> 新增課程
-        </a>
+        </button>
       </div>
 
       <div class="card border-0 shadow-sm">
@@ -395,10 +429,25 @@
                     {% endif %}
                   </td>
                   <td class="text-end">
-                    <a href="{{ url_for('admin.update_course_modal', course_id=course.id) }}"
-                      class="btn btn-sm btn-outline-primary" title="編輯">
+                    {% set safe_course_data = {
+                    'id': course.id,
+                    'name': course.name,
+                    'category_id': course.category_id,
+                    'regular_price': course.regular_price,
+                    'experience_price': course.experience_price,
+                    'service_fee': course.service_fee,
+                    'product_fee': course.product_fee,
+                    'duration': course.duration,
+                    'sessions': course.sessions,
+                    'description': course.description,
+                    'image': course.image,
+                    'is_active': course.is_active
+                    } %}
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="編輯"
+                      onclick="openEditCourseModal({{ safe_course_data | tojson | forceescape }})">
                       <i class="bi bi-pencil"></i>
-                    </a>
+                    </button>
                     {% if session.get('user', {}).get('role') == 'admin' %}
                     <form method="POST" action="{{ url_for('admin.delete_course_modal', course_id=course.id) }}"
                       class="d-inline" onsubmit="return confirm('確定要刪除「{{ course.name }}」？');">
@@ -566,16 +615,15 @@
       <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="table table-hover mb-0 align-middle">
               <thead class="table-light">
                 <tr>
                   <th>預約編號</th>
                   <th>客戶</th>
                   <th>課程</th>
-                  <th>堂數</th>
-                  <th>金額</th>
+                  <th>預約時段</th>
                   <th>狀態</th>
-                  <th>日期</th>
+                  <th>下單日期</th>
                   <th class="text-end">操作</th>
                 </tr>
               </thead>
@@ -583,18 +631,28 @@
                 {% for booking in bookings %}
                 <tr>
                   <td class="fw-bold">#{{ booking.id }}</td>
-                  <td>{{ booking.firstname }} {{ booking.surname }}</td>
-                  <td>{{ booking.course_name }}</td>
                   <td>
-                    <span class="badge bg-info">{{ booking.sessions_purchased }} 堂</span>
-                    <span class="badge bg-success">剩 {{ booking.sessions_remaining }}</span>
+                    <div>{{ booking.firstname }} {{ booking.surname }}</div>
+                    <small class="text-muted">{{ booking.phone or '無電話' }}</small>
                   </td>
-                  <td class="fw-bold">NT$ {{ '{:,.0f}'.format(booking.total_amount) }}</td>
+                  <td>{{ booking.course_name }}</td>
+
+                  <td>
+                    {% if booking.start_time %}
+                    <div class="fw-bold text-primary">{{ booking.start_time.strftime('%Y-%m-%d') }}</div>
+                    <small>{{ booking.start_time.strftime('%H:%M') }} - {{ booking.end_time.strftime('%H:%M') }}</small>
+                    {% else %}
+                    <span class="badge bg-secondary">無時段資訊</span>
+                    {% endif %}
+                  </td>
+
                   <td>
                     <form method="POST" action="{{ url_for('admin.update_booking_status', booking_id=booking.id) }}"
                       class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                      <select name="status" class="form-select form-select-sm"
+                        style="width: 100px; display:inline-block;" onchange="this.form.submit()" {% if
+                        booking.status=='cancelled' %}disabled{% endif %}>
                         <option value="pending" {% if booking.status=='pending' %}selected{% endif %}>待確認</option>
                         <option value="confirmed" {% if booking.status=='confirmed' %}selected{% endif %}>已確認</option>
                         <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>已完成</option>
@@ -602,16 +660,35 @@
                       </select>
                     </form>
                   </td>
-                  <td>{{ booking.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="text-muted small">{{ booking.created_at.strftime('%Y-%m-%d') }}</td>
                   <td class="text-end">
-                    <button class="btn btn-sm btn-outline-info" onclick="alert('預約詳情功能開發中')" title="查看詳情">
+
+                    {% set safe_booking_data = {
+                    'id': booking.id,
+                    'customer_name': booking.firstname ~ ' ' ~ booking.surname,
+                    'phone': booking.phone or '未提供',
+                    'email': booking.email,
+                    'line_id': booking.line_id or '未綁定',
+                    'course_name': booking.course_name,
+                    'time_str': booking.start_time.strftime('%Y-%m-%d %H:%M') ~ ' - ' ~
+                    booking.end_time.strftime('%H:%M') if booking.start_time else '無時段',
+                    'duration': booking.duration,
+                    'sessions_purchased': booking.sessions_purchased,
+                    'sessions_remaining': booking.sessions_remaining,
+                    'total_amount': booking.total_amount,
+                    'status': booking.status,
+                    'is_first_time': booking.is_first_time
+                    } %}
+
+                    <button class="btn btn-sm btn-outline-info" title="查看詳情"
+                      onclick="openBookingDetailModal({{ safe_booking_data | tojson | forceescape }})">
                       <i class="bi bi-eye"></i>
                     </button>
                   </td>
                 </tr>
                 {% else %}
                 <tr>
-                  <td colspan="8" class="text-center text-muted py-5">
+                  <td colspan="7" class="text-center text-muted py-5">
                     <i class="bi bi-inbox display-4 d-block mb-3"></i>
                     目前沒有預約
                   </td>
@@ -631,32 +708,73 @@
       <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-hover mb-0">
+            <table class="table table-hover mb-0 align-middle">
               <thead class="table-light">
                 <tr>
                   <th>姓名</th>
-                  <th>Email</th>
-                  <th>電話</th>
-                  <th>訂單數</th>
-                  <th>預約數</th>
-                  <th>註冊日期</th>
+                  <th>性別/年齡</th>
+                  <th>職業</th>
+                  <th>聯絡資訊 (LINE/電話)</th>
+                  <th>來源</th>
+                  <th class="text-center">消費次數(產品/課程)</th>
                   <th class="text-end">操作</th>
                 </tr>
               </thead>
               <tbody>
-                {% for customer in customers %}
+                {% for customer in customers_list %}
                 <tr>
-                  <td class="fw-bold">{{ customer.firstname }} {{ customer.surname }}</td>
-                  <td>{{ customer.email }}</td>
-                  <td>{{ customer.phone or '-' }}</td>
                   <td>
-                    <span class="badge bg-primary">{{ customer.order_count }}</span>
+                    <div class="fw-bold">{{ customer.firstname }} {{ customer.surname }}</div>
+                    <small class="text-muted">{{ customer.email }}</small>
                   </td>
+
                   <td>
-                    <span class="badge bg-success">{{ customer.booking_count }}</span>
+                    {% if customer.gender == 'female' %}
+                    <i class="bi bi-gender-female text-danger" title="女性"></i>
+                    {% elif customer.gender == 'male' %}
+                    <i class="bi bi-gender-male text-primary" title="男性"></i>
+                    {% else %}
+                    <i class="bi bi-gender-ambiguous text-muted" title="其他/未知"></i>
+                    {% endif %}
+                    <span class="ms-1">{{ customer.age or '未知' }} 歲</span>
                   </td>
-                  <td>{{ customer.created_at.strftime('%Y-%m-%d') }}</td>
+
+                  <td>{{ customer.occupation or '-' }}</td>
+
+                  <td>
+                    <div><i class="bi bi-line text-success"></i> {{ customer.line_id or '未綁定' }}</div>
+                    <div class="small text-muted"><i class="bi bi-telephone"></i> {{ customer.phone or '-' }}</div>
+                  </td>
+
+                  <td>
+                    <span class="badge bg-light text-dark border">{{ customer.source_name or '未知' }}</span>
+                  </td>
+
+                  <td class="text-center">
+                    <span class="badge bg-primary" title="訂單數">{{ customer.order_count }}</span>
+                    <span class="text-muted">/</span>
+                    <span class="badge bg-success" title="預約數">{{ customer.booking_count }}</span>
+                  </td>
+
                   <td class="text-end">
+                    {% set safe_customer_data = {
+                    'id': customer.id,
+                    'firstname': customer.firstname,
+                    'surname': customer.surname,
+                    'email': customer.email,
+                    'phone': customer.phone or '',
+                    'line_id': customer.line_id or '',
+                    'gender': customer.gender or '',
+                    'birth_date': customer.birth_date | string if customer.birth_date else '',
+                    'occupation': customer.occupation or '',
+                    'source_id': customer.source_id or ''
+                    } %}
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="編輯"
+                      onclick="openEditCustomerModal({{ safe_customer_data | tojson | forceescape }})">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+
                     {% if session.get('user', {}).get('role') == 'admin' %}
                     <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
                       class="d-inline" onsubmit="return confirm('確定要刪除此客戶？此操作無法恢復！');">
@@ -672,7 +790,7 @@
                 <tr>
                   <td colspan="7" class="text-center text-muted py-5">
                     <i class="bi bi-inbox display-4 d-block mb-3"></i>
-                    目前沒有客戶
+                    目前沒有客戶資料
                   </td>
                 </tr>
                 {% endfor %}
@@ -775,63 +893,341 @@
           </div>
         </div>
 
-        <!-- ========================== EVENTS TAB ========================== -->
-        <div class="tab-pane fade {% if tab == 'events' %}show active{% endif %}" id="events">
+      </div>
+    </div>
 
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <h4 class="fw-bold mb-0"><i class="bi bi-calendar-event"></i> 活動管理</h4>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
-              <i class="bi bi-plus-circle"></i> 新增事件
-            </button>
+    <!-- ========================== EVENTS TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'categories' %}show active{% endif %}" id="categories">
+      <h4 class="fw-bold mb-4"><i class="bi bi-tags"></i> 分類管理</h4>
+
+      <div class="row g-4">
+
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+              <h5 class="mb-0 fw-bold">產品分類</h5>
+            </div>
+            <div class="card-body">
+              <form method="POST" action="{{ url_for('admin.add_product_category') }}" class="mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="input-group">
+                  <input type="text" name="name" class="form-control" placeholder="輸入新分類名稱..." required>
+                  <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> 新增
+                  </button>
+                </div>
+              </form>
+
+              <div class="list-group">
+                {% for category in product_categories %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <span class="fw-bold">{{ category.name }}</span>
+                  <div>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_product_category', category_id=category.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除「{{ category.name }}」分類？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
+                </div>
+                {% else %}
+                <div class="list-group-item text-center text-muted">
+                  目前沒有產品分類
+                </div>
+                {% endfor %}
+              </div>
+            </div>
           </div>
+        </div>
 
+        <div class="col-lg-6">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white border-bottom">
+              <h5 class="mb-0 fw-bold">課程分類</h5>
+            </div>
+            <div class="card-body">
+              <form method="POST" action="{{ url_for('admin.add_course_category') }}" class="mb-3">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="input-group">
+                  <input type="text" name="name" class="form-control" placeholder="輸入新分類名稱..." required>
+                  <button type="submit" class="btn btn-success">
+                    <i class="bi bi-plus-circle"></i> 新增
+                  </button>
+                </div>
+              </form>
+
+              <div class="list-group">
+                {% for category in course_categories %}
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                  <span class="fw-bold">{{ category.name }}</span>
+                  <div>
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_course_category', category_id=category.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除「{{ category.name }}」分類？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+                  </div>
+                </div>
+                {% else %}
+                <div class="list-group-item text-center text-muted">
+                  目前沒有課程分類
+                </div>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    <div class="tab-pane fade {% if tab == 'events' %}show active{% endif %}" id="events">
+
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0"><i class="bi bi-calendar-event"></i> 活動管理</h4>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">
+          <i class="bi bi-plus-circle"></i> 新增活動
+        </button>
+      </div>
+
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>標題</th>
+                  <th>關聯客戶</th>
+                  <th>開始時間</th>
+                  <th>結束時間</th>
+                  <th>時長</th>
+                  <th class="text-end" style="width: 150px;">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for event in events %}
+                <tr>
+                  <td class="fw-bold">{{ event.title }}</td>
+                  <td>
+                    {% if event.customer_name %}
+                    <span class="badge bg-info text-dark">{{ event.customer_name }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ event.start_date }}</td>
+                  <td>{{ event.end_date }}</td>
+                  <td>{{ event.duration or 0 }} 分鐘</td>
+                  <td class="text-end">
+
+                    {% set safe_event_data = {
+                    'id': event.id,
+                    'title': event.title,
+                    'customer_id': event.customer_id,
+                    'start_date': event.start_date | string,
+                    'end_date': event.end_date | string,
+                    'duration': event.duration,
+                    'description': event.description
+                    } %}
+
+                    <button type="button" class="btn btn-sm btn-outline-primary" title="編輯"
+                      onclick="openEditEventModal({{ safe_event_data | tojson | forceescape }})">
+                      <i class="bi bi-pencil"></i>
+                    </button>
+
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form action="{{ url_for('admin.delete_event', event_id=event.id) }}" method="POST" class="d-inline"
+                      onsubmit="return confirm('確定要刪除活動「{{ event.title }}」？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除">
+                        <i class="bi bi-trash"></i>
+                      </button>
+                    </form>
+                    {% endif %}
+
+                  </td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="6" class="text-center text-muted py-5">
+                    <i class="bi bi-calendar-x display-4 d-block mb-3"></i>
+                    目前沒有活動
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" id="addEventModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <form action="{{ url_for('admin.add_event') }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+              <h5 class="modal-title">新增活動</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">活動標題 <span class="text-danger">*</span></label>
+                <input name="title" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">關聯客戶（可選）</label>
+                <select name="customer_id" class="form-select">
+                  <option value="">無</option>
+                  {% for c in customers %}
+                  <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">開始時間</label>
+                  <input name="start_date" type="datetime-local" class="form-control">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">結束時間</label>
+                  <input name="end_date" type="datetime-local" class="form-control">
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">時長（分鐘）</label>
+                <input name="duration" type="number" class="form-control" placeholder="例如: 60">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">描述 / 備註</label>
+                <textarea name="description" class="form-control" rows="3"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+              <button class="btn btn-primary" type="submit">新增活動</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal fade" id="editEventModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <form id="editEventForm" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="modal-header">
+              <h5 class="modal-title">編輯活動</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">活動標題 <span class="text-danger">*</span></label>
+                <input name="title" id="edit_event_title" class="form-control" required>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">關聯客戶（可選）</label>
+                <select name="customer_id" id="edit_event_customer" class="form-select">
+                  <option value="">無</option>
+                  {% for c in customers %}
+                  <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">開始時間</label>
+                  <input name="start_date" id="edit_event_start" type="datetime-local" class="form-control">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">結束時間</label>
+                  <input name="end_date" id="edit_event_end" type="datetime-local" class="form-control">
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">時長（分鐘）</label>
+                <input name="duration" id="edit_event_duration" type="number" class="form-control">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">描述 / 備註</label>
+                <textarea name="description" id="edit_event_description" class="form-control" rows="3"></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+              <button class="btn btn-primary" type="submit">更新活動</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========================== INVENTORY TAB ========================== -->
+    <div class="tab-pane fade {% if tab == 'inventory' %}show active{% endif %}" id="inventory">
+
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h4 class="fw-bold mb-0"><i class="bi bi-boxes"></i> 庫存管理</h4>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#adjustInventoryModal">
+          <i class="bi bi-arrow-left-right"></i> 調整庫存
+        </button>
+      </div>
+
+      <div class="row g-4">
+        <div class="col-lg-8">
           <div class="card border-0 shadow-sm">
             <div class="card-body p-0">
               <div class="table-responsive">
-                <table class="table table-hover mb-0">
+                <table class="table table-hover mb-0 align-middle">
                   <thead class="table-light">
                     <tr>
-                      <th>標題</th>
-                      <th>客戶</th>
-                      <th>開始時間</th>
-                      <th>結束時間</th>
-                      <th>時長</th>
+                      <th>產品名稱</th>
+                      {% if session.get('user', {}).get('role') == 'admin' %}
+                      <th>成本價</th>
+                      {% endif %}
+                      <th>售價</th>
+                      <th>目前庫存</th>
+                      <th>狀態</th>
                       <th class="text-end">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {% for event in events %}
+                    {% for product in inventory_products %}
                     <tr>
-                      <td>{{ event.title }}</td>
-                      <td>{{ event.customer_name or '-' }}</td>
-                      <td>{{ event.start_date }}</td>
-                      <td>{{ event.end_date }}</td>
-                      <td>{{ event.duration }} 分鐘</td>
+                      <td class="fw-bold">{{ product.name }}</td>
+                      <td>NT$ {{ '{:,.0f}'.format(product.cost or 0) }}</td>
+                      <td>NT$ {{ '{:,.0f}'.format(product.price) }}</td>
+                      <td>
+                        <span
+                          class="fw-bold fs-5 {% if product.stock_quantity < 10 %}text-danger{% else %}text-success{% endif %}">
+                          {{ product.stock_quantity }}
+                        </span>
+                      </td>
+                      <td>
+                        {% if product.stock_quantity <= 0 %} <span class="badge bg-danger">缺貨</span>
+                          {% elif product.stock_quantity < 10 %} <span class="badge bg-warning text-dark">庫存緊張</span>
+                            {% else %}
+                            <span class="badge bg-success">充足</span>
+                            {% endif %}
+                      </td>
                       <td class="text-end">
-
-                        <!-- Edit -->
-                        <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal"
-                          data-bs-target="#editEventModal{{ event.id }}">
-                          <i class="bi bi-pencil"></i>
+                        <button class="btn btn-sm btn-outline-primary" onclick="openAdjustModal({{ product.id }})">
+                          <i class="bi bi-pencil-square"></i> 調整
                         </button>
-
-                        <!-- Delete -->
-                        <form action="{{ url_for('admin.delete_event', event_id=event.id) }}" method="POST"
-                          class="d-inline" onsubmit="return confirm('確定要刪除事件「{{ event.title }}」？');">
-                          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                          <button type="submit" class="btn btn-sm btn-outline-danger">
-                            <i class="bi bi-trash"></i>
-                          </button>
-                        </form>
-
                       </td>
                     </tr>
-
                     {% else %}
                     <tr>
                       <td colspan="6" class="text-center text-muted py-5">
-                        <i class="bi bi-inbox display-4 d-block mb-3"></i>
-                        尚無事件
+                        <i class="bi bi-box-seam display-4 d-block mb-3"></i>
+                        目前沒有庫存資料
                       </td>
                     </tr>
                     {% endfor %}
@@ -842,11 +1238,116 @@
           </div>
         </div>
 
+        <div class="col-lg-4">
+          <div class="card border-0 shadow-sm mb-4">
+            <div class="card-header bg-white">
+              <h5 class="mb-0 fw-bold">庫存概況</h5>
+            </div>
+            <div class="card-body">
+              <ul class="list-group list-group-flush">
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  總品項數
+                  <span class="badge bg-primary rounded-pill">{{ inventory_products|length }}</span>
+                </li>
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                  低庫存品項 (< 10) {% set low_stock_count=inventory_products | selectattr('stock_quantity', 'lt' , 10) |
+                    list | length %} <span
+                    class="badge {% if low_stock_count > 0 %}bg-danger{% else %}bg-secondary{% endif %} rounded-pill">
+                    {{ low_stock_count }}
+                    </span>
+                </li>
+              </ul>
+            </div>
+          </div>
 
+          <div class="alert alert-info">
+            <i class="bi bi-info-circle-fill me-2"></i> 提示：
+            <ul class="mb-0 small ps-3 mt-1">
+              <li>庫存調整會自動寫入日誌</li>
+              <li>訂單成立時會自動扣除庫存</li>
+              <li>訂單取消時會自動回補庫存</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
+    <!-- ========================== LOG ACTIVITY TAB ========================== -->
+    {% if session.get('user', {}).get('role') == 'admin' %}
+    <div class="tab-pane fade {% if tab == 'logs' %}show active{% endif %}" id="logs">
+      <h4 class="fw-bold mb-3"><i class="bi bi-clock-history"></i> 系統操作紀錄</h4>
 
-  </div>
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>時間</th>
+                  <th>操作者</th>
+                  <th>動作</th>
+                  <th>目標類型</th>
+                  <th>詳細內容</th>
+                  <th>IP 位址</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for log in audit_logs %}
+                <tr>
+                  <td class="text-nowrap">{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                  <td>
+                    <span class="fw-bold">{{ log.operator_name }}</span>
+                    <br><small class="text-muted">({{ log.username }})</small>
+                  </td>
+                  <td>
+                    {% if log.action == 'create' %}
+                    <span class="badge bg-success">新增</span>
+                    {% elif log.action == 'update' %}
+                    <span class="badge bg-primary">更新</span>
+                    {% elif log.action == 'delete' %}
+                    <span class="badge bg-danger">刪除</span>
+                    {% else %}
+                    <span class="badge bg-secondary">{{ log.action }}</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if log.target_type == 'product' %}產品
+                    {% elif log.target_type == 'course' %}課程
+                    {% elif log.target_type == 'order' %}訂單
+                    {% elif log.target_type == 'booking' %}預約
+                    {% elif log.target_type == 'event' %}活動
+                    {% elif log.target_type == 'inventory' %}庫存
+                    {% elif log.target_type == 'customer' %}客戶
+                    {% else %}{{ log.target_type }}{% endif %}
+                    <small class="text-muted">#{{ log.target_id }}</small>
+                  </td>
+                  <td>
+                    <small class="text-muted" style="white-space: pre-wrap; font-family: monospace;">{{ log.details
+                      }}</small>
+                  </td>
+                  <td class="text-muted small">{{ log.ip_address }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="6" class="text-center text-muted py-5">
+                    <i class="bi bi-clock display-4 d-block mb-3"></i>
+                    目前沒有操作紀錄
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+  </div> ```
+
+
+</div>
+</div>
+
+</div>
 
 </div>
 {% endblock %}
@@ -988,12 +1489,14 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">價格</label>
-              <input name="price" type="number" step="0.01" class="form-control" required>
+              <input name="price" id="edit_product_price" type="number" step="1" class="form-control">
             </div>
+            {% if session.get('user', {}).get('role') == 'admin' %}
             <div class="col-md-4">
               <label class="form-label">成本</label>
-              <input name="cost" type="number" step="0.01" class="form-control">
+              <input name="cost" type="number" step="1" class="form-control">
             </div>
+            {% endif %}
             <div class="col-md-4">
               <label class="form-label">庫存數量</label>
               <input name="stock" type="number" class="form-control" value="0">
@@ -1054,12 +1557,14 @@
             </div>
             <div class="col-md-4">
               <label class="form-label">價格</label>
-              <input name="price" id="edit_product_price" type="number" step="0.01" class="form-control" required>
+              <input name="price" type="number" step="1" class="form-control">
             </div>
+            {% if session.get('user', {}).get('role') == 'admin' %}
             <div class="col-md-4">
               <label class="form-label">成本</label>
-              <input name="cost" id="edit_product_cost" type="number" step="0.01" class="form-control">
+              <input name="cost" id="edit_product_cost" type="number" step="1" class="form-control">
             </div>
+            {% endif %}
             <div class="col-md-4">
               <label class="form-label">庫存數量</label>
               <input name="stock" id="edit_product_stock" type="number" class="form-control">
@@ -1120,9 +1625,9 @@
               </select>
             </div>
             <div class="col-md-4"><label class="form-label">正式價格</label><input name="regular_price" type="number"
-                step="0.01" class="form-control" required></div>
+                step="1" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">體驗價格</label><input name="experience_price" type="number"
-                step="0.01" class="form-control"></div>
+                step="1" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">時長（分鐘）</label><input name="duration" type="number"
                 class="form-control"></div>
             <div class="col-md-4"><label class="form-label">堂數</label><input name="sessions" type="number"
@@ -1166,9 +1671,19 @@
               </select>
             </div>
             <div class="col-md-4"><label class="form-label">正式價格</label><input name="regular_price"
-                id="edit_course_regular_price" type="number" step="0.01" class="form-control" required></div>
+                id="edit_course_regular_price" type="number" step="1" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">體驗價格</label><input name="experience_price"
-                id="edit_course_experience_price" type="number" step="0.01" class="form-control"></div>
+                id="edit_course_experience_price" type="number" step="1" class="form-control"></div>
+            <div class="col-md-4"><label class="form-label text-danger">服務成本 (用於報表)</label>
+              <input name="service_fee" id="edit_course_service_fee" type="number" step="0.01" class="form-control"
+                value="0">
+            </div>
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <div class="col-md-4"><label class="form-label text-danger">產品成本 (用於報表)</label>
+              <input name="product_fee" id="edit_course_product_fee" type="number" step="0.01" class="form-control"
+                value="0">
+            </div>
+            {% endif %}
             <div class="col-md-4"><label class="form-label">時長（分鐘）</label><input name="duration"
                 id="edit_course_duration" type="number" class="form-control"></div>
             <div class="col-md-4"><label class="form-label">堂數</label><input name="sessions" id="edit_course_sessions"
@@ -1303,6 +1818,107 @@
   </div>
 </div>
 
+<!-- Booking Detail Modal -->
+<div class="modal fade" id="editCustomerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form id="editCustomerForm" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="modal-header">
+          <h5 class="modal-title">編輯客戶資料</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">姓氏 <span class="text-danger">*</span></label>
+              <input name="surname" id="edit_cust_surname" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">名字 <span class="text-danger">*</span></label>
+              <input name="firstname" id="edit_cust_firstname" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email <span class="text-danger">*</span></label>
+              <input name="email" id="edit_cust_email" type="email" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">電話</label>
+              <input name="phone" id="edit_cust_phone" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">LINE ID</label>
+              <input name="line_id" id="edit_cust_line_id" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">職業</label>
+              <input name="occupation" id="edit_cust_occupation" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">性別</label>
+              <select name="gender" id="edit_cust_gender" class="form-select">
+                <option value="female">女性</option>
+                <option value="male">男性</option>
+                <option value="other">其他</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">生日</label>
+              <input name="birth_date" id="edit_cust_birth_date" type="date" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">客戶來源</label>
+              <select name="source_id" id="edit_cust_source" class="form-select">
+                <option value="">未知</option>
+                {% for source in customer_sources %}
+                <option value="{{ source.id }}">{{ source.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal" type="button">取消</button>
+          <button class="btn btn-primary" type="submit">儲存變更</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="bookingDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-light">
+        <h5 class="modal-title"><i class="bi bi-calendar-check"></i> 預約詳情 #<span id="detail_id"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <h6 class="fw-bold border-bottom pb-2 mb-3 text-primary">客戶資訊</h6>
+        <p class="mb-1"><strong>姓名：</strong> <span id="detail_customer"></span></p>
+        <p class="mb-1"><strong>電話：</strong> <span id="detail_phone"></span></p>
+        <p class="mb-1"><strong>Email：</strong> <span id="detail_email"></span></p>
+        <p class="mb-3"><strong>LINE：</strong> <span id="detail_line"></span></p>
+
+        <h6 class="fw-bold border-bottom pb-2 mb-3 text-primary">課程與時段</h6>
+        <p class="mb-1"><strong>課程：</strong> <span id="detail_course"></span></p>
+        <p class="mb-1"><strong>預約時段：</strong> <span id="detail_time" class="fw-bold text-success"></span></p>
+        <p class="mb-3"><strong>時長：</strong> <span id="detail_duration"></span> 分鐘</p>
+
+        <h6 class="fw-bold border-bottom pb-2 mb-3 text-primary">訂單狀態</h6>
+        <div class="d-flex justify-content-between">
+          <span><strong>購買堂數：</strong> <span id="detail_sessions"></span></span>
+          <span><strong>剩餘堂數：</strong> <span id="detail_remaining"></span></span>
+        </div>
+        <p class="mb-1 mt-2"><strong>總金額：</strong> NT$ <span id="detail_amount"></span></p>
+        <p class="mb-0"><strong>首次體驗：</strong> <span id="detail_first_time"></span></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+      </div>
+    </div>
+  </div>
+</div>
 <!-- ===================== END MODALS ===================== -->
 
 <!-- ===== JS: populate edit modals (call when click edit buttons) ===== -->
@@ -1351,6 +1967,8 @@
     document.getElementById('edit_course_category').value = course.category_id || '';
     document.getElementById('edit_course_regular_price').value = course.regular_price || '';
     document.getElementById('edit_course_experience_price').value = course.experience_price || '';
+    document.getElementById('edit_course_service_fee').value = course.service_fee || 0;
+    document.getElementById('edit_course_product_fee').value = course.product_fee || 0;
     document.getElementById('edit_course_duration').value = course.duration || '';
     document.getElementById('edit_course_sessions').value = course.sessions || 1;
     document.getElementById('edit_course_description').value = course.description || '';
@@ -1372,26 +1990,90 @@
 
     document.getElementById('edit_event_title').value = event.title || '';
     document.getElementById('edit_event_customer').value = event.customer_id || '';
-
-    function toLocalInput(dt) {
-      if (!dt) return '';
-      let s = dt.replace(' ', 'T');
-      return s.length > 16 ? s.substring(0, 16) : s;
-    }
-
-    document.getElementById('edit_event_start').value = toLocalInput(event.start_date);
-    document.getElementById('edit_event_end').value = toLocalInput(event.end_date);
     document.getElementById('edit_event_duration').value = event.duration || '';
     document.getElementById('edit_event_description').value = event.description || '';
 
+    // 日期格式轉換 helper
+    function formatForInput(dateStr) {
+      if (!dateStr || dateStr === 'None') return '';
+      // 將 SQL datetime 字串 (YYYY-MM-DD HH:MM:SS) 轉為 input datetime-local 格式 (YYYY-MM-DDTHH:MM)
+      // 1. 替換空格為 T
+      let s = dateStr.replace(' ', 'T');
+      // 2. 如果有秒數 (長度 > 16)，截斷它
+      if (s.length > 16) {
+        s = s.substring(0, 16);
+      }
+      return s;
+    }
+
+    document.getElementById('edit_event_start').value = formatForInput(event.start_date);
+    document.getElementById('edit_event_end').value = formatForInput(event.end_date);
+
     if (event.id) {
+      // 動態設定 Form Action
       document.getElementById('editEventForm').action = "{{ url_for('admin.update_event', event_id=0) }}".replace('/0/', '/' + event.id + '/');
     }
 
     var modal = new bootstrap.Modal(document.getElementById('editEventModal'));
     modal.show();
   }
+  // ================= Edit Customer Modal =================
+  function openEditCustomerModal(customer) {
+    customer = customer || {};
 
+    document.getElementById('edit_cust_surname').value = customer.surname || '';
+    document.getElementById('edit_cust_firstname').value = customer.firstname || '';
+    document.getElementById('edit_cust_email').value = customer.email || '';
+    document.getElementById('edit_cust_phone').value = customer.phone || '';
+    document.getElementById('edit_cust_line_id').value = customer.line_id || '';
+    document.getElementById('edit_cust_occupation').value = customer.occupation || '';
+    document.getElementById('edit_cust_gender').value = customer.gender || 'female';
+    document.getElementById('edit_cust_birth_date').value = customer.birth_date || '';
+    document.getElementById('edit_cust_source').value = customer.source_id || '';
+
+    if (customer.id) {
+      document.getElementById('editCustomerForm').action = "{{ url_for('admin.update_customer', customer_id=0) }}".replace('/0/', '/' + customer.id + '/');
+    }
+
+    var modal = new bootstrap.Modal(document.getElementById('editCustomerModal'));
+    modal.show();
+  }
+  // ================= Inventory Adjust Helper =================
+  function openAdjustModal(productId) {
+    // 1. 開啟 Modal
+    var modal = new bootstrap.Modal(document.getElementById('adjustInventoryModal'));
+    modal.show();
+
+    // 2. 自動選中下拉選單的對應產品
+    var select = document.querySelector('#adjustInventoryModal select[name="product_id"]');
+    if (select) {
+      select.value = productId;
+    }
+  }
+  // ================= Booking Detail Modal =================
+  function openBookingDetailModal(booking) {
+    document.getElementById('detail_id').textContent = booking.id;
+    document.getElementById('detail_customer').textContent = booking.customer_name;
+    document.getElementById('detail_phone').textContent = booking.phone;
+    document.getElementById('detail_email').textContent = booking.email;
+    document.getElementById('detail_line').textContent = booking.line_id;
+
+    document.getElementById('detail_course').textContent = booking.course_name;
+    document.getElementById('detail_time').textContent = booking.time_str;
+    document.getElementById('detail_duration').textContent = booking.duration;
+
+    document.getElementById('detail_sessions').textContent = booking.sessions_purchased;
+    document.getElementById('detail_remaining').textContent = booking.sessions_remaining;
+
+    // 格式化金額
+    let amount = parseFloat(booking.total_amount).toLocaleString();
+    document.getElementById('detail_amount').textContent = amount;
+
+    document.getElementById('detail_first_time').textContent = booking.is_first_time ? '是' : '否';
+
+    var modal = new bootstrap.Modal(document.getElementById('bookingDetailModal'));
+    modal.show();
+  }
   // ================= Example Usage =================
   // Safe example for reference (won't error if `product` is undefined)
   // {# <button onclick="openEditProductModal({{ product|default({})|tojson }})">Edit</button> #}

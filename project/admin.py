@@ -2,8 +2,6 @@
 Complete Admin Management System with Advanced Reporting
 Fixed all CRUD operations and inventory integration
 """
-
-from flask import Blueprint, render_template, request, jsonify
 from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, current_app
 from functools import wraps
 from werkzeug.utils import secure_filename
@@ -13,6 +11,9 @@ from project.extensions import database
 from project.db import get_current_user_id, get_current_user_role
 import MySQLdb.cursors
 from decimal import Decimal
+from project.services import admin_update_order_with_inventory
+from project.db import get_current_user_id
+from project.audit import log_activity
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -143,7 +144,7 @@ def dashboard():
 
     # Events with customer names
     cursor.execute("""
-        SELECT e.*, 
+        SELECT e.*,
                CONCAT(u.firstname, ' ', u.surname) as customer_name
         FROM events e
         LEFT JOIN users u ON e.customer_id = u.id
@@ -161,9 +162,9 @@ def dashboard():
 
     # Customers for event dropdown
     cursor.execute("""
-        SELECT id, firstname, surname 
-        FROM users 
-        WHERE role = 'customer' 
+        SELECT id, firstname, surname
+        FROM users
+        WHERE role = 'customer'
         ORDER BY firstname
     """)
     customers = cursor.fetchall()
@@ -179,22 +180,31 @@ def dashboard():
 
     # Bookings for management
     cursor.execute("""
-        SELECT b.*, u.username, u.firstname, u.surname, u.email,
-               c.name as course_name
+        SELECT b.*, 
+               u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
+               c.name as course_name, c.duration,
+               cs.start_time, cs.end_time
         FROM bookings b
-        JOIN users u ON b.customer_id = u.id
-        JOIN courses c ON b.course_id = c.id
+        LEFT JOIN users u ON b.customer_id = u.id
+        LEFT JOIN courses c ON b.course_id = c.id
+        LEFT JOIN course_schedules cs ON b.schedule_id = cs.id
         ORDER BY b.created_at DESC
     """)
     bookings = cursor.fetchall()
 
-    # Customer list
+# Customer list (Updated with full details)
     cursor.execute("""
         SELECT u.id, u.username, u.email, u.firstname, u.surname,
-               u.phone, u.created_at,
+               u.phone, u.line_id, u.gender, u.occupation,
+               u.created_at,
+               u.birth_date,  -- ⭐ 新增這一行：查詢生日原始資料
+               u.source_id,   -- ⭐ 新增這一行：查詢來源 ID
+               TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age,
+               cs.name as source_name,
                COUNT(DISTINCT o.id) as order_count,
                COUNT(DISTINCT b.id) as booking_count
         FROM users u
+        LEFT JOIN customer_sources cs ON u.source_id = cs.id
         LEFT JOIN orders o ON u.id = o.customer_id
         LEFT JOIN bookings b ON u.id = b.customer_id
         WHERE u.role = 'customer'
@@ -212,6 +222,23 @@ def dashboard():
         ORDER BY p.created_at DESC
     """)
     posts = cursor.fetchall()
+# 只有 Admin 才能查看操作紀錄
+    audit_logs = []
+    if get_current_user_role() == 'admin':
+        cursor.execute("""
+            SELECT a.*, 
+                   u.username, u.firstname, u.surname,
+                   CONCAT(u.firstname, ' ', u.surname) as operator_name
+            FROM audit_logs a
+            LEFT JOIN users u ON a.user_id = u.id
+            ORDER BY a.created_at DESC
+            LIMIT 50
+        """)
+        audit_logs = cursor.fetchall()
+
+    # Get customer sources for dropdown
+    cursor.execute("SELECT * FROM customer_sources ORDER BY id")
+    customer_sources = cursor.fetchall()
 
     cursor.close()
 
@@ -240,11 +267,12 @@ def dashboard():
         orders=orders,
         bookings=bookings,
         customers_list=customers_list,
+        customer_sources=customer_sources,
         posts=posts
     )
 
 # =====================================================
-# PRODUCT MANAGEMENT - FIXED
+# PRODUCT MANAGEMENT - WITH AUDIT LOG
 # =====================================================
 
 
@@ -255,17 +283,16 @@ def add_product_modal():
     try:
         name = request.form.get('name', '').strip()
         category_id = request.form.get('category_id', type=int) or None
-        price = request.form.get('price', type=float)
+        price = request.form.get('price', 0, type=float)
         cost = request.form.get('cost', 0, type=float)
         stock = request.form.get('stock', 0, type=int)
         unit = request.form.get('unit', '件').strip()
         description = request.form.get('description', '').strip()
 
-        if not name or price is None:
-            flash('請填寫必填欄位', 'error')
+        if not name:
+            flash('請填寫產品名稱', 'error')
             return redirect(url_for('admin.dashboard', tab='products'))
 
-        # Handle image upload
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
@@ -291,6 +318,10 @@ def add_product_modal():
         database.connection.commit()
         cursor.close()
 
+        # ⭐ LOG ACTIVITY
+        log_activity('create', 'product', product_id, {
+                     'name': name, 'price': price, 'stock': stock})
+
         flash('產品已新增', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -306,7 +337,7 @@ def update_product_modal(product_id):
     try:
         name = request.form.get('name', '').strip()
         category_id = request.form.get('category_id', type=int) or None
-        price = request.form.get('price', type=float)
+        price = request.form.get('price', 0, type=float)
         cost = request.form.get('cost', 0, type=float)
         stock = request.form.get('stock', 0, type=int)
         unit = request.form.get('unit', '件').strip()
@@ -315,11 +346,11 @@ def update_product_modal(product_id):
 
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-        # Get current stock for comparison
+        # Get current data for logging & stock check
         cursor.execute(
-            "SELECT stock_quantity FROM products WHERE id = %s", (product_id,))
-        current = cursor.fetchone()
-        old_stock = current['stock_quantity'] if current else 0
+            "SELECT name, price, stock_quantity, image FROM products WHERE id = %s", (product_id,))
+        old_data = cursor.fetchone()
+        old_stock = old_data['stock_quantity'] if old_data else 0
 
         # Handle image
         image_url = request.form.get('current_image')
@@ -350,6 +381,13 @@ def update_product_modal(product_id):
         database.connection.commit()
         cursor.close()
 
+        # ⭐ LOG ACTIVITY
+        log_changes = {
+            'old_data': {'name': old_data['name'], 'price': float(old_data['price'])},
+            'new_data': {'name': name, 'price': price}
+        }
+        log_activity('update', 'product', product_id, log_changes)
+
         flash('產品已更新', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -364,9 +402,20 @@ def delete_product_modal(product_id):
     """Delete product"""
     try:
         cursor = database.connection.cursor()
+
+        # Get name for log
+        cursor.execute(
+            "SELECT name FROM products WHERE id = %s", (product_id,))
+        res = cursor.fetchone()
+        p_name = res[0] if res else 'Unknown'
+
         cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
         database.connection.commit()
         cursor.close()
+
+        # ⭐ LOG ACTIVITY
+        log_activity('delete', 'product', product_id, {'name': p_name})
+
         flash('產品已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -375,7 +424,7 @@ def delete_product_modal(product_id):
     return redirect(url_for('admin.dashboard', tab='products'))
 
 # =====================================================
-# COURSE MANAGEMENT - FIXED
+# COURSE MANAGEMENT - WITH AUDIT LOG
 # =====================================================
 
 
@@ -386,15 +435,18 @@ def add_course_modal():
     try:
         name = request.form.get('name', '').strip()
         category_id = request.form.get('category_id', type=int) or None
-        regular_price = request.form.get('regular_price', type=float)
-        experience_price = request.form.get(
-            'experience_price', type=float) or None
+        regular_price = request.form.get('regular_price', 0, type=float)
+        experience_price = request.form.get('experience_price', 0, type=float)
+        # Add fee fields
+        service_fee = request.form.get('service_fee', 0, type=float)
+        product_fee = request.form.get('product_fee', 0, type=float)
+
         duration = request.form.get('duration', type=int) or None
         sessions = request.form.get('sessions', 1, type=int)
         description = request.form.get('description', '').strip()
 
-        if not name or regular_price is None:
-            flash('請填寫必填欄位', 'error')
+        if not name:
+            flash('請填寫課程名稱', 'error')
             return redirect(url_for('admin.dashboard', tab='courses'))
 
         image_url = None
@@ -407,12 +459,17 @@ def add_course_modal():
         cursor = database.connection.cursor()
         cursor.execute("""
             INSERT INTO courses (name, category_id, regular_price, experience_price, 
-                               duration, sessions, description, image)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (name, category_id, regular_price, experience_price, duration, sessions, description, image_url))
+                               service_fee, product_fee, duration, sessions, description, image)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (name, category_id, regular_price, experience_price, service_fee, product_fee, duration, sessions, description, image_url))
 
+        course_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
+
+        # ⭐ LOG ACTIVITY
+        log_activity('create', 'course', course_id, {
+                     'name': name, 'price': regular_price})
 
         flash('課程已新增', 'success')
     except Exception as e:
@@ -429,9 +486,12 @@ def update_course_modal(course_id):
     try:
         name = request.form.get('name', '').strip()
         category_id = request.form.get('category_id', type=int) or None
-        regular_price = request.form.get('regular_price', type=float)
-        experience_price = request.form.get(
-            'experience_price', type=float) or None
+        regular_price = request.form.get('regular_price', 0, type=float)
+        experience_price = request.form.get('experience_price', 0, type=float)
+        # Add fee fields
+        service_fee = request.form.get('service_fee', 0, type=float)
+        product_fee = request.form.get('product_fee', 0, type=float)
+
         duration = request.form.get('duration', type=int) or None
         sessions = request.form.get('sessions', 1, type=int)
         description = request.form.get('description', '').strip()
@@ -446,17 +506,29 @@ def update_course_modal(course_id):
                 if new_image:
                     image_url = new_image
 
-        cursor = database.connection.cursor()
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+        # Get old data
+        cursor.execute("SELECT name FROM courses WHERE id = %s", (course_id,))
+        old_data = cursor.fetchone()
+
         cursor.execute("""
             UPDATE courses
             SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
-                duration=%s, sessions=%s, description=%s, image=%s, is_active=%s
+                service_fee=%s, product_fee=%s, duration=%s, sessions=%s, 
+                description=%s, image=%s, is_active=%s
             WHERE id=%s
-        """, (name, category_id, regular_price, experience_price, duration, sessions,
-              description, image_url, is_active, course_id))
+        """, (name, category_id, regular_price, experience_price, service_fee, product_fee,
+              duration, sessions, description, image_url, is_active, course_id))
 
         database.connection.commit()
         cursor.close()
+
+        # ⭐ LOG ACTIVITY
+        log_activity('update', 'course', course_id, {
+            'old_name': old_data['name'] if old_data else '',
+            'new_name': name
+        })
 
         flash('課程已更新', 'success')
     except Exception as e:
@@ -472,9 +544,19 @@ def delete_course_modal(course_id):
     """Delete course"""
     try:
         cursor = database.connection.cursor()
+
+        # Get name
+        cursor.execute("SELECT name FROM courses WHERE id = %s", (course_id,))
+        res = cursor.fetchone()
+        c_name = res[0] if res else 'Unknown'
+
         cursor.execute("DELETE FROM courses WHERE id = %s", (course_id,))
         database.connection.commit()
         cursor.close()
+
+        # ⭐ LOG ACTIVITY
+        log_activity('delete', 'course', course_id, {'name': c_name})
+
         flash('課程已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -500,8 +582,12 @@ def add_product_category():
         cursor = database.connection.cursor()
         cursor.execute(
             "INSERT INTO product_categories (name) VALUES (%s)", (name,))
+        cat_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
+
+        log_activity('create', 'category', cat_id, {
+                     'type': 'product', 'name': name})
         flash('產品分類已新增', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -523,8 +609,12 @@ def add_course_category():
         cursor = database.connection.cursor()
         cursor.execute(
             "INSERT INTO course_categories (name) VALUES (%s)", (name,))
+        cat_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
+
+        log_activity('create', 'category', cat_id, {
+                     'type': 'course', 'name': name})
         flash('課程分類已新增', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -543,6 +633,8 @@ def delete_product_category(category_id):
             "DELETE FROM product_categories WHERE id = %s", (category_id,))
         database.connection.commit()
         cursor.close()
+
+        log_activity('delete', 'category', category_id, {'type': 'product'})
         flash('產品分類已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -561,6 +653,8 @@ def delete_course_category(category_id):
             "DELETE FROM course_categories WHERE id = %s", (category_id,))
         database.connection.commit()
         cursor.close()
+
+        log_activity('delete', 'category', category_id, {'type': 'course'})
         flash('課程分類已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -569,7 +663,7 @@ def delete_course_category(category_id):
     return redirect(url_for('admin.dashboard', tab='categories'))
 
 # =====================================================
-# EVENT MANAGEMENT - FIXED
+# EVENT MANAGEMENT - WITH AUDIT LOG
 # =====================================================
 
 
@@ -603,8 +697,14 @@ def add_event():
             INSERT INTO events (title, description, customer_id, start_date, end_date, duration)
             VALUES (%s, %s, %s, %s, %s, %s)
         """, (title, description, customer_id, s, e, duration))
+
+        event_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
+
+        # ⭐ LOG ACTIVITY
+        log_activity('create', 'event', event_id, {
+                     'title': title, 'customer': customer_id})
 
         flash('活動已新增', 'success')
     except Exception as e:
@@ -647,6 +747,9 @@ def update_event(event_id):
         database.connection.commit()
         cursor.close()
 
+        # ⭐ LOG ACTIVITY
+        log_activity('update', 'event', event_id, {'title': title})
+
         flash('活動已更新', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -661,9 +764,19 @@ def delete_event(event_id):
     """Delete event"""
     try:
         cursor = database.connection.cursor()
+
+        # Get title
+        cursor.execute("SELECT title FROM events WHERE id = %s", (event_id,))
+        res = cursor.fetchone()
+        e_title = res[0] if res else 'Unknown'
+
         cursor.execute("DELETE FROM events WHERE id = %s", (event_id,))
         database.connection.commit()
         cursor.close()
+
+        # ⭐ LOG ACTIVITY
+        log_activity('delete', 'event', event_id, {'title': e_title})
+
         flash('活動已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -679,7 +792,7 @@ def delete_event(event_id):
 @admin_bp.route('/inventory/adjust', methods=['POST'])
 @staff_required
 def adjust_inventory_modal():
-    """Adjust inventory - auto syncs with products"""
+    """Adjust inventory"""
     try:
         product_id = request.form.get('product_id', type=int)
         change_amount = request.form.get('change_amount', type=int)
@@ -692,14 +805,14 @@ def adjust_inventory_modal():
 
         cursor = database.connection.cursor()
 
-        # Update product stock
+        # 1. 更新產品實際庫存 (Update product stock)
         cursor.execute("""
             UPDATE products 
             SET stock_quantity = stock_quantity + %s 
             WHERE id = %s
         """, (change_amount, product_id))
 
-        # Log inventory change
+        # 2. 寫入庫存變動流水帳 (Insert inventory_logs - 這是業務邏輯紀錄)
         cursor.execute("""
             INSERT INTO inventory_logs 
             (product_id, change_amount, change_type, notes, created_by)
@@ -709,13 +822,19 @@ def adjust_inventory_modal():
         database.connection.commit()
         cursor.close()
 
+        # ⭐ 3. 新增這行：寫入後台審計日誌 (Admin Audit Log - 這是操作行為紀錄)
+        log_activity('update', 'inventory', product_id, {
+            'amount': change_amount,
+            'type': change_type,
+            'notes': notes
+        })
+
         flash('庫存已調整', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'調整失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='inventory'))
-
 # =====================================================
 # ORDER & BOOKING STATUS UPDATES
 # =====================================================
@@ -724,7 +843,7 @@ def adjust_inventory_modal():
 @admin_bp.route('/order/<int:order_id>/update-status', methods=['POST'])
 @staff_required
 def update_order_status(order_id):
-    """Update order status"""
+    """Update order status with inventory handling"""
     try:
         status = request.form.get('status')
         allowed_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
@@ -733,18 +852,17 @@ def update_order_status(order_id):
             flash('無效的狀態', 'error')
             return redirect(url_for('admin.dashboard', tab='orders'))
 
-        cursor = database.connection.cursor()
-        cursor.execute("""
-            UPDATE orders 
-            SET status = %s 
-            WHERE id = %s
-        """, (status, order_id))
-        database.connection.commit()
-        cursor.close()
+        # ⭐ FIX: Use service to handle inventory restore
+        admin_id = get_current_user_id()
+        success = admin_update_order_with_inventory(order_id, status, admin_id)
 
-        flash('訂單狀態已更新', 'success')
+        if success:
+            log_activity('update', 'order', order_id, {'status': status})
+            flash('訂單狀態已更新', 'success')
+        else:
+            flash('更新失敗', 'error')
+
     except Exception as e:
-        database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='orders'))
@@ -771,16 +889,68 @@ def update_booking_status(booking_id):
         database.connection.commit()
         cursor.close()
 
+        log_activity('update', 'booking', booking_id, {'status': status})
+
         flash('預約狀態已更新', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='bookings'))
-
 # =====================================================
 # CUSTOMER MANAGEMENT
 # =====================================================
+
+
+@admin_bp.route('/customer/<int:customer_id>/update', methods=['POST'])
+@admin_required
+def update_customer(customer_id):
+    """Update customer details by admin"""
+    try:
+        firstname = request.form.get('firstname', '').strip()
+        surname = request.form.get('surname', '').strip()
+        email = request.form.get('email', '').strip()
+        phone = request.form.get('phone', '').strip()
+        line_id = request.form.get('line_id', '').strip()
+        gender = request.form.get('gender')
+        birth_date = request.form.get('birth_date') or None
+        occupation = request.form.get('occupation', '').strip()
+        source_id = request.form.get('source_id', type=int) or None
+
+        if not firstname or not email:
+            flash('姓名與 Email 為必填', 'error')
+            return redirect(url_for('admin.dashboard', tab='customers'))
+
+        cursor = database.connection.cursor()
+
+        # 檢查 Email 是否與其他人重複
+        cursor.execute(
+            "SELECT id FROM users WHERE email = %s AND id != %s", (email, customer_id))
+        if cursor.fetchone():
+            cursor.close()
+            flash('該 Email 已被其他用戶使用', 'error')
+            return redirect(url_for('admin.dashboard', tab='customers'))
+
+        cursor.execute("""
+            UPDATE users 
+            SET firstname=%s, surname=%s, email=%s, phone=%s, line_id=%s, 
+                gender=%s, birth_date=%s, occupation=%s, source_id=%s
+            WHERE id=%s AND role='customer'
+        """, (firstname, surname, email, phone, line_id, gender, birth_date, occupation, source_id, customer_id))
+
+        database.connection.commit()
+        cursor.close()
+
+        # 記錄 Log
+        log_activity('update', 'customer', customer_id,
+                     {'name': f"{firstname} {surname}"})
+
+        flash('客戶資料已更新', 'success')
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'更新失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='customers'))
 
 
 @admin_bp.route('/customer/<int:customer_id>/delete', methods=['POST'])
@@ -793,6 +963,8 @@ def delete_customer(customer_id):
             "DELETE FROM users WHERE id = %s AND role = 'customer'", (customer_id,))
         database.connection.commit()
         cursor.close()
+
+        log_activity('delete', 'customer', customer_id)
         flash('客戶已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
@@ -858,20 +1030,63 @@ def get_date_range(period, custom_start=None, custom_end=None):
 @admin_bp.route('/add_post', methods=['GET', 'POST'])
 @staff_required
 def add_post():
-    return "Add post page"
+    # 處理表單提交 (POST)
+    if request.method == 'POST':
+        title = request.form.get('title')
+        summary = request.form.get('summary')
+        content = request.form.get('content')
+        status = request.form.get('status', 'draft')
+
+        # 處理圖片上傳
+        image_url = None
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and file.filename:
+                # 假設您有 save_upload 函式 (之前在 admin.py 看過)
+                image_url = save_upload(
+                    file, current_app.config['UPLOAD_FOLDER'])
+
+        try:
+            cursor = database.connection.cursor()
+            cursor.execute("""
+                INSERT INTO blog_posts (title, summary, content, image, status, author_id, published_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                title,
+                summary,
+                content,
+                image_url,
+                status,
+                get_current_user_id(),
+                datetime.now() if status == 'published' else None
+            ))
+            database.connection.commit()
+            cursor.close()
+            flash('文章已新增', 'success')
+            return redirect(url_for('admin.dashboard', tab='posts'))
+
+        except Exception as e:
+            database.connection.rollback()
+            flash(f'新增失敗: {str(e)}', 'error')
+
+    # 顯示頁面 (GET) - 修正這裡，原本是 return "Add post page"
+    return render_template('admin_post_form.html', post=None)
 
 
 @admin_bp.route('/edit-post/<int:post_id>', methods=['GET', 'POST'])
+@staff_required
 def edit_post(post_id):
-    cursor = mysql.connection.cursor()
+    # 修正 1: 使用 database 而不是 mysql
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # 取得文章資料
-    cursor.execute("SELECT * FROM posts WHERE id = %s", (post_id,))
+    # 修正 2: 表格名稱改為 blog_posts
+    cursor.execute("SELECT * FROM blog_posts WHERE id = %s", (post_id,))
     post = cursor.fetchone()
 
     if not post:
+        cursor.close()
         flash("找不到該文章", "danger")
-        return redirect(url_for('admin.posts'))
+        return redirect(url_for('admin.dashboard', tab='posts'))
 
     # POST → 更新文章
     if request.method == 'POST':
@@ -881,39 +1096,53 @@ def edit_post(post_id):
         status = request.form.get("status")
 
         # 處理圖片
-        image = post['image']  # 原本的圖片
-        file = request.files.get("image")
+        image = post['image']  # 預設使用原本圖片
+        if 'image' in request.files:
+            file = request.files['image']
+            if file and file.filename:
+                # 這裡假設您有 save_upload 函式可用
+                image = save_upload(file, current_app.config['UPLOAD_FOLDER'])
 
-        if file and file.filename:
-            filename = secure_filename(file.filename)
-            filepath = os.path.join('static/uploads', filename)
-            file.save(filepath)
-            image = f'uploads/{filename}'
+        try:
+            # 修正 3: Update 語句也要改成 blog_posts
+            cursor.execute("""
+                UPDATE blog_posts
+                SET title=%s, summary=%s, content=%s, status=%s, image=%s
+                WHERE id=%s
+            """, (title, summary, content, status, image, post_id))
 
-        cursor.execute("""
-            UPDATE posts
-            SET title=%s, summary=%s, content=%s, status=%s, image=%s
-            WHERE id=%s
-        """, (title, summary, content, status, image, post_id))
-        mysql.connection.commit()
+            database.connection.commit()
+            flash("文章已成功更新", "success")
 
-        flash("文章已成功更新", "success")
-        return redirect(url_for('admin.posts'))
+        except Exception as e:
+            database.connection.rollback()
+            flash(f"更新失敗: {str(e)}", "error")
+        finally:
+            cursor.close()
+
+        return redirect(url_for('admin.dashboard', tab='posts'))
+
+    cursor.close()
 
     # GET → 顯示編輯頁
     return render_template(
-        "admin_post_form.html",  # 你給我的這份就是這頁
+        "admin_post_form.html",
         post=post
     )
 
 
 @admin_bp.route("/posts/delete/<int:post_id>", methods=["POST"])
+@admin_required
 def delete_post(post_id):
-    # TODO: 在此寫刪除文章的邏輯
-    # 例如：
-    # post = Post.query.get_or_404(post_id)
-    # db.session.delete(post)
-    # db.session.commit()
+    try:
+        cursor = database.connection.cursor()
+        # 修正: 表格名稱改為 blog_posts
+        cursor.execute("DELETE FROM blog_posts WHERE id = %s", (post_id,))
+        database.connection.commit()
+        cursor.close()
+        flash("文章已刪除", "success")
+    except Exception as e:
+        database.connection.rollback()
+        flash(f"刪除失敗: {str(e)}", "error")
 
-    flash("文章已刪除", "success")
-    return redirect(url_for("admin.posts"))
+    return redirect(url_for("admin.dashboard", tab='posts'))

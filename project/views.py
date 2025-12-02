@@ -4,6 +4,8 @@ from . import database
 from .db import get_current_user_id, get_current_user_role, is_logged_in
 from .notifications import notify_contact_message, notify_new_order, notify_new_booking
 import MySQLdb.cursors
+from .notifications import notify_new_booking_v2
+from datetime import datetime
 
 main_bp = Blueprint('main', __name__)
 
@@ -77,8 +79,8 @@ def home():
 
     return render_template(
         'index.html',
-        featured_products=featured_products,
-        featured_courses=featured_courses,
+        products=featured_products,
+        courses=featured_courses,
         posts=posts,
         testimonials=testimonials
     )
@@ -113,7 +115,6 @@ def products():
 
     where_sql = " AND ".join(where_clauses)
 
-    # Get products
     sql = f"""
         SELECT p.id, p.name, p.price, p.image, p.description,
                pc.name as category_name
@@ -128,26 +129,14 @@ def products():
     cursor.execute(sql, params)
     products_list = cursor.fetchall()
 
-    # Get categories
-    cursor.execute("""
-        SELECT id, name FROM product_categories
-        ORDER BY display_order, name
-    """)
-    categories = cursor.fetchall()
-
     cursor.close()
 
-    # For AJAX requests (infinite scroll)
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        return render_template(
-            'products_partial.html',
-            products=products_list
-        )
+        return render_template('products_partial.html', products=products_list)
 
     return render_template(
         'products.html',
         products=products_list,
-        categories=categories,
         current_category=category_id,
         search_query=search
     )
@@ -175,12 +164,12 @@ def product_detail(product_id):
 
 
 # =====================================================
-# COURSES
+# COURSE & SCHEDULE (全面修正與整合)
 # =====================================================
 
 @main_bp.route('/courses')
 def courses():
-    """Course listing page with infinite scroll"""
+    """Course listing page"""
     page = request.args.get('page', 1, type=int)
     category_id = request.args.get('category', type=int)
     search = request.args.get('q', '').strip()
@@ -203,7 +192,6 @@ def courses():
 
     where_sql = " AND ".join(where_clauses)
 
-    # Get courses
     sql = f"""
         SELECT c.id, c.name, c.regular_price, c.experience_price,
                c.duration, c.sessions, c.image, c.description,
@@ -219,39 +207,23 @@ def courses():
     cursor.execute(sql, params)
     courses_list = cursor.fetchall()
 
-    # Get categories
-    cursor.execute("""
-        SELECT id, name FROM course_categories
-        ORDER BY display_order, name
-    """)
-    categories = cursor.fetchall()
-
-    # Check if user has previous bookings
+    # Check bookings
     user_id = get_current_user_id()
     has_bookings = False
-
     if user_id:
-        cursor.execute("""
-            SELECT COUNT(*) as count FROM bookings
-            WHERE customer_id = %s
-        """, (user_id,))
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM bookings WHERE customer_id = %s", (user_id,))
         result = cursor.fetchone()
         has_bookings = result['count'] > 0
 
     cursor.close()
 
-    # For AJAX requests (infinite scroll)
     if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-        return render_template(
-            'courses_partial.html',
-            courses=courses_list,
-            has_bookings=has_bookings
-        )
+        return render_template('courses_partial.html', courses=courses_list, has_bookings=has_bookings)
 
     return render_template(
         'courses.html',
         courses=courses_list,
-        categories=categories,
         current_category=category_id,
         search_query=search,
         has_bookings=has_bookings
@@ -260,7 +232,7 @@ def courses():
 
 @main_bp.route('/course/<int:course_id>')
 def course_detail(course_id):
-    """Course detail page"""
+    """Course detail page with Calendar"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     cursor.execute("""
@@ -271,19 +243,6 @@ def course_detail(course_id):
     """, (course_id,))
 
     course = cursor.fetchone()
-
-    # Check if user has previous bookings
-    user_id = get_current_user_id()
-    has_bookings = False
-
-    if user_id:
-        cursor.execute("""
-            SELECT COUNT(*) as count FROM bookings
-            WHERE customer_id = %s
-        """, (user_id,))
-        result = cursor.fetchone()
-        has_bookings = result['count'] > 0
-
     cursor.close()
 
     if not course:
@@ -291,9 +250,77 @@ def course_detail(course_id):
 
     return render_template(
         'course_detail.html',
-        course=course,
-        has_bookings=has_bookings
+        course=course
     )
+
+
+@main_bp.route('/api/course/<int:course_id>/schedule')
+def get_course_schedule(course_id):
+    """
+    API for FullCalendar
+    """
+    start_str = request.args.get('start')
+    end_str = request.args.get('end')
+
+    try:
+        # 轉換日期 (處理可能帶有的時區 Z)
+        if start_str:
+            start_date = datetime.fromisoformat(start_str.replace('Z', ''))
+        else:
+            # 預設查詢本月第一天
+            now = datetime.now()
+            start_date = datetime(now.year, now.month, 1)
+
+        if end_str:
+            end_date = datetime.fromisoformat(end_str.replace('Z', ''))
+        else:
+            # 預設查詢下個月第一天 (即本月最後一天)
+            now = datetime.now()
+            if now.month == 12:
+                end_date = datetime(now.year + 1, 1, 1)
+            else:
+                end_date = datetime(now.year, now.month + 1, 1)
+    except ValueError:
+        return jsonify([])  # 日期格式錯誤回傳空陣列
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # 查詢時段
+    cursor.execute("""
+        SELECT id, start_time, end_time, max_capacity, current_bookings
+        FROM course_schedules
+        WHERE course_id = %s 
+          AND start_time BETWEEN %s AND %s
+          AND is_active = TRUE
+    """, (course_id, start_date, end_date))
+
+    db_schedules = cursor.fetchall()
+    cursor.close()
+
+    events = []
+
+    for s in db_schedules:
+        is_full = s['current_bookings'] >= s['max_capacity']
+        remaining = s['max_capacity'] - s['current_bookings']
+
+        events.append({
+            'id': str(s['id']),  # ID 轉字串
+            'title': f"{'額滿' if is_full else '可預約'} ({remaining})",
+            'start': s['start_time'].isoformat(),
+            'end': s['end_time'].isoformat(),
+            'backgroundColor': '#dc3545' if is_full else '#28a745',
+            'borderColor': '#dc3545' if is_full else '#28a745',
+            'textColor': '#fff',
+            'extendedProps': {
+                'isFull': is_full,
+                'scheduleId': s['id'],
+                'dateStr': s['start_time'].strftime('%Y-%m-%d %H:%M')
+            }
+        })
+
+    return jsonify(events)
+
+
 # =====================================================
 # POSTS
 # =====================================================
@@ -555,91 +582,8 @@ def remove_from_cart(item_id):
 
 
 # =====================================================
-# COURSE BOOKING
-# =====================================================
-
-@main_bp.route('/course/<int:course_id>/book', methods=['POST'])
-@login_required
-@customer_required
-def book_course(course_id):
-    """Book a course"""
-    user_id = get_current_user_id()
-    sessions = request.form.get('sessions', 1, type=int)
-
-    if sessions < 1:
-        flash('預約堂數必須大於 0', 'error')
-        return redirect(url_for('main.course_detail', course_id=course_id))
-
-    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    # Get course
-    cursor.execute("""
-        SELECT id, name, regular_price, experience_price
-        FROM courses WHERE id = %s AND is_active = TRUE
-    """, (course_id,))
-    course = cursor.fetchone()
-
-    if not course:
-        cursor.close()
-        flash('此課程不存在', 'error')
-        return redirect(url_for('main.courses'))
-
-    # Check first time
-    cursor.execute(
-        "SELECT COUNT(*) as count FROM bookings WHERE customer_id = %s", (user_id,))
-    result = cursor.fetchone()
-    is_first_time = result['count'] == 0
-
-    # Calculate price
-    if is_first_time and course['experience_price']:
-        price_per_session = course['experience_price']
-    else:
-        price_per_session = course['regular_price']
-
-    # Apply discount
-    if sessions >= 10:
-        price_per_session *= 0.9
-    elif sessions >= 5:
-        price_per_session *= 0.95
-
-    total_amount = price_per_session * sessions
-
-    # Create booking
-    cursor.execute("""
-        INSERT INTO bookings (customer_id, course_id, sessions_purchased, 
-                             sessions_remaining, total_amount, is_first_time, status)
-        VALUES (%s, %s, %s, %s, %s, %s, 'pending')
-    """, (user_id, course_id, sessions, sessions, total_amount, is_first_time))
-    booking_id = cursor.lastrowid
-    database.connection.commit()
-
-    # Get user info
-    cursor.execute(
-        "SELECT username, email, firstname, surname FROM users WHERE id = %s", (user_id,))
-    user = cursor.fetchone()
-    cursor.close()
-
-    # Send notifications
-    try:
-        notify_new_booking(
-            booking_id,
-            f"{user['firstname']} {user['surname']}",
-            user['email'],
-            course['name'],
-            sessions,
-            total_amount,
-            is_first_time
-        )
-    except:
-        pass
-
-    flash('課程預約成功！我們將盡快與您聯絡', 'success')
-    return redirect(url_for('main.booking_success', booking_id=booking_id))
-
-# =====================================================
 # CHECKOUT WITH INVENTORY AUTO-SYNC
 # =====================================================
-
 
 @main_bp.route('/cart/checkout', methods=['POST'])
 @login_required
@@ -866,71 +810,6 @@ def cancel_order(order_id):
         flash(f'取消失敗: {str(e)}', 'error')
         return redirect(url_for('customer.orders'))
 
-# =====================================================
-# ADMIN ORDER STATUS UPDATE WITH INVENTORY SYNC
-# =====================================================
-
-
-def admin_update_order_with_inventory(order_id, new_status, admin_id):
-    """
-    Update order status and handle inventory accordingly
-    Called from admin.py when status is changed
-    """
-    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    try:
-        # Get current order status
-        cursor.execute("""
-            SELECT status 
-            FROM orders 
-            WHERE id = %s
-        """, (order_id,))
-
-        order = cursor.fetchone()
-        old_status = order['status']
-
-        # If changing from non-cancelled to cancelled
-        if old_status != 'cancelled' and new_status == 'cancelled':
-            # Get order items
-            cursor.execute("""
-                SELECT product_id, quantity 
-                FROM order_items 
-                WHERE order_id = %s
-            """, (order_id,))
-
-            items = cursor.fetchall()
-
-            # ⭐ RESTORE INVENTORY
-            for item in items:
-                cursor.execute("""
-                    UPDATE products 
-                    SET stock_quantity = stock_quantity + %s 
-                    WHERE id = %s
-                """, (item['quantity'], item['product_id']))
-
-                # ⭐ LOG RESTORATION
-                cursor.execute("""
-                    INSERT INTO inventory_logs 
-                    (product_id, change_amount, change_type, reference_id, notes, created_by)
-                    VALUES (%s, %s, 'return', %s, 'Order cancelled by admin', %s)
-                """, (item['product_id'], item['quantity'], order_id, admin_id))
-
-        # Update order status
-        cursor.execute("""
-            UPDATE orders 
-            SET status = %s 
-            WHERE id = %s
-        """, (new_status, order_id))
-
-        database.connection.commit()
-        cursor.close()
-        return True
-
-    except Exception as e:
-        database.connection.rollback()
-        cursor.close()
-        print(f"Error updating order status: {e}")
-        return False
 
 # =====================================================
 # ADD TO CART (Keep existing)
@@ -1025,7 +904,7 @@ def add_to_cart(product_id):
     database.connection.commit()
     cursor.close()
 
-    flash(f'已將「{product["name"]}」加入購物車', 'success')
+    flash(f'已將「{product["name"]}」產品預訂', 'success')
     return redirect(request.referrer or url_for('main.products'))
 
 
@@ -1085,3 +964,89 @@ def booking_success(booking_id):
         abort(404)
 
     return render_template('booking_success.html', booking=booking)
+
+
+@main_bp.route('/course/<int:course_id>/book', methods=['POST'])
+@login_required
+@customer_required
+def book_course(course_id):
+    """Legacy booking method - Redirect to calendar"""
+    return redirect(url_for('main.course_detail', course_id=course_id))
+
+# 2. 處理指定時段預約
+
+
+@main_bp.route('/course/book_slot', methods=['POST'])
+@login_required
+@customer_required
+def book_course_slot():
+    user_id = get_current_user_id()
+    schedule_id = request.form.get('schedule_id')
+    course_id = request.form.get('course_id')
+
+    if not schedule_id:
+        flash('請選擇預約時段', 'error')
+        return redirect(url_for('main.courses'))
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    try:
+        # 檢查時段是否存在且有名額 (使用 FOR UPDATE 鎖定防止超賣)
+        cursor.execute("""
+            SELECT cs.*, c.name, c.regular_price, c.experience_price
+            FROM course_schedules cs
+            JOIN courses c ON cs.course_id = c.id
+            WHERE cs.id = %s FOR UPDATE
+        """, (schedule_id,))
+        schedule = cursor.fetchone()
+
+        if not schedule:
+            raise Exception("時段不存在")
+
+        if schedule['current_bookings'] >= schedule['max_capacity']:
+            raise Exception("該時段已額滿，請選擇其他時間")
+
+        # 檢查是否首購 (計算價格)
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM bookings WHERE customer_id = %s", (user_id,))
+        is_first_time = cursor.fetchone()['count'] == 0
+        price = schedule['experience_price'] if (
+            is_first_time and schedule['experience_price']) else schedule['regular_price']
+
+        # 建立訂單
+        cursor.execute("""
+            INSERT INTO bookings (customer_id, course_id, schedule_id, total_amount, is_first_time, status)
+            VALUES (%s, %s, %s, %s, %s, 'confirmed')
+        """, (user_id, course_id, schedule_id, price, is_first_time))
+        booking_id = cursor.lastrowid
+
+        # 更新時段人數
+        cursor.execute("""
+            UPDATE course_schedules 
+            SET current_bookings = current_bookings + 1 
+            WHERE id = %s
+        """, (schedule_id,))
+
+        # 獲取用戶資料以便通知
+        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+
+        database.connection.commit()
+
+        course_data = {
+            'name': schedule['name'],  # 這對應 SQL 中的 c.name
+            'regular_price': schedule['regular_price']
+        }
+
+        # 發送通知
+        notify_new_booking_v2(booking_id, user, course_data, schedule, price)
+
+        flash('預約成功！通知已發送', 'success')
+        return redirect(url_for('customer.bookings'))
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'預約失敗: {str(e)}', 'error')
+        return redirect(url_for('main.course_detail', course_id=course_id))
+    finally:
+        cursor.close()

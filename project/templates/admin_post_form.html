@@ -2,8 +2,13 @@
 {% block title %}{% if post %}編輯文章{% else %}撰寫文章{% endif %} - 管理後台{% endblock %}
 
 {% block head %}
-<!-- TinyMCE Editor -->
-<script src="https://cdn.tiny.cloud/1/no-api-key/tinymce/6/tinymce.min.js" referrerpolicy="origin"></script>
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"
+    integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo=" crossorigin="anonymous"></script>
+
+<link href="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/summernote-lite.min.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/summernote@0.8.20/dist/lang/summernote-zh-TW.min.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -12,7 +17,7 @@
     <nav aria-label="breadcrumb" class="mb-4">
         <ol class="breadcrumb">
             <li class="breadcrumb-item"><a href="{{ url_for('admin.dashboard') }}">管理後台</a></li>
-            <li class="breadcrumb-item"><a href="{{ url_for('admin.posts') }}">文章管理</a></li>
+            <li class="breadcrumb-item"><a href="{{ url_for('admin.dashboard', tab='posts') }}">文章管理</a></li>
             <li class="breadcrumb-item active">{% if post %}編輯文章{% else %}撰寫文章{% endif %}</li>
         </ol>
     </nav>
@@ -29,7 +34,6 @@
 
                 <div class="row g-4">
 
-                    <!-- Title -->
                     <div class="col-12">
                         <label class="form-label fw-bold">
                             文章標題 <span class="text-danger">*</span>
@@ -38,7 +42,6 @@
                             value="{{ post.title if post else '' }}" placeholder="輸入吸引人的標題..." required>
                     </div>
 
-                    <!-- Summary -->
                     <div class="col-12">
                         <label class="form-label fw-bold">文章摘要</label>
                         <textarea name="summary" class="form-control" rows="3"
@@ -46,7 +49,6 @@
                         <small class="text-muted">此摘要將顯示在文章列表中</small>
                     </div>
 
-                    <!-- Featured Image -->
                     <div class="col-md-6">
                         <label class="form-label fw-bold">特色圖片</label>
                         <input type="file" name="image" class="form-control" accept="image/*" id="imageInput">
@@ -59,13 +61,11 @@
                         </div>
                         {% endif %}
 
-                        <!-- Image Preview -->
                         <div id="imagePreview" class="mt-3" style="display:none;">
                             <img id="preview" class="img-thumbnail" style="max-width: 200px;">
                         </div>
                     </div>
 
-                    <!-- Status -->
                     <div class="col-md-6">
                         <label class="form-label fw-bold">發布狀態 <span class="text-danger">*</span></label>
                         <select name="status" class="form-select" required>
@@ -83,16 +83,13 @@
                         <small class="text-muted">選擇「發布」將立即公開此文章</small>
                     </div>
 
-                    <!-- Content Editor -->
                     <div class="col-12">
                         <label class="form-label fw-bold">
                             文章內容 <span class="text-danger">*</span>
                         </label>
-                        <textarea id="contentEditor" name="content"
-                            class="form-control">{{ post.content if post else '' }}</textarea>
+                        <textarea id="contentEditor" name="content">{{ post.content if post else '' }}</textarea>
                     </div>
 
-                    <!-- SEO Tips -->
                     <div class="col-12">
                         <div class="alert alert-info">
                             <h6 class="alert-heading">
@@ -108,11 +105,10 @@
                         </div>
                     </div>
 
-                    <!-- Action Buttons -->
                     <div class="col-12">
                         <hr>
                         <div class="d-flex gap-2 justify-content-end">
-                            <a href="{{ url_for('admin.posts') }}" class="btn btn-outline-secondary">
+                            <a href="{{ url_for('admin.dashboard', tab='posts') }}" class="btn btn-outline-secondary">
                                 <i class="bi bi-x-circle"></i> 取消
                             </a>
                             <button type="submit" name="status" value="draft" class="btn btn-outline-primary">
@@ -135,104 +131,102 @@
 
 {% block scripts %}
 <script>
-    // Initialize TinyMCE Editor
-    tinymce.init({
-        selector: '#contentEditor',
-        height: 600,
-        menubar: true,
-        plugins: [
-            'advlist', 'autolink', 'lists', 'link', 'image', 'charmap', 'preview',
-            'anchor', 'searchreplace', 'visualblocks', 'code', 'fullscreen',
-            'insertdatetime', 'media', 'table', 'help', 'wordcount'
-        ],
-        toolbar: 'undo redo | blocks | bold italic underline strikethrough | ' +
-            'alignleft aligncenter alignright alignjustify | ' +
-            'bullist numlist outdent indent | link image | ' +
-            'forecolor backcolor | removeformat | help',
-        content_style: 'body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; font-size: 16px; line-height: 1.6; }',
+    // 初始化 Summernote 編輯器
+    $(document).ready(function () {
+        // 用變數追蹤內容是否有變更
+        let contentChanged = false;
 
-        // 圖片上傳處理
-        images_upload_handler: function (blobInfo, success, failure) {
-            // 這裡可以實現圖片上傳到服務器的邏輯
-            // 目前使用 base64 編碼
-            const reader = new FileReader();
-            reader.onload = function () {
-                success(reader.result);
-            };
-            reader.readAsDataURL(blobInfo.blob());
-        },
+        $('#contentEditor').summernote({
+            placeholder: '請在此輸入文章內容...',
+            tabsize: 2,
+            height: 600,                 // 編輯器高度
+            lang: 'zh-TW',               // 設定繁體中文
+            toolbar: [
+                ['style', ['style']],
+                ['font', ['bold', 'underline', 'clear']],
+                ['color', ['color']],
+                ['para', ['ul', 'ol', 'paragraph']],
+                ['table', ['table']],
+                ['insert', ['link', 'picture', 'video']],
+                ['view', ['fullscreen', 'codeview', 'help']]
+            ],
+            callbacks: {
+                // 圖片上傳回調：將圖片轉為 Base64 直接插入內容 (不依賴後端上傳 API)
+                onImageUpload: function (files) {
+                    for (let i = 0; i < files.length; i++) {
+                        const reader = new FileReader();
+                        reader.onload = function (e) {
+                            $('#contentEditor').summernote('insertImage', e.target.result);
+                        };
+                        reader.readAsDataURL(files[i]);
+                    }
+                },
+                // 內容變更回調
+                onChange: function (contents, $editable) {
+                    contentChanged = true;
+                }
+            }
+        });
 
-        // 中文化
-        language: 'zh_TW',
-        language_url: 'https://cdn.jsdelivr.net/npm/tinymce-lang/langs5/zh_TW.js',
+        // 封面圖片預覽
+        document.getElementById('imageInput').addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    document.getElementById('preview').src = e.target.result;
+                    document.getElementById('imagePreview').style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
 
-        // 自動儲存
-        autosave_ask_before_unload: true,
-        autosave_interval: '30s',
-        autosave_prefix: 'tinymce-autosave-{path}{query}-{id}-',
-        autosave_restore_when_empty: true,
+        // 表單提交驗證
+        document.querySelector('form').addEventListener('submit', function (e) {
+            const title = document.querySelector('[name="title"]').value.trim();
 
-        // 內容樣式
-        content_css: [
-            'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css'
-        ]
-    });
+            // 取得 Summernote 的 HTML 內容
+            const content = $('#contentEditor').summernote('code');
+            // 檢查是否為空 (Summernote 空白時通常是 <p><br></p>)
+            const isEmpty = $('#contentEditor').summernote('isEmpty');
 
-    // Image preview
-    document.getElementById('imageInput').addEventListener('change', function (e) {
-        const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function (e) {
-                document.getElementById('preview').src = e.target.result;
-                document.getElementById('imagePreview').style.display = 'block';
-            };
-            reader.readAsDataURL(file);
-        }
-    });
+            if (!title) {
+                e.preventDefault();
+                alert('請輸入文章標題');
+                return false;
+            }
 
-    // Form submission with validation
-    document.querySelector('form').addEventListener('submit', function (e) {
-        const title = document.querySelector('[name="title"]').value.trim();
-        const content = tinymce.get('contentEditor').getContent();
+            if (isEmpty || content.length < 10) {
+                e.preventDefault();
+                alert('請輸入文章內容');
+                return false;
+            }
 
-        if (!title) {
-            e.preventDefault();
-            alert('請輸入文章標題');
-            return false;
-        }
+            // 提交時重置變更狀態，避免觸發離開警告
+            contentChanged = false;
 
-        if (!content || content === '<p></p>' || content.length < 50) {
-            e.preventDefault();
-            alert('請輸入文章內容（至少 50 個字元）');
-            return false;
-        }
+            // 顯示 Loading
+            const submitBtn = e.submitter;
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>處理中...';
+        });
 
-        // Show loading
-        const submitBtn = e.submitter;
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>處理中...';
-    });
-
-    // Warn before leaving with unsaved changes
-    let contentChanged = false;
-    tinymce.get('contentEditor').on('change', function () {
-        contentChanged = true;
-    });
-
-    window.addEventListener('beforeunload', function (e) {
-        if (contentChanged) {
-            e.preventDefault();
-            e.returnValue = '';
-            return '';
-        }
+        // 離開頁面警告
+        window.addEventListener('beforeunload', function (e) {
+            if (contentChanged) {
+                e.preventDefault();
+                e.returnValue = '';
+                return '';
+            }
+        });
     });
 </script>
 
 <style>
-    .tox-tinymce {
+    /* 修正 Summernote 在 Bootstrap 5 下的樣式微調 */
+    .note-editor.note-frame {
         border-radius: 0.375rem;
-        border: 1px solid #dee2e6;
+        border-color: #dee2e6;
     }
 
     .alert-info {
