@@ -1,22 +1,33 @@
 from flask import Blueprint, render_template, request, session, flash, redirect, url_for
-from functools import wraps
-from hashlib import sha256
-from . import database
-from .db import get_current_user_id, get_current_user_role, update_user_profile, get_user_details
+from .decorators import login_required, customer_required
+from project.extensions import database
+from .db import get_current_user_id, get_user_details, update_user_profile
 import MySQLdb.cursors
+import re  # 引入正則表達式用於密碼驗證
 
-customer_bp = Blueprint('customer', __name__)
+customer_bp = Blueprint('customer', __name__, url_prefix='/customer')
 
 
-def customer_required(f):
-    """Decorator to require customer role"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if get_current_user_role() != 'customer':
-            flash('此功能僅限會員使用', 'error')
-            return redirect(url_for('main.home'))
-        return f(*args, **kwargs)
-    return decorated_function
+def validate_password_strength(password):
+    """
+    驗證密碼強度：
+    1. 至少 10 個字元
+    2. 包含大寫字母
+    3. 包含小寫字母
+    4. 包含數字
+    5. 包含特殊符號
+    """
+    if len(password) < 10:
+        return False, "密碼長度需至少 10 個字元"
+    if not re.search(r"[a-z]", password):
+        return False, "密碼需包含至少一個小寫字母"
+    if not re.search(r"[A-Z]", password):
+        return False, "密碼需包含至少一個大寫字母"
+    if not re.search(r"\d", password):
+        return False, "密碼需包含至少一個數字"
+    if not re.search(r"[ !@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?]", password):
+        return False, "密碼需包含至少一個特殊符號"
+    return True, ""
 
 
 @customer_bp.route('/dashboard')
@@ -26,10 +37,10 @@ def dashboard():
     user_id = get_current_user_id()
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # Get user info
+    # ⭐ 關鍵：取得使用者詳細資料 (用於填寫 Modal)
     user = get_user_details(user_id)
 
-    # Get active bookings (courses with remaining sessions)
+    # Get active bookings
     cursor.execute("""
         SELECT b.id, b.sessions_purchased, b.sessions_remaining, b.total_amount,
                b.created_at, c.name as course_name, c.duration
@@ -47,13 +58,13 @@ def dashboard():
         FROM orders o
         LEFT JOIN order_items oi ON o.id = oi.order_id
         WHERE o.customer_id = %s
-        GROUP BY o.id
+        GROUP BY o.id, o.total_amount, o.status, o.created_at
         ORDER BY o.created_at DESC
         LIMIT 5
     """, (user_id,))
     recent_orders = cursor.fetchall()
 
-    # Get products from recent orders (not yet fully used)
+    # Get products from recent orders
     cursor.execute("""
         SELECT oi.product_id, p.name, SUM(oi.quantity) as total_quantity
         FROM order_items oi
@@ -61,7 +72,7 @@ def dashboard():
         JOIN products p ON oi.product_id = p.id
         WHERE o.customer_id = %s AND o.status IN ('confirmed', 'completed')
         GROUP BY oi.product_id, p.name
-        ORDER BY o.created_at DESC
+        ORDER BY MAX(o.created_at) DESC
     """, (user_id,))
     purchased_products = cursor.fetchall()
 
@@ -69,51 +80,11 @@ def dashboard():
 
     return render_template(
         'customer_dashboard.html',
-        user=user,
+        user=user,  # 確保這裡有傳入 user
         active_courses=active_courses,
         recent_orders=recent_orders,
         purchased_products=purchased_products
     )
-
-
-@customer_bp.route('/profile/update', methods=['POST'])
-@customer_required
-def update_profile():
-    """Update customer profile"""
-    user_id = get_current_user_id()
-
-    data = {
-        'firstname': request.form.get('firstname', '').strip(),
-        'surname': request.form.get('surname', '').strip(),
-        'email': request.form.get('email', '').strip(),
-        'phone': request.form.get('phone', '').strip(),
-        'line_id': request.form.get('line_id', '').strip(),
-        'address': request.form.get('address', '').strip()
-    }
-
-    # Handle password change
-    new_password = request.form.get('password', '').strip()
-    if new_password:
-        if len(new_password) < 6:
-            flash('密碼至少需要 6 個字元', 'error')
-            return redirect(url_for('customer.dashboard'))
-        data['password_hash'] = sha256(new_password.encode()).hexdigest()
-
-    try:
-        update_user_profile(user_id, data)
-
-        # Update session
-        session['user'].update({
-            'firstname': data['firstname'],
-            'surname': data['surname'],
-            'email': data['email']
-        })
-
-        flash('個人資料已更新', 'success')
-    except Exception as e:
-        flash(f'更新失敗：{str(e)}', 'error')
-
-    return redirect(url_for('customer.dashboard'))
 
 
 @customer_bp.route('/bookings')
@@ -121,6 +92,7 @@ def update_profile():
 def bookings():
     """View all bookings"""
     user_id = get_current_user_id()
+    user = get_user_details(user_id)  # 取得 user 資料
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     cursor.execute("""
@@ -135,8 +107,7 @@ def bookings():
     bookings = cursor.fetchall()
 
     cursor.close()
-
-    return render_template('customer_bookings.html', bookings=bookings)
+    return render_template('customer_bookings.html', bookings=bookings, user=user)
 
 
 @customer_bp.route('/orders')
@@ -144,6 +115,7 @@ def bookings():
 def orders():
     """View all orders"""
     user_id = get_current_user_id()
+    user = get_user_details(user_id)  # 取得 user 資料
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     cursor.execute("""
@@ -168,12 +140,7 @@ def orders():
         order_items[order['id']] = cursor.fetchall()
 
     cursor.close()
-
-    return render_template(
-        'customer_orders.html',
-        orders=orders,
-        order_items=order_items
-    )
+    return render_template('customer_orders.html', orders=orders, order_items=order_items, user=user)
 
 
 @customer_bp.route('/order/<int:order_id>')
@@ -181,9 +148,9 @@ def orders():
 def order_detail(order_id):
     """View order details"""
     user_id = get_current_user_id()
+    user = get_user_details(user_id)  # 取得 user 資料
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # Get order
     cursor.execute("""
         SELECT o.*
         FROM orders o
@@ -196,7 +163,6 @@ def order_detail(order_id):
         flash('訂單不存在', 'error')
         return redirect(url_for('customer.orders'))
 
-    # Get order items
     cursor.execute("""
         SELECT oi.quantity, oi.unit_price, oi.subtotal,
                p.name, p.image, p.description
@@ -207,9 +173,26 @@ def order_detail(order_id):
     items = cursor.fetchall()
 
     cursor.close()
+    return render_template('customer_order_detail.html', order=order, items=items, user=user)
 
-    return render_template(
-        'customer_order_detail.html',
-        order=order,
-        items=items
-    )
+
+@customer_bp.route('/profile/update', methods=['POST'])
+@customer_required
+def update_profile():
+    """Handle profile update"""
+    user_id = get_current_user_id()
+
+    # 檢查密碼規則 (如果有填寫新密碼)
+    new_password = request.form.get('password')
+    if new_password:
+        is_valid, error_msg = validate_password_strength(new_password)
+        if not is_valid:
+            flash(error_msg, 'error')
+            return redirect(request.referrer or url_for('customer.dashboard'))
+
+    if update_user_profile(user_id, request.form):
+        flash('個人資料已更新', 'success')
+    else:
+        flash('更新失敗，請稍後再試', 'error')
+
+    return redirect(request.referrer or url_for('customer.dashboard'))

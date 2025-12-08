@@ -448,6 +448,10 @@
                       onclick="openEditCourseModal({{ safe_course_data | tojson | forceescape }})">
                       <i class="bi bi-pencil"></i>
                     </button>
+                    <button type="button" class="btn btn-sm btn-outline-warning" title="設定人數"
+                      onclick="openCapacityModal({{ course.id }}, '{{ course.name }}')">
+                      <i class="bi bi-people"></i>
+                    </button>
                     {% if session.get('user', {}).get('role') == 'admin' %}
                     <form method="POST" action="{{ url_for('admin.delete_course_modal', course_id=course.id) }}"
                       class="d-inline" onsubmit="return confirm('確定要刪除「{{ course.name }}」？');">
@@ -571,14 +575,19 @@
                 {% for order in orders %}
                 <tr>
                   <td class="fw-bold">#{{ order.id }}</td>
-                  <td>{{ order.firstname }} {{ order.surname }}</td>
+                  <td>
+                    <div>{{ order.firstname }} {{ order.surname }}</div>
+                    <small class="text-muted">{{ order.phone or '' }}</small>
+                  </td>
                   <td>{{ order.email }}</td>
                   <td class="fw-bold">NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
                   <td>
                     <form method="POST" action="{{ url_for('admin.update_order_status', order_id=order.id) }}"
                       class="d-inline">
                       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                      <select name="status" class="form-select form-select-sm" onchange="this.form.submit()">
+                      <select name="status" class="form-select form-select-sm"
+                        style="width: 100px; display:inline-block;" onchange="this.form.submit()" {% if
+                        order.status=='cancelled' %}disabled{% endif %}>
                         <option value="pending" {% if order.status=='pending' %}selected{% endif %}>待確認</option>
                         <option value="confirmed" {% if order.status=='confirmed' %}selected{% endif %}>已確認</option>
                         <option value="completed" {% if order.status=='completed' %}selected{% endif %}>已完成</option>
@@ -588,7 +597,21 @@
                   </td>
                   <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
                   <td class="text-end">
-                    <button class="btn btn-sm btn-outline-info" onclick="alert('訂單詳情功能開發中')" title="查看詳情">
+
+                    {% set items = order_items_map.get(order.id, []) %}
+                    {% set safe_order_data = {
+                    'id': order.id,
+                    'customer_name': order.firstname ~ ' ' ~ order.surname,
+                    'email': order.email,
+                    'phone': order.phone or '未提供',
+                    'total_amount': order.total_amount,
+                    'status': order.status,
+                    'created_at': order.created_at.strftime('%Y-%m-%d %H:%M'),
+                    'items': items
+                    } %}
+
+                    <button class="btn btn-sm btn-outline-info" title="查看詳情"
+                      onclick="openOrderDetailModal({{ safe_order_data | tojson | forceescape }})">
                       <i class="bi bi-eye"></i>
                     </button>
                   </td>
@@ -1918,166 +1941,279 @@
       </div>
     </div>
   </div>
-</div>
-<!-- ===================== END MODALS ===================== -->
+  <!-- Order Detail Modal -->
+  <div class="modal fade" id="orderDetailModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header bg-light">
+          <h5 class="modal-title"><i class="bi bi-receipt"></i> 訂單詳情 #<span id="order_detail_id"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <h6 class="fw-bold border-bottom pb-2 mb-3 text-primary">客戶資訊</h6>
+          <p class="mb-1"><strong>姓名：</strong> <span id="order_detail_customer"></span></p>
+          <p class="mb-1"><strong>Email：</strong> <span id="order_detail_email"></span></p>
+          <p class="mb-3"><strong>電話：</strong> <span id="order_detail_phone"></span></p>
 
-<!-- ===== JS: populate edit modals (call when click edit buttons) ===== -->
-<script>
-  // Helper: preview image before upload
-  function previewImage(input, previewId) {
-    if (input.files && input.files[0]) {
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        document.getElementById(previewId).src = e.target.result;
-      };
-      reader.readAsDataURL(input.files[0]);
-    }
-  }
+          <h6 class="fw-bold border-bottom pb-2 mb-3 text-primary">購買項目</h6>
+          <div class="table-responsive mb-3">
+            <table class="table table-sm table-bordered">
+              <thead class="table-light">
+                <tr>
+                  <th>品名</th>
+                  <th class="text-center">單價</th>
+                  <th class="text-center">數量</th>
+                  <th class="text-end">小計</th>
+                </tr>
+              </thead>
+              <tbody id="order_detail_items">
+              </tbody>
+            </table>
+          </div>
 
-  // ================= Edit Product Modal =================
-  function openEditProductModal(product) {
-    product = product || {}; // safety fallback
+          <div class="d-flex justify-content-between align-items-center mt-3">
+            <span>下單時間：<span id="order_detail_date" class="text-muted"></span></span>
+            <span class="fs-5 fw-bold text-primary">總金額：NT$ <span id="order_detail_total"></span></span>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="modal fade" id="capacityModal" tabindex="-1">
+    <div class="modal-dialog modal-sm modal-dialog-centered">
+      <div class="modal-content">
+        <form id="capacityForm" method="POST">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="modal-header">
+            <h5 class="modal-title">設定課程人數</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-muted">這將更新「<span id="cap_course_name" class="fw-bold"></span>」所有未來時段的可預約人數。</p>
+            <div class="mb-3">
+              <label class="form-label">每時段人數上限</label>
+              <input type="number" name="max_capacity" class="form-control" value="1" min="1" required>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+            <button type="submit" class="btn btn-warning">更新</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <!-- ===================== END MODALS ===================== -->
 
-    document.getElementById('edit_product_name').value = product.name || '';
-    document.getElementById('edit_product_category').value = product.category_id || '';
-    document.getElementById('edit_product_price').value = product.price || '';
-    document.getElementById('edit_product_cost').value = product.cost || '';
-    document.getElementById('edit_product_stock').value = product.stock_quantity || 0;
-    document.getElementById('edit_product_unit').value = product.unit || '件';
-    document.getElementById('edit_product_description').value = product.description || '';
-    document.getElementById('edit_product_current_image').value = product.image || '';
-    document.getElementById('editProductPreview').src = product.image ? ("/static/" + product.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
-    document.getElementById('edit_product_is_active').checked = !!product.is_active;
-
-    // set form action safely
-    if (product.id) {
-      document.getElementById('editProductForm').action = "{{ url_for('admin.update_product_modal', product_id=0) }}".replace('/0/', '/' + product.id + '/');
-    }
-
-    // show modal
-    var modal = new bootstrap.Modal(document.getElementById('editProductModal'));
-    modal.show();
-  }
-
-  // ================= Edit Course Modal =================
-  function openEditCourseModal(course) {
-    course = course || {}; // safety fallback
-
-    document.getElementById('edit_course_name').value = course.name || '';
-    document.getElementById('edit_course_category').value = course.category_id || '';
-    document.getElementById('edit_course_regular_price').value = course.regular_price || '';
-    document.getElementById('edit_course_experience_price').value = course.experience_price || '';
-    document.getElementById('edit_course_service_fee').value = course.service_fee || 0;
-    document.getElementById('edit_course_product_fee').value = course.product_fee || 0;
-    document.getElementById('edit_course_duration').value = course.duration || '';
-    document.getElementById('edit_course_sessions').value = course.sessions || 1;
-    document.getElementById('edit_course_description').value = course.description || '';
-    document.getElementById('edit_course_current_image').value = course.image || '';
-    document.getElementById('editCoursePreview').src = course.image ? ("/static/" + course.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
-    document.getElementById('edit_course_is_active').checked = !!course.is_active;
-
-    if (course.id) {
-      document.getElementById('editCourseForm').action = "{{ url_for('admin.update_course_modal', course_id=0) }}".replace('/0/', '/' + course.id + '/');
-    }
-
-    var modal = new bootstrap.Modal(document.getElementById('editCourseModal'));
-    modal.show();
-  }
-
-  // ================= Edit Event Modal =================
-  function openEditEventModal(event) {
-    event = event || {}; // safety fallback
-
-    document.getElementById('edit_event_title').value = event.title || '';
-    document.getElementById('edit_event_customer').value = event.customer_id || '';
-    document.getElementById('edit_event_duration').value = event.duration || '';
-    document.getElementById('edit_event_description').value = event.description || '';
-
-    // 日期格式轉換 helper
-    function formatForInput(dateStr) {
-      if (!dateStr || dateStr === 'None') return '';
-      // 將 SQL datetime 字串 (YYYY-MM-DD HH:MM:SS) 轉為 input datetime-local 格式 (YYYY-MM-DDTHH:MM)
-      // 1. 替換空格為 T
-      let s = dateStr.replace(' ', 'T');
-      // 2. 如果有秒數 (長度 > 16)，截斷它
-      if (s.length > 16) {
-        s = s.substring(0, 16);
+  <!-- ===== JS: populate edit modals (call when click edit buttons) ===== -->
+  <script>
+    // Helper: preview image before upload
+    function previewImage(input, previewId) {
+      if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function (e) {
+          document.getElementById(previewId).src = e.target.result;
+        };
+        reader.readAsDataURL(input.files[0]);
       }
-      return s;
     }
 
-    document.getElementById('edit_event_start').value = formatForInput(event.start_date);
-    document.getElementById('edit_event_end').value = formatForInput(event.end_date);
+    // ================= Edit Product Modal =================
+    function openEditProductModal(product) {
+      product = product || {}; // safety fallback
 
-    if (event.id) {
+      document.getElementById('edit_product_name').value = product.name || '';
+      document.getElementById('edit_product_category').value = product.category_id || '';
+      document.getElementById('edit_product_price').value = product.price || '';
+      document.getElementById('edit_product_cost').value = product.cost || '';
+      document.getElementById('edit_product_stock').value = product.stock_quantity || 0;
+      document.getElementById('edit_product_unit').value = product.unit || '件';
+      document.getElementById('edit_product_description').value = product.description || '';
+      document.getElementById('edit_product_current_image').value = product.image || '';
+      document.getElementById('editProductPreview').src = product.image ? ("/static/" + product.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
+      document.getElementById('edit_product_is_active').checked = !!product.is_active;
+
+      // set form action safely
+      if (product.id) {
+        document.getElementById('editProductForm').action = "{{ url_for('admin.update_product_modal', product_id=0) }}".replace('/0/', '/' + product.id + '/');
+      }
+
+      // show modal
+      var modal = new bootstrap.Modal(document.getElementById('editProductModal'));
+      modal.show();
+    }
+
+    // ================= Edit Course Modal =================
+    function openEditCourseModal(course) {
+      course = course || {}; // safety fallback
+
+      document.getElementById('edit_course_name').value = course.name || '';
+      document.getElementById('edit_course_category').value = course.category_id || '';
+      document.getElementById('edit_course_regular_price').value = course.regular_price || '';
+      document.getElementById('edit_course_experience_price').value = course.experience_price || '';
+      document.getElementById('edit_course_service_fee').value = course.service_fee || 0;
+      document.getElementById('edit_course_product_fee').value = course.product_fee || 0;
+      document.getElementById('edit_course_duration').value = course.duration || '';
+      document.getElementById('edit_course_sessions').value = course.sessions || 1;
+      document.getElementById('edit_course_description').value = course.description || '';
+      document.getElementById('edit_course_current_image').value = course.image || '';
+      document.getElementById('editCoursePreview').src = course.image ? ("/static/" + course.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
+      document.getElementById('edit_course_is_active').checked = !!course.is_active;
+
+      if (course.id) {
+        document.getElementById('editCourseForm').action = "{{ url_for('admin.update_course_modal', course_id=0) }}".replace('/0/', '/' + course.id + '/');
+      }
+
+      var modal = new bootstrap.Modal(document.getElementById('editCourseModal'));
+      modal.show();
+    }
+
+    // ================= Edit Event Modal =================
+    function openEditEventModal(event) {
+      event = event || {}; // safety fallback
+
+      document.getElementById('edit_event_title').value = event.title || '';
+      document.getElementById('edit_event_customer').value = event.customer_id || '';
+      document.getElementById('edit_event_duration').value = event.duration || '';
+      document.getElementById('edit_event_description').value = event.description || '';
+
+      // 日期格式轉換 helper
+      function formatForInput(dateStr) {
+        if (!dateStr || dateStr === 'None') return '';
+        // 將 SQL datetime 字串 (YYYY-MM-DD HH:MM:SS) 轉為 input datetime-local 格式 (YYYY-MM-DDTHH:MM)
+        // 1. 替換空格為 T
+        let s = dateStr.replace(' ', 'T');
+        // 2. 如果有秒數 (長度 > 16)，截斷它
+        if (s.length > 16) {
+          s = s.substring(0, 16);
+        }
+        return s;
+      }
+
+      document.getElementById('edit_event_start').value = formatForInput(event.start_date);
+      document.getElementById('edit_event_end').value = formatForInput(event.end_date);
+
+      if (event.id) {
+        // 動態設定 Form Action
+        document.getElementById('editEventForm').action = "{{ url_for('admin.update_event', event_id=0) }}".replace('/0/', '/' + event.id + '/');
+      }
+
+      var modal = new bootstrap.Modal(document.getElementById('editEventModal'));
+      modal.show();
+    }
+    // ================= Edit Customer Modal =================
+    function openEditCustomerModal(customer) {
+      customer = customer || {};
+
+      document.getElementById('edit_cust_surname').value = customer.surname || '';
+      document.getElementById('edit_cust_firstname').value = customer.firstname || '';
+      document.getElementById('edit_cust_email').value = customer.email || '';
+      document.getElementById('edit_cust_phone').value = customer.phone || '';
+      document.getElementById('edit_cust_line_id').value = customer.line_id || '';
+      document.getElementById('edit_cust_occupation').value = customer.occupation || '';
+      document.getElementById('edit_cust_gender').value = customer.gender || 'female';
+      document.getElementById('edit_cust_birth_date').value = customer.birth_date || '';
+      document.getElementById('edit_cust_source').value = customer.source_id || '';
+
+      if (customer.id) {
+        document.getElementById('editCustomerForm').action = "{{ url_for('admin.update_customer', customer_id=0) }}".replace('/0/', '/' + customer.id + '/');
+      }
+
+      var modal = new bootstrap.Modal(document.getElementById('editCustomerModal'));
+      modal.show();
+    }
+    // ================= Inventory Adjust Helper =================
+    function openAdjustModal(productId) {
+      // 1. 開啟 Modal
+      var modal = new bootstrap.Modal(document.getElementById('adjustInventoryModal'));
+      modal.show();
+
+      // 2. 自動選中下拉選單的對應產品
+      var select = document.querySelector('#adjustInventoryModal select[name="product_id"]');
+      if (select) {
+        select.value = productId;
+      }
+    }
+    // ================= Booking Detail Modal =================
+    function openBookingDetailModal(booking) {
+      document.getElementById('detail_id').textContent = booking.id;
+      document.getElementById('detail_customer').textContent = booking.customer_name;
+      document.getElementById('detail_phone').textContent = booking.phone;
+      document.getElementById('detail_email').textContent = booking.email;
+      document.getElementById('detail_line').textContent = booking.line_id;
+
+      document.getElementById('detail_course').textContent = booking.course_name;
+      document.getElementById('detail_time').textContent = booking.time_str;
+      document.getElementById('detail_duration').textContent = booking.duration;
+
+      document.getElementById('detail_sessions').textContent = booking.sessions_purchased;
+      document.getElementById('detail_remaining').textContent = booking.sessions_remaining;
+
+      // 格式化金額
+      let amount = parseFloat(booking.total_amount).toLocaleString();
+      document.getElementById('detail_amount').textContent = amount;
+
+      document.getElementById('detail_first_time').textContent = booking.is_first_time ? '是' : '否';
+
+      var modal = new bootstrap.Modal(document.getElementById('bookingDetailModal'));
+      modal.show();
+    }
+
+    // ================= Order Detail Modal =================
+    function openOrderDetailModal(order) {
+      document.getElementById('order_detail_id').textContent = order.id;
+      document.getElementById('order_detail_customer').textContent = order.customer_name;
+      document.getElementById('order_detail_email').textContent = order.email;
+      document.getElementById('order_detail_phone').textContent = order.phone;
+      document.getElementById('order_detail_date').textContent = order.created_at;
+
+      // 格式化總金額
+      let total = parseFloat(order.total_amount).toLocaleString();
+      document.getElementById('order_detail_total').textContent = total;
+
+      // 填充商品列表
+      const tbody = document.getElementById('order_detail_items');
+      tbody.innerHTML = ''; // 清空舊資料
+
+      if (order.items && order.items.length > 0) {
+        order.items.forEach(item => {
+          let price = parseFloat(item.unit_price).toLocaleString();
+          let subtotal = parseFloat(item.subtotal).toLocaleString();
+
+          let row = `
+                <tr>
+                    <td>${item.product_name}</td>
+                    <td class="text-center">${price}</td>
+                    <td class="text-center">${item.quantity}</td>
+                    <td class="text-end">${subtotal}</td>
+                </tr>
+            `;
+          tbody.insertAdjacentHTML('beforeend', row);
+        });
+      } else {
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">無商品資料</td></tr>';
+      }
+
+      var modal = new bootstrap.Modal(document.getElementById('orderDetailModal'));
+      modal.show();
+    }
+
+    function openCapacityModal(courseId, courseName) {
+      document.getElementById('cap_course_name').textContent = courseName;
       // 動態設定 Form Action
-      document.getElementById('editEventForm').action = "{{ url_for('admin.update_event', event_id=0) }}".replace('/0/', '/' + event.id + '/');
+      let url = "{{ url_for('admin.update_course_capacity', course_id=0) }}";
+      document.getElementById('capacityForm').action = url.replace('/0/', '/' + courseId + '/');
+
+      var modal = new bootstrap.Modal(document.getElementById('capacityModal'));
+      modal.show();
     }
-
-    var modal = new bootstrap.Modal(document.getElementById('editEventModal'));
-    modal.show();
-  }
-  // ================= Edit Customer Modal =================
-  function openEditCustomerModal(customer) {
-    customer = customer || {};
-
-    document.getElementById('edit_cust_surname').value = customer.surname || '';
-    document.getElementById('edit_cust_firstname').value = customer.firstname || '';
-    document.getElementById('edit_cust_email').value = customer.email || '';
-    document.getElementById('edit_cust_phone').value = customer.phone || '';
-    document.getElementById('edit_cust_line_id').value = customer.line_id || '';
-    document.getElementById('edit_cust_occupation').value = customer.occupation || '';
-    document.getElementById('edit_cust_gender').value = customer.gender || 'female';
-    document.getElementById('edit_cust_birth_date').value = customer.birth_date || '';
-    document.getElementById('edit_cust_source').value = customer.source_id || '';
-
-    if (customer.id) {
-      document.getElementById('editCustomerForm').action = "{{ url_for('admin.update_customer', customer_id=0) }}".replace('/0/', '/' + customer.id + '/');
-    }
-
-    var modal = new bootstrap.Modal(document.getElementById('editCustomerModal'));
-    modal.show();
-  }
-  // ================= Inventory Adjust Helper =================
-  function openAdjustModal(productId) {
-    // 1. 開啟 Modal
-    var modal = new bootstrap.Modal(document.getElementById('adjustInventoryModal'));
-    modal.show();
-
-    // 2. 自動選中下拉選單的對應產品
-    var select = document.querySelector('#adjustInventoryModal select[name="product_id"]');
-    if (select) {
-      select.value = productId;
-    }
-  }
-  // ================= Booking Detail Modal =================
-  function openBookingDetailModal(booking) {
-    document.getElementById('detail_id').textContent = booking.id;
-    document.getElementById('detail_customer').textContent = booking.customer_name;
-    document.getElementById('detail_phone').textContent = booking.phone;
-    document.getElementById('detail_email').textContent = booking.email;
-    document.getElementById('detail_line').textContent = booking.line_id;
-
-    document.getElementById('detail_course').textContent = booking.course_name;
-    document.getElementById('detail_time').textContent = booking.time_str;
-    document.getElementById('detail_duration').textContent = booking.duration;
-
-    document.getElementById('detail_sessions').textContent = booking.sessions_purchased;
-    document.getElementById('detail_remaining').textContent = booking.sessions_remaining;
-
-    // 格式化金額
-    let amount = parseFloat(booking.total_amount).toLocaleString();
-    document.getElementById('detail_amount').textContent = amount;
-
-    document.getElementById('detail_first_time').textContent = booking.is_first_time ? '是' : '否';
-
-    var modal = new bootstrap.Modal(document.getElementById('bookingDetailModal'));
-    modal.show();
-  }
-  // ================= Example Usage =================
-  // Safe example for reference (won't error if `product` is undefined)
-  // {# <button onclick="openEditProductModal({{ product|default({})|tojson }})">Edit</button> #}
-</script>
+    // ================= Example Usage =================
+    // Safe example for reference (won't error if `product` is undefined)
+    // {# <button onclick="openEditProductModal({{ product|default({})|tojson }})">Edit</button> #}
+  </script>
 
 
-{% endblock %}
+  {% endblock %}

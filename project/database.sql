@@ -557,3 +557,8 @@ AND NOT EXISTS (
     WHERE cs.course_id = c.id 
     AND cs.start_time = CONCAT(d.date_val, ' ', t.start_t)
 );
+
+-- 測試資料
+-- customer
+-- ID:Testcus
+-- Password: testcus123 

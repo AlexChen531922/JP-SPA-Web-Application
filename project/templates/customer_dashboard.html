@@ -8,11 +8,10 @@
 
   <div class="row g-4">
 
-    <!-- Left Sidebar -->
     <div class="col-md-3">
       <div class="list-group sticky-top" style="top: 100px;">
         <a href="{{ url_for('customer.dashboard') }}" class="list-group-item list-group-item-action active">
-          <i class="bi bi-speedometer2"></i> 儀表板
+          <i class="bi bi-house-door"></i> 個人首頁
         </a>
         <a href="{{ url_for('customer.bookings') }}" class="list-group-item list-group-item-action">
           <i class="bi bi-calendar-check"></i> 我的預約
@@ -26,183 +25,114 @@
       </div>
     </div>
 
-    <!-- Main Content -->
     <div class="col-md-9">
 
-      <!-- Welcome Card -->
-      <div class="card bg-primary text-white mb-4">
-        <div class="card-body">
-          <h4 class="fw-bold mb-2">歡迎回來，{{ user.firstname }} {{ user.surname }}！</h4>
-          <p class="mb-0">很高興再次見到您</p>
+      <div class="card border-0 shadow-sm mb-4 bg-primary text-white"
+        style="background: linear-gradient(45deg, #4B2E39, #B05E72);">
+        <div class="card-body p-4">
+          <h4 class="fw-bold">歡迎回來，{{ user.firstname }}！</h4>
+          <p class="mb-0 opacity-75">這是您的會員專屬空間，您可以查看預約、訂單或修改個人資料。</p>
         </div>
       </div>
 
-      <!-- Quick Stats -->
       <div class="row g-3 mb-4">
         <div class="col-md-4">
-          <div class="card text-center">
-            <div class="card-body">
-              <i class="bi bi-calendar-check fs-1 text-primary"></i>
-              <h3 class="fw-bold mt-2">{{ active_courses|length }}</h3>
-              <p class="text-muted mb-0">有效課程</p>
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+              <h6 class="text-muted">有效課程</h6>
+              <h3 class="fw-bold text-primary">{{ active_courses|length }}</h3>
             </div>
           </div>
         </div>
         <div class="col-md-4">
-          <div class="card text-center">
-            <div class="card-body">
-              <i class="bi bi-bag-check fs-1 text-success"></i>
-              <h3 class="fw-bold mt-2">{{ recent_orders|length }}</h3>
-              <p class="text-muted mb-0">最近訂單</p>
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+              <h6 class="text-muted">最近訂單</h6>
+              <h3 class="fw-bold text-success">{{ recent_orders|length }}</h3>
             </div>
           </div>
         </div>
         <div class="col-md-4">
-          <div class="card text-center">
-            <div class="card-body">
-              <i class="bi bi-box fs-1 text-warning"></i>
-              <h3 class="fw-bold mt-2">{{ purchased_products|length }}</h3>
-              <p class="text-muted mb-0">已購產品</p>
+          <div class="card border-0 shadow-sm h-100">
+            <div class="card-body text-center">
+              <h6 class="text-muted">已購產品數</h6>
+              <h3 class="fw-bold text-warning">{{ purchased_products|length }}</h3>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Active Courses -->
-      <div class="card mb-4">
-        <div class="card-header bg-white">
-          <h5 class="fw-bold mb-0">
-            <i class="bi bi-calendar-check"></i> 我的課程
-          </h5>
-        </div>
-        <div class="card-body">
-          {% if active_courses %}
+      <h5 class="fw-bold mb-3">進行中的課程</h5>
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-hover">
-              <thead>
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
                 <tr>
                   <th>課程名稱</th>
-                  <th>已購堂數</th>
+                  <th>購買堂數</th>
                   <th>剩餘堂數</th>
-                  <th>預約日期</th>
+                  <th>購買日期</th>
                 </tr>
               </thead>
               <tbody>
                 {% for course in active_courses %}
                 <tr>
-                  <td>{{ course.course_name }}</td>
+                  <td class="fw-bold">{{ course.course_name }}</td>
                   <td>{{ course.sessions_purchased }}</td>
-                  <td>
-                    <span class="badge bg-success">{{ course.sessions_remaining }} 堂</span>
-                  </td>
-                  <td>{{ course.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td><span class="badge bg-success fs-6">{{ course.sessions_remaining }}</span></td>
+                  <td class="text-muted">{{ course.created_at.strftime('%Y-%m-%d') }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                  <td colspan="4" class="text-center py-4 text-muted">目前沒有進行中的課程</td>
                 </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
-          <a href="{{ url_for('customer.bookings') }}" class="btn btn-sm btn-outline-primary">
-            查看全部預約 <i class="bi bi-arrow-right"></i>
-          </a>
-          {% else %}
-          <div class="text-center py-4">
-            <i class="bi bi-calendar-x fs-1 text-muted"></i>
-            <p class="text-muted mt-2">目前沒有有效課程</p>
-            <a href="{{ url_for('main.courses') }}" class="btn btn-primary">
-              <i class="bi bi-calendar-plus"></i> 預約課程
-            </a>
-          </div>
-          {% endif %}
         </div>
       </div>
 
-      <!-- Recent Orders -->
-      <div class="card mb-4">
-        <div class="card-header bg-white">
-          <h5 class="fw-bold mb-0">
-            <i class="bi bi-bag-check"></i> 最近訂單
-          </h5>
-        </div>
-        <div class="card-body">
-          {% if recent_orders %}
+      <h5 class="fw-bold mb-3">最近訂單</h5>
+      <div class="card border-0 shadow-sm">
+        <div class="card-body p-0">
           <div class="table-responsive">
-            <table class="table table-hover">
-              <thead>
+            <table class="table table-hover mb-0 align-middle">
+              <thead class="table-light">
                 <tr>
                   <th>訂單編號</th>
-                  <th>商品數量</th>
                   <th>金額</th>
                   <th>狀態</th>
                   <th>日期</th>
-                  <th></th>
+                  <th class="text-end">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {% for order in recent_orders %}
                 <tr>
                   <td>#{{ order.id }}</td>
-                  <td>{{ order.item_count }} 項</td>
-                  <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
+                  <td class="fw-bold">NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
                   <td>
                     {% if order.status == 'pending' %}
-                    <span class="badge bg-warning">待確認</span>
+                    <span class="badge bg-warning text-dark">待確認</span>
                     {% elif order.status == 'confirmed' %}
-                    <span class="badge bg-info">已確認</span>
+                    <span class="badge bg-info text-dark">已確認</span>
                     {% elif order.status == 'completed' %}
                     <span class="badge bg-success">已完成</span>
                     {% else %}
                     <span class="badge bg-secondary">{{ order.status }}</span>
                     {% endif %}
                   </td>
-                  <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
-                  <td>
+                  <td class="text-muted small">{{ order.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="text-end">
                     <a href="{{ url_for('customer.order_detail', order_id=order.id) }}"
-                      class="btn btn-sm btn-outline-primary">
-                      查看
-                    </a>
+                      class="btn btn-sm btn-outline-primary">詳情</a>
                   </td>
                 </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-          <a href="{{ url_for('customer.orders') }}" class="btn btn-sm btn-outline-primary">
-            查看全部訂單 <i class="bi bi-arrow-right"></i>
-          </a>
-          {% else %}
-          <div class="text-center py-4">
-            <i class="bi bi-bag-x fs-1 text-muted"></i>
-            <p class="text-muted mt-2">目前沒有訂單記錄</p>
-            <a href="{{ url_for('main.products') }}" class="btn btn-primary">
-              <i class="bi bi-bag-plus"></i> 開始購物
-            </a>
-          </div>
-          {% endif %}
-        </div>
-      </div>
-
-      <!-- Purchased Products -->
-      {% if purchased_products %}
-      <div class="card">
-        <div class="card-header bg-white">
-          <h5 class="fw-bold mb-0">
-            <i class="bi bi-box"></i> 已購產品
-          </h5>
-        </div>
-        <div class="card-body">
-          <div class="table-responsive">
-            <table class="table table-sm">
-              <thead>
+                {% else %}
                 <tr>
-                  <th>產品名稱</th>
-                  <th>購買數量</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for product in purchased_products %}
-                <tr>
-                  <td>{{ product.name }}</td>
-                  <td>{{ product.total_quantity }}</td>
+                  <td colspan="5" class="text-center py-4 text-muted">目前沒有訂單紀錄</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -210,14 +140,11 @@
           </div>
         </div>
       </div>
-      {% endif %}
 
     </div>
   </div>
-
 </div>
 
-<!-- Profile Edit Modal -->
 <div class="modal fade" id="profileModal" tabindex="-1">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -228,13 +155,15 @@
       <form action="{{ url_for('customer.update_profile') }}" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-body">
-          <div class="mb-3">
-            <label class="form-label">姓氏</label>
-            <input type="text" name="surname" class="form-control" value="{{ user.surname }}" required>
-          </div>
-          <div class="mb-3">
-            <label class="form-label">名字</label>
-            <input type="text" name="firstname" class="form-control" value="{{ user.firstname }}" required>
+          <div class="row">
+            <div class="col-6 mb-3">
+              <label class="form-label">姓氏</label>
+              <input type="text" name="surname" class="form-control" value="{{ user.surname }}" required>
+            </div>
+            <div class="col-6 mb-3">
+              <label class="form-label">名字</label>
+              <input type="text" name="firstname" class="form-control" value="{{ user.firstname }}" required>
+            </div>
           </div>
           <div class="mb-3">
             <label class="form-label">Email</label>
@@ -255,8 +184,9 @@
           <hr>
           <div class="mb-3">
             <label class="form-label">新密碼（不修改請留空）</label>
-            <input type="password" name="password" class="form-control">
-            <small class="text-muted">至少 6 個字元</small>
+            <input type="password" name="password" class="form-control" placeholder="至少10碼，含大小寫字母、數字及符號"
+              pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W]).{10,}" title="密碼需至少10碼，且包含大小寫字母、數字及特殊符號">
+            <small class="text-muted d-block mt-1">規則：10字元以上，需含大寫、小寫、數字及符號</small>
           </div>
         </div>
         <div class="modal-footer">
@@ -267,5 +197,4 @@
     </div>
   </div>
 </div>
-
 {% endblock %}

@@ -171,12 +171,29 @@ def dashboard():
 
     # Orders for management
     cursor.execute("""
-        SELECT o.*, u.username, u.firstname, u.surname, u.email
+        SELECT o.*, u.username, u.firstname, u.surname, u.email, u.phone
         FROM orders o
         JOIN users u ON o.customer_id = u.id
         ORDER BY o.created_at DESC
     """)
     orders = cursor.fetchall()
+
+    # 查詢所有訂單的細項 (Items)
+    cursor.execute("""
+        SELECT oi.order_id, oi.quantity, oi.unit_price, oi.subtotal,
+               p.name as product_name
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+    """)
+    all_items = cursor.fetchall()
+
+    # 將細項整理成字典 {order_id: [item1, item2...]}
+    order_items_map = {}
+    for item in all_items:
+        oid = item['order_id']
+        if oid not in order_items_map:
+            order_items_map[oid] = []
+        order_items_map[oid].append(item)
 
     # Bookings for management
     cursor.execute("""
@@ -268,7 +285,8 @@ def dashboard():
         bookings=bookings,
         customers_list=customers_list,
         customer_sources=customer_sources,
-        posts=posts
+        posts=posts,
+        order_items_map=order_items_map
     )
 
 # =====================================================
@@ -386,7 +404,9 @@ def update_product_modal(product_id):
             'old_data': {'name': old_data['name'], 'price': float(old_data['price'])},
             'new_data': {'name': name, 'price': price}
         }
-        log_activity('update', 'product', product_id, log_changes)
+        print(f"呼叫 Log: Product {product_id}")
+        log_activity('update', 'product', product_id,
+                     {'name': name, 'price': price})
 
         flash('產品已更新', 'success')
     except Exception as e:
@@ -897,6 +917,44 @@ def update_booking_status(booking_id):
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='bookings'))
+
+
+@admin_bp.route('/course/<int:course_id>/update-capacity', methods=['POST'])
+@staff_required
+def update_course_capacity(course_id):
+    """批次更新該課程未來時段的可預約人數"""
+    try:
+        new_capacity = request.form.get('max_capacity', type=int)
+
+        if not new_capacity or new_capacity < 1:
+            flash('請輸入有效的人數', 'error')
+            return redirect(url_for('admin.dashboard', tab='courses'))
+
+        cursor = database.connection.cursor()
+
+        # 只更新「未來」且「還沒額滿」的時段
+        # 這樣不會影響到已經被預約滿的歷史紀錄
+        cursor.execute("""
+            UPDATE course_schedules
+            SET max_capacity = %s
+            WHERE course_id = %s 
+              AND start_time > NOW()
+        """, (new_capacity, course_id))
+
+        affected_rows = cursor.rowcount
+        database.connection.commit()
+        cursor.close()
+
+        log_activity('update', 'course_schedule', course_id, {
+                     'action': 'bulk_capacity_update', 'new_capacity': new_capacity})
+
+        flash(f'已更新未來 {affected_rows} 個時段的人數上限為 {new_capacity} 人', 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'更新失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='courses'))
 # =====================================================
 # CUSTOMER MANAGEMENT
 # =====================================================

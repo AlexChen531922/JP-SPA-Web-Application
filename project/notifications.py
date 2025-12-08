@@ -10,6 +10,7 @@ from linebot.exceptions import LineBotApiError
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import requests
 
 
 # ==========================================
@@ -17,57 +18,36 @@ from email.mime.multipart import MIMEMultipart
 # ==========================================
 
 def send_email(to, subject, body, html=None):
-    """
-    Send email notification
-
-    Args:
-        to (str): Recipient email address
-        subject (str): Email subject
-        body (str): Plain text email body
-        html (str, optional): HTML email body
-
-    Returns:
-        bool: True if sent successfully, False otherwise
-    """
     try:
-        # Get email config from Flask app
         mail_server = current_app.config.get('MAIL_SERVER')
         mail_port = current_app.config.get('MAIL_PORT')
         mail_username = current_app.config.get('MAIL_USERNAME')
         mail_password = current_app.config.get('MAIL_PASSWORD')
         mail_from = current_app.config.get('MAIL_DEFAULT_SENDER')
 
-        # Check if email is configured
+        if isinstance(mail_from, tuple):
+            mail_from = f"{mail_from[0]} <{mail_from[1]}>"
+
         if not all([mail_server, mail_username, mail_password]):
-            current_app.logger.warning(
-                "Email not configured, skipping email notification")
+            current_app.logger.warning("Email config missing")
             return False
 
-        # Create message
         msg = MIMEMultipart('alternative')
         msg['From'] = mail_from
         msg['To'] = to
         msg['Subject'] = subject
-
-        # Attach plain text
         msg.attach(MIMEText(body, 'plain', 'utf-8'))
-
-        # Attach HTML if provided
         if html:
             msg.attach(MIMEText(html, 'html', 'utf-8'))
 
-        # Connect to SMTP server
         server = smtplib.SMTP(mail_server, mail_port)
         server.starttls()
         server.login(mail_username, mail_password)
         server.send_message(msg)
         server.quit()
-
-        current_app.logger.info(f"Email sent successfully to {to}")
         return True
-
     except Exception as e:
-        current_app.logger.error(f"Email sending failed to {to}: {e}")
+        current_app.logger.error(f"Email failed: {e}")
         return False
 
 
@@ -75,79 +55,62 @@ def send_email(to, subject, body, html=None):
 # LINE NOTIFY FUNCTIONS
 # ==========================================
 
-def send_line_notify(message):
-    """
-    Send LINE Notify message
-
-    Args:
-        message (str): Message to send
-
-    Returns:
-        bool: True if sent successfully, False otherwise
-    """
+def send_admin_line_notify(message):
+    """發送給管理員 (LINE Notify)"""
     token = current_app.config.get('LINE_NOTIFY_TOKEN')
-
     if not token:
-        current_app.logger.warning("LINE_NOTIFY_TOKEN not configured")
         return False
 
-    url = 'https://notify-api.line.me/api/notify'
-    headers = {'Authorization': f'Bearer {token}'}
-    data = {'message': message}
-
     try:
-        response = requests.post(url, headers=headers, data=data, timeout=10)
-        if response.status_code == 200:
-            current_app.logger.info("LINE Notify sent successfully")
-            return True
-        else:
-            current_app.logger.error(
-                f"LINE Notify failed: {response.status_code}")
-            return False
+        requests.post(
+            'https://notify-api.line.me/api/notify',
+            headers={'Authorization': f'Bearer {token}'},
+            data={'message': message},
+            timeout=10
+        )
+        return True
     except Exception as e:
         current_app.logger.error(f"LINE Notify failed: {e}")
         return False
 
 
+def send_customer_line_message(user_line_id, message_text):
+    """發送給客戶 (Messaging API)"""
+    token = current_app.config.get('LINE_CHANNEL_ACCESS_TOKEN')
+    if not token or not user_line_id:
+        return False
+
+    try:
+        line_bot_api = LineBotApi(token)
+        line_bot_api.push_message(
+            user_line_id, TextSendMessage(text=message_text))
+        return True
+    except Exception as e:
+        current_app.logger.error(f"LINE Push failed: {e}")
+        return False
+
+
 # ==========================================
-# ORDER NOTIFICATIONS
+# NEW ORDER NOTIFICATIONS ADMIN
 # ==========================================
+def notify_new_order_created(order_id, customer_name, customer_email, total_amount, items_text):
+    """新訂單成立 (給客戶的接收通知信)"""
 
-def notify_new_order(order_id, customer_name, customer_email, total_amount, items):
-    """
-    Send notifications for new order
+    # 1. 通知管理員 (LINE)
+    admin_msg = f"🛍️ [新訂單待確認] #{order_id}\n{customer_name} - NT$ {total_amount:,.0f}\n請至後台確認。"
+    send_admin_line_notify(admin_msg)
 
-    Args:
-        order_id (int): Order ID
-        customer_name (str): Customer name
-        customer_email (str): Customer email
-        total_amount (float): Order total amount
-        items (str): Order items description
-
-    Returns:
-        dict: Status of notifications sent
-    """
-    results = {
-        'customer_email': False,
-        'admin_line': False
-    }
-
-    # Customer email
-    customer_subject = '晶品芳療 - 訂單確認'
-    customer_body = f"""
+    # 2. 通知客戶 (Email) - 簡化版內容
+    if customer_email:
+        subject = '晶品芳療 - 訂單申請已收到'
+        body = f"""
 親愛的 {customer_name}，
 
-感謝您的訂購！
-
-━━━━━━━━━━━━━━━━━━━━━━
-📦 訂單資訊
-━━━━━━━━━━━━━━━━━━━━━━
-
-訂單編號：#{order_id}
-訂單金額：NT$ {total_amount:,.0f}
+感謝您的訂購！您的訂單 #{order_id} 申請已收到。
 
 訂購項目：
-{items}
+{items_text}
+金額：NT$ {total_amount:,.0f}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 📌 接下來的步驟
@@ -155,201 +118,105 @@ def notify_new_order(order_id, customer_name, customer_email, total_amount, item
 
 1. 我們將於 1-2 個工作天內確認您的訂單
 2. 確認後會透過 Email 和 LINE 通知您
-3. 您可於店內取貨並完成付款
 
-如有任何問題，歡迎隨時與我們聯絡。
-
-晶品芳療團隊
-地址：新北市新莊區思源路195巷37號1樓
-電話：請透過 LINE 聯繫
-    """
-
-    customer_html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #2c5aa0;">感謝您的訂購！</h2>
-            <p>親愛的 {customer_name}，</p>
-            
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h3 style="margin-top: 0;">📦 訂單資訊</h3>
-                <p><strong>訂單編號：</strong>#{order_id}</p>
-                <p><strong>訂單金額：</strong><span style="color: #28a745; font-size: 1.2em;">NT$ {total_amount:,.0f}</span></p>
-                <div style="margin-top: 15px;">
-                    <strong>訂購項目：</strong>
-                    <pre style="background: white; padding: 10px; border-radius: 4px; white-space: pre-wrap;">{items}</pre>
-                </div>
-            </div>
-            
-            <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h4 style="margin-top: 0;">📌 接下來的步驟</h4>
-                <ol>
-                    <li>我們將於 1-2 個工作天內確認您的訂單</li>
-                    <li>確認後會透過 Email 和 LINE 通知您</li>
-                    <li>您可於店內取貨並完成付款</li>
-                </ol>
-            </div>
-            
-            <p style="color: #666; font-size: 0.9em;">
-                如有任何問題，歡迎隨時與我們聯絡。<br>
-                晶品芳療團隊<br>
-                地址：新北市新莊區思源路195巷37號1樓
-            </p>
-        </div>
-    </body>
-    </html>
-    """
-
-    results['customer_email'] = send_email(
-        to=customer_email,
-        subject=customer_subject,
-        body=customer_body,
-        html=customer_html
-    )
-
-    # Admin LINE notification
-    admin_message = f"""
-🛍️ 新訂單通知
-
-━━━━━━━━━━━━━━
-訂單編號：#{order_id}
-客戶：{customer_name}
-金額：NT$ {total_amount:,.0f}
-
-訂購項目：
-{items}
-━━━━━━━━━━━━━━
-
-請盡快確認訂單！
+(此信件為系統自動發送，請勿直接回覆)
 """
-
-    results['admin_line'] = send_line_notify(admin_message)
-
-    return results
+        # (HTML 版請自行保留對應的簡化內容)
+        send_email(customer_email, subject, body)
 
 
-# ==========================================
-# BOOKING NOTIFICATIONS
-# ==========================================
+def notify_new_booking_created(booking_id, customer_name, customer_email, course_name, time_str):
+    """新預約成立 (給客戶的接收通知信)"""
 
-def notify_new_booking(booking_id, customer_name, customer_email, course_name,
-                       sessions, total_amount, is_first_time):
-    """
-    Send notifications for new booking
+    # 1. 通知管理員 (LINE)
+    admin_msg = f"📅 [新預約待確認] #{booking_id}\n{customer_name} - {course_name}\n{time_str}\n請至後台確認。"
+    send_admin_line_notify(admin_msg)
 
-    Args:
-        booking_id (int): Booking ID
-        customer_name (str): Customer name
-        customer_email (str): Customer email
-        course_name (str): Course name
-        sessions (int): Number of sessions
-        total_amount (float): Booking total amount
-        is_first_time (bool): Is first time booking
-
-    Returns:
-        dict: Status of notifications sent
-    """
-    results = {
-        'customer_email': False,
-        'admin_line': False
-    }
-
-    # Prepare experience text
-    experience_text = " 🎁 (首次體驗價)" if is_first_time else ""
-
-    # Customer email
-    customer_subject = '晶品芳療 - 課程預約確認'
-    customer_body = f"""
+    # 2. 通知客戶 (Email)
+    if customer_email:
+        subject = '晶品芳療 - 預約申請已收到'
+        body = f"""
 親愛的 {customer_name}，
 
-感謝您預約我們的課程！
+我們已收到您的課程預約申請。
 
-━━━━━━━━━━━━━━━━━━━━━━
-📅 預約資訊
-━━━━━━━━━━━━━━━━━━━━━━
-
-預約編號：#{booking_id}
-課程名稱：{course_name}{experience_text}
-預約堂數：{sessions} 堂
-預約金額：NT$ {total_amount:,.0f}
+預約課程：{course_name}
+預約時段：{time_str}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 📌 接下來的步驟
 ━━━━━━━━━━━━━━━━━━━━━━
 
-1. 我們將於 1-2 個工作天內與您聯絡確認預約時間
+1. 我們將於 1-2 個工作天內確認您的預約時段
 2. 確認後會透過 Email 和 LINE 通知您
-3. 請於預約時間準時到店，課程完成後付款
-4. 您可隨時在會員中心查看剩餘課程堂數
 
-期待與您見面！
-
-晶品芳療團隊
-地址：新北市新莊區思源路195巷37號1樓
-電話：請透過 LINE 聯繫
-    """
-
-    customer_html = f"""
-    <html>
-    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #2c5aa0;">感謝您的預約！</h2>
-            <p>親愛的 {customer_name}，</p>
-            
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h3 style="margin-top: 0;">📅 預約資訊</h3>
-                <p><strong>預約編號：</strong>#{booking_id}</p>
-                <p><strong>課程名稱：</strong>{course_name}{experience_text}</p>
-                <p><strong>預約堂數：</strong>{sessions} 堂</p>
-                <p><strong>預約金額：</strong><span style="color: #28a745; font-size: 1.2em;">NT$ {total_amount:,.0f}</span></p>
-                {"<p style='background: #d4edda; padding: 10px; border-radius: 4px; color: #155724;'>🎁 您享有首次體驗優惠！</p>" if is_first_time else ""}
-            </div>
-            
-            <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0;">
-                <h4 style="margin-top: 0;">📌 接下來的步驟</h4>
-                <ol>
-                    <li>我們將於 1-2 個工作天內與您聯絡確認預約時間</li>
-                    <li>確認後會透過 Email 和 LINE 通知您</li>
-                    <li>請於預約時間準時到店，課程完成後付款</li>
-                    <li>您可隨時在會員中心查看剩餘課程堂數</li>
-                </ol>
-            </div>
-            
-            <p style="color: #666; font-size: 0.9em;">
-                期待與您見面！<br>
-                晶品芳療團隊<br>
-                地址：新北市新莊區思源路195巷37號1樓
-            </p>
-        </div>
-    </body>
-    </html>
-    """
-
-    results['customer_email'] = send_email(
-        to=customer_email,
-        subject=customer_subject,
-        body=customer_body,
-        html=customer_html
-    )
-
-    # Admin LINE notification
-    admin_message = f"""
-📅 新課程預約
-
-━━━━━━━━━━━━━━
-預約編號：#{booking_id}
-客戶：{customer_name}
-課程：{course_name}{experience_text}
-堂數：{sessions} 堂
-金額：NT$ {total_amount:,.0f}
-━━━━━━━━━━━━━━
-
-請盡快聯絡客戶確認時間！
+(此信件為系統自動發送，請勿直接回覆)
 """
+        send_email(customer_email, subject, body)
 
-    results['admin_line'] = send_line_notify(admin_message)
+# ==========================================
+# 2. Customer Confirmation Notifications
+# ==========================================
 
-    return results
+
+def notify_order_confirmed(order_id, customer, total_amount):
+    """訂單確認通知 (告知可取貨/付款)"""
+
+    # LINE 訊息
+    line_msg = f"✅ 訂單 #{order_id} 已確認！\n金額：NT$ {total_amount:,.0f}\n\n您現在可以前往店內付款取貨囉！期待您的光臨。"
+    if customer.get('line_id'):
+        send_customer_line_message(customer['line_id'], line_msg)
+
+    # Email
+    subject = f"晶品芳療 - 訂單 #{order_id} 確認通知"
+    body = f"""
+親愛的 {customer['firstname']}，
+
+好消息！您的訂單 #{order_id} 已經確認。
+
+━━━━━━━━━━━━━━━━━━━━━━
+✅ 訂單狀態：已確認 (可取貨)
+━━━━━━━━━━━━━━━━━━━━━━
+
+訂單金額：NT$ {total_amount:,.0f}
+
+請您於營業時間內，前往店內取貨並完成付款。
+地址：新北市新莊區思源路296巷37號1樓
+營業時間：週一至週日 09:00-18:00
+
+期待您的光臨！
+"""
+    send_email(customer['email'], subject, body)
+
+
+def notify_booking_confirmed(booking_id, customer, course_name, time_str):
+    """預約確認通知 (告知準時出席)"""
+
+    # LINE 訊息
+    line_msg = f"✅ 預約 #{booking_id} 已確認！\n課程：{course_name}\n時間：{time_str}\n\n我們已經為您保留時段，請準時蒞臨，期待為您服務！"
+    if customer.get('line_id'):
+        send_customer_line_message(customer['line_id'], line_msg)
+
+    # Email
+    subject = f"晶品芳療 - 預約 #{booking_id} 確認通知"
+    body = f"""
+親愛的 {customer['firstname']}，
+
+好消息！您的預約已經確認。
+
+━━━━━━━━━━━━━━━━━━━━━━
+✅ 預約狀態：已確認
+━━━━━━━━━━━━━━━━━━━━━━
+
+課程名稱：{course_name}
+預約時段：{time_str}
+
+我們已經為您保留了專屬時段與芳療師。
+請您準時蒞臨，讓身心靈享受一段放鬆的旅程。
+
+地址：新北市新莊區思源路296巷37號1樓
+"""
+    send_email(customer['email'], subject, body)
 
 
 # ==========================================
@@ -410,8 +277,8 @@ LINE：{line_id or '未提供'}
 
 如需緊急協助，歡迎透過以下方式聯絡：
 • LINE：請搜尋「晶品芳療」
-• 地址：新北市新莊區思源路195巷37號1樓
-• 營業時間：週一至週日 10:00-21:00
+• 地址：新北市新莊區思源路296巷37號1樓
+• 營業時間：週一至週日 09:00-18:00
 
 晶品芳療團隊
     """
@@ -434,8 +301,8 @@ LINE：{line_id or '未提供'}
                 <p>歡迎透過以下方式聯絡：</p>
                 <ul>
                     <li>LINE：請搜尋「晶品芳療」</li>
-                    <li>地址：新北市新莊區思源路195巷37號1樓</li>
-                    <li>營業時間：週一至週日 10:00-21:00</li>
+                    <li>地址：新北市新莊區思源路296巷37號1樓</li>
+                    <li>營業時間：週一至週日 09:00-18:00</li>
                 </ul>
             </div>
             

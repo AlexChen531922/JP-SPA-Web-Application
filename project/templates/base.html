@@ -260,7 +260,7 @@
     {% for category, msg in messages %}
     {% set alert_type = 'danger' if category in ['error', 'danger'] else category %}
     <div class="alert alert-{{ alert_type }} alert-dismissible fade show shadow-sm rounded-3" role="alert">
-      {{ msg | safe }}
+      {{ msg }}
       <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
     {% endfor %}
@@ -282,7 +282,7 @@
           <h5 class="fw-bold mb-3">晶品芳療 JP AROMATIC</h5>
           <p class="text-muted">提供專業芳香療法課程與天然精油產品</p>
           <p class="text-muted small">
-            <i class="bi bi-geo-alt"></i> 新北市新莊區思源路196巷37號1樓<br>
+            <i class="bi bi-geo-alt"></i> 新北市新莊區思源路296巷37號1樓<br>
             <i class="bi bi-envelope"></i> apple630203@gmail.com
           </p>
         </div>
@@ -325,9 +325,9 @@
 
       <div class="row">
         <div class="col-12 text-center text-muted small">
-          <p class="mb-0">© 2025 JP AROMATIC SPA. All rights reserved. |
-            <a href="#" class="text-muted">隱私權政策</a> |
-            <a href="#" class="text-muted">服務條款</a>
+          <p class="mb-0">© 2025 JP AROMATIC SPA. 版權所有 All rights reserved. |
+            <a href="{{ url_for('main.privacy_policy') }}" class="text-muted">隱私權政策</a> |
+            <a href="{{ url_for('main.terms_of_service') }}" class="text-muted">服務條款</a>
           </p>
         </div>
       </div>
@@ -365,7 +365,9 @@
 
                 <div class="mb-3">
                   <label class="form-label">密碼</label>
-                  <input type="password" name="password" class="form-control" required>
+                  <input type="password" name="password" class="form-control" required placeholder="10碼以上，含大小寫、數字、符號"
+                    pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W]).{10,}" title="密碼需至少10碼，且包含大小寫字母、數字及特殊符號">
+                  <div class="form-text small">需含大寫、小寫、數字及符號，至少10碼</div>
                 </div>
 
                 <button type="submit" class="btn btn-primary w-100">登入</button>

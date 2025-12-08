@@ -6,10 +6,16 @@ Registers all blueprints including new reports system
 import os
 from flask import Flask, render_template
 from project.extensions import database, csrf, bootstrap
+from dotenv import load_dotenv
+from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
+# ⭐ 新增：定義上傳資料夾路徑
+UPLOAD_FOLDER = os.path.join(STATIC_DIR, "img")
+
+load_dotenv()
 
 
 def create_app():
@@ -20,31 +26,39 @@ def create_app():
         static_url_path='/static'
     )
 
+    # ⭐ 新增：確保上傳目錄存在，否則會報錯
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+
     app.config.update(
-        SECRET_KEY=os.environ.get(
-            "SECRET_KEY", "G5SECRETKEY-CHANGE-IN-PRODUCTION"),
+        SECRET_KEY=os.environ.get("SECRET_KEY", "dev-key"),
+
+        # ⭐ 新增：設定 UPLOAD_FOLDER，讓 admin.py 讀取
+        UPLOAD_FOLDER=UPLOAD_FOLDER,
+
         MYSQL_HOST=os.environ.get("MYSQL_HOST", "localhost"),
         MYSQL_USER=os.environ.get("MYSQL_USER", "root"),
-        MYSQL_PASSWORD=os.environ.get("MYSQL_PASSWORD", "ifn582pw"),
+        MYSQL_PASSWORD=os.environ.get("MYSQL_PASSWORD"),
         MYSQL_DB=os.environ.get("MYSQL_DB", "ecommerce_booking_system"),
         MYSQL_CURSORCLASS="DictCursor",
-        MAX_CONTENT_LENGTH=5 * 1024 * 1024,
-        UPLOAD_FOLDER=os.path.join(STATIC_DIR, "img"),
 
         # Email configuration
-        MAIL_SERVER=os.environ.get("MAIL_SERVER", "smtp.gmail.com"),
-        MAIL_PORT=int(os.environ.get("MAIL_PORT", 587)),
+        MAIL_SERVER="smtp.gmail.com",
+        MAIL_PORT=587,
         MAIL_USE_TLS=True,
         MAIL_USERNAME=os.environ.get("MAIL_USERNAME"),
         MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD"),
-        MAIL_DEFAULT_SENDER=os.environ.get(
-            "MAIL_DEFAULT_SENDER", "noreply@jparomatic.com"),
+        MAIL_DEFAULT_SENDER=("晶品芳療", os.environ.get("MAIL_USERNAME")),
 
-        # LINE Notify Token
+        # LINE Configuration
         LINE_NOTIFY_TOKEN=os.environ.get("LINE_NOTIFY_TOKEN"),
-    )
+        LINE_CHANNEL_ACCESS_TOKEN=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"),
 
-    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+        # Session Security
+        PERMANENT_SESSION_LIFETIME=timedelta(minutes=15),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE='Lax',
+    )
 
     # Initialize extensions
     database.init_app(app)
@@ -58,19 +72,13 @@ def create_app():
 
         try:
             cursor = database.connection.cursor()
-
-            # Get product categories
             cursor.execute(
-                "SELECT id, name FROM product_categories ORDER BY display_order, name"
-            )
+                "SELECT id, name FROM product_categories ORDER BY display_order, name")
             product_categories = cursor.fetchall()
 
-            # Get course categories
             cursor.execute(
-                "SELECT id, name FROM course_categories ORDER BY display_order, name"
-            )
+                "SELECT id, name FROM course_categories ORDER BY display_order, name")
             course_categories = cursor.fetchall()
-
             cursor.close()
 
             return dict(
@@ -113,7 +121,6 @@ def create_app():
     from project.customer import customer_bp
     app.register_blueprint(customer_bp, url_prefix='/customer')
 
-    # ⭐ Register new reports blueprint
     from project.advanced_reports import reports_bp
     app.register_blueprint(reports_bp)
 

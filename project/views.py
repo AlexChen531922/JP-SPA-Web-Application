@@ -1,10 +1,10 @@
 from flask import Blueprint, render_template, request, session, flash, redirect, url_for, jsonify, abort
 from .decorators import login_required, customer_required
-from . import database
+from project.extensions import database
 from .db import get_current_user_id, get_current_user_role, is_logged_in
-from .notifications import notify_contact_message, notify_new_order, notify_new_booking
+# 引入新的通知函式
+from .notifications import notify_contact_message, notify_new_order_created, notify_new_booking_created
 import MySQLdb.cursors
-from .notifications import notify_new_booking_v2
 from datetime import datetime
 
 main_bp = Blueprint('main', __name__)
@@ -32,7 +32,7 @@ def home():
 
     # Get featured courses (latest 6)
     cursor.execute("""
-        SELECT c.id, c.name, c.regular_price, c.experience_price, 
+        SELECT c.id, c.name, c.regular_price, c.experience_price,
                c.duration, c.image, cc.name as category_name
         FROM courses c
         LEFT JOIN course_categories cc ON c.category_id = cc.id
@@ -164,7 +164,7 @@ def product_detail(product_id):
 
 
 # =====================================================
-# COURSE & SCHEDULE (全面修正與整合)
+# COURSE & SCHEDULE
 # =====================================================
 
 @main_bp.route('/courses')
@@ -285,12 +285,13 @@ def get_course_schedule(course_id):
 
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # 查詢時段
+    # 查詢時段 - 加入 start_time > NOW() 過濾過去的時段
     cursor.execute("""
         SELECT id, start_time, end_time, max_capacity, current_bookings
         FROM course_schedules
-        WHERE course_id = %s 
+        WHERE course_id = %s
           AND start_time BETWEEN %s AND %s
+          AND start_time > NOW()
           AND is_active = TRUE
     """, (course_id, start_date, end_date))
 
@@ -347,8 +348,8 @@ def post_detail(post_id):
 
     # Increment view count
     cursor.execute("""
-        UPDATE blog_posts 
-        SET views = views + 1 
+        UPDATE blog_posts
+        SET views = views + 1
         WHERE id = %s
     """, (post_id,))
     database.connection.commit()
@@ -443,7 +444,7 @@ def about():
 
 @main_bp.route('/contact', methods=['GET', 'POST'])
 def contact():
-    """Contact form - handled in home page, this is just for direct access"""
+    """Contact form"""
     if request.method == 'POST':
         name = request.form.get('name', '').strip()
         email = request.form.get('email', '').strip()
@@ -502,7 +503,7 @@ def cart():
 
     # Get cart items
     cursor.execute("""
-        SELECT ci.id, ci.quantity, 
+        SELECT ci.id, ci.quantity,
                p.id as product_id, p.name, p.price, p.image
         FROM cart_items ci
         JOIN products p ON ci.product_id = p.id
@@ -591,22 +592,12 @@ def remove_from_cart(item_id):
 def checkout():
     """
     Checkout and create order
-    Automatically reduces inventory when order is placed
-    Includes:
-    - cart validation
-    - stock validation
-    - insert order + order_items
-    - reduce stock
-    - write inventory log
-    - clear cart
     """
     user_id = get_current_user_id()
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     try:
-        # -------------------------
         # 1. Get cart
-        # -------------------------
         cursor.execute(
             "SELECT id FROM carts WHERE customer_id = %s", (user_id,))
         cart_data = cursor.fetchone()
@@ -618,11 +609,9 @@ def checkout():
 
         cart_id = cart_data['id']
 
-        # -------------------------
         # 2. Get cart items + product stock
-        # -------------------------
         cursor.execute("""
-            SELECT 
+            SELECT
                 ci.id, ci.quantity, ci.product_id,
                 p.name, p.price, p.stock_quantity
             FROM cart_items ci
@@ -636,99 +625,87 @@ def checkout():
             cursor.close()
             return redirect(url_for('main.cart'))
 
-        # -------------------------
         # 3. Stock validation
-        # -------------------------
         for item in items:
             if item['stock_quantity'] < item['quantity']:
                 flash(f'「{item["name"]}」庫存不足', 'error')
                 cursor.close()
                 return redirect(url_for('main.cart'))
 
-        # -------------------------
         # 4. Calculate total
-        # -------------------------
         total = sum(item['price'] * item['quantity'] for item in items)
 
-        # -------------------------
         # 5. Create order
-        # -------------------------
         cursor.execute("""
             INSERT INTO orders (customer_id, total_amount, status)
             VALUES (%s, %s, 'pending')
         """, (user_id, total))
         order_id = cursor.lastrowid
 
-        # -------------------------
         # 6. Insert order_items + reduce stock + log
-        # -------------------------
         for item in items:
             subtotal = item['price'] * item['quantity']
 
             # Insert order item record
             cursor.execute("""
-                INSERT INTO order_items 
+                INSERT INTO order_items
                 (order_id, product_id, quantity, unit_price, subtotal)
                 VALUES (%s, %s, %s, %s, %s)
             """, (order_id, item['product_id'], item['quantity'], item['price'], subtotal))
 
             # Reduce inventory
             cursor.execute("""
-                UPDATE products 
-                SET stock_quantity = stock_quantity - %s 
+                UPDATE products
+                SET stock_quantity = stock_quantity - %s
                 WHERE id = %s
             """, (item['quantity'], item['product_id']))
 
             # Write inventory log
             cursor.execute("""
-                INSERT INTO inventory_logs 
+                INSERT INTO inventory_logs
                 (product_id, change_amount, change_type, reference_id, created_by)
                 VALUES (%s, %s, 'sale', %s, %s)
             """, (item['product_id'], -item['quantity'], order_id, user_id))
 
-        # -------------------------
         # 7. Clear cart
-        # -------------------------
         cursor.execute("DELETE FROM cart_items WHERE cart_id = %s", (cart_id,))
-        database.connection.commit()
 
-        # -------------------------
-        # 8. Get user info for notify
-        # -------------------------
+        # 8. Get user info
         cursor.execute("""
-            SELECT username, email, firstname, surname 
-            FROM users 
+            SELECT username, email, firstname, surname
+            FROM users
             WHERE id = %s
         """, (user_id,))
         user = cursor.fetchone()
 
+        database.connection.commit()
         cursor.close()
 
-        # -------------------------
-        # 9. Send notification (not affecting checkout)
-        # -------------------------
+        # 9. Send notification
         try:
             items_text = '\n'.join([
                 f"- {item['name']} x {item['quantity']}"
                 for item in items
             ])
-            notify_new_order(
+
+            # 使用新的通知函式
+            notify_new_order_created(
                 order_id,
                 f"{user['firstname']} {user['surname']}",
-                user['email'],
+                user['email'],  # 傳入 Email
                 total,
                 items_text
             )
         except Exception as e:
             print(f"Notification failed: {e}")
 
-        flash('訂單已送出！我們將盡快為您處理', 'success')
         return redirect(url_for('main.checkout_success', order_id=order_id))
 
     except Exception as e:
         database.connection.rollback()
-        cursor.close()
-        flash(f'結帳失敗：{str(e)}', 'error')
+        if 'cursor' in locals():
+            cursor.close()
+        flash(f'結帳失敗: {str(e)}', 'error')
         return redirect(url_for('main.cart'))
 
 
@@ -776,7 +753,7 @@ def cancel_order(order_id):
 
         items = cursor.fetchall()
 
-        # ⭐ RESTORE INVENTORY
+        # RESTORE INVENTORY
         for item in items:
             cursor.execute("""
                 UPDATE products 
@@ -784,7 +761,7 @@ def cancel_order(order_id):
                 WHERE id = %s
             """, (item['quantity'], item['product_id']))
 
-            # ⭐ LOG INVENTORY RESTORATION
+            # LOG INVENTORY RESTORATION
             cursor.execute("""
                 INSERT INTO inventory_logs 
                 (product_id, change_amount, change_type, reference_id, created_by)
@@ -812,7 +789,7 @@ def cancel_order(order_id):
 
 
 # =====================================================
-# ADD TO CART (Keep existing)
+# ADD TO CART
 # =====================================================
 
 
@@ -831,9 +808,7 @@ def add_to_cart(product_id):
 
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # -------------------------
     # 1. Check product
-    # -------------------------
     cursor.execute("""
         SELECT id, name, stock_quantity 
         FROM products 
@@ -846,17 +821,13 @@ def add_to_cart(product_id):
         flash('此商品不存在', 'error')
         return redirect(request.referrer or url_for('main.products'))
 
-    # -------------------------
     # 2. Check stock
-    # -------------------------
     if product['stock_quantity'] < quantity:
         cursor.close()
         flash('庫存不足', 'error')
         return redirect(request.referrer or url_for('main.products'))
 
-    # -------------------------
     # 3. Get or create cart
-    # -------------------------
     cursor.execute("SELECT id FROM carts WHERE customer_id = %s", (user_id,))
     cart_data = cursor.fetchone()
 
@@ -868,9 +839,7 @@ def add_to_cart(product_id):
     else:
         cart_id = cart_data['id']
 
-    # -------------------------
     # 4. Check if item already in cart
-    # -------------------------
     cursor.execute("""
         SELECT id, quantity 
         FROM cart_items
@@ -898,9 +867,7 @@ def add_to_cart(product_id):
             VALUES (%s, %s, %s)
         """, (cart_id, product_id, quantity))
 
-    # -------------------------
     # 5. Commit + close
-    # -------------------------
     database.connection.commit()
     cursor.close()
 
@@ -973,8 +940,10 @@ def book_course(course_id):
     """Legacy booking method - Redirect to calendar"""
     return redirect(url_for('main.course_detail', course_id=course_id))
 
-# 2. 處理指定時段預約
 
+# =====================================================
+# COURSE SLOT BOOKING (修復版)
+# =====================================================
 
 @main_bp.route('/course/book_slot', methods=['POST'])
 @login_required
@@ -991,7 +960,7 @@ def book_course_slot():
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     try:
-        # 檢查時段是否存在且有名額 (使用 FOR UPDATE 鎖定防止超賣)
+        # 1. 檢查時段是否存在且有名額
         cursor.execute("""
             SELECT cs.*, c.name, c.regular_price, c.experience_price
             FROM course_schedules cs
@@ -1006,47 +975,78 @@ def book_course_slot():
         if schedule['current_bookings'] >= schedule['max_capacity']:
             raise Exception("該時段已額滿，請選擇其他時間")
 
-        # 檢查是否首購 (計算價格)
+        # 2. 檢查是否首購
         cursor.execute(
             "SELECT COUNT(*) as count FROM bookings WHERE customer_id = %s", (user_id,))
         is_first_time = cursor.fetchone()['count'] == 0
+
+        # 判斷價格
         price = schedule['experience_price'] if (
             is_first_time and schedule['experience_price']) else schedule['regular_price']
 
-        # 建立訂單
+        # 3. 建立訂單
         cursor.execute("""
             INSERT INTO bookings (customer_id, course_id, schedule_id, total_amount, is_first_time, status)
-            VALUES (%s, %s, %s, %s, %s, 'confirmed')
+            VALUES (%s, %s, %s, %s, %s, 'pending')
         """, (user_id, course_id, schedule_id, price, is_first_time))
         booking_id = cursor.lastrowid
 
-        # 更新時段人數
+        # 4. 更新時段人數
         cursor.execute("""
             UPDATE course_schedules 
             SET current_bookings = current_bookings + 1 
             WHERE id = %s
         """, (schedule_id,))
 
-        # 獲取用戶資料以便通知
-        cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        # 5. 獲取用戶資料
+        cursor.execute(
+            "SELECT firstname, surname, email FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
 
+        # 提交資料庫
         database.connection.commit()
 
-        course_data = {
-            'name': schedule['name'],  # 這對應 SQL 中的 c.name
-            'regular_price': schedule['regular_price']
-        }
+        # ==========================================
+        # 6. 發送通知 (獨立 Try-Catch，避免影響預約結果)
+        # ==========================================
+        try:
+            from .notifications import notify_new_booking_created
 
-        # 發送通知
-        notify_new_booking_v2(booking_id, user, course_data, schedule, price)
+            booking_time_str = schedule['start_time'].strftime(
+                '%Y-%m-%d %H:%M')
+            customer_name = f"{user['firstname']} {user['surname']}"
 
-        flash('預約成功！通知已發送', 'success')
+            notify_new_booking_created(
+                booking_id,
+                customer_name,
+                user['email'],
+                schedule['name'],
+                booking_time_str
+            )
+        except Exception as e:
+            print(f"Notification failed: {e}")
+
+        flash('預約申請已送出！待確認後將通知您。', 'success')
         return redirect(url_for('customer.bookings'))
 
     except Exception as e:
         database.connection.rollback()
         flash(f'預約失敗: {str(e)}', 'error')
         return redirect(url_for('main.course_detail', course_id=course_id))
+
     finally:
         cursor.close()
+
+
+# =====================================================
+# LEGAL PAGES
+# =====================================================
+
+@main_bp.route('/privacy-policy')
+def privacy_policy():
+    return render_template('privacy.html')
+
+
+@main_bp.route('/terms-of-service')
+def terms_of_service():
+    return render_template('terms.html')
