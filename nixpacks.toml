@@ -1,3 +1,4 @@
+# Force Railway to switch to Nixpacks (這是註解，強迫更新)
 # Railway 專用設定檔：強制安裝 MySQL 驅動程式
 
 [phases.setup]
