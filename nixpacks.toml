@@ -6,7 +6,7 @@
 nixPkgs = ["python3", "mysql-client", "mariadb-connector-c", "pkg-config", "gcc"]
 
 [phases.build]
-cmds = ["python -m venv /opt/venv && . /opt/venv/bin/activate && pip install -r requirements.txt"]
+cmds = ["python -m venv /opt/venv && . /opt/venv/bin/activate && pip install -r requirements_lock.txt"]
 
 [start]
 cmd = "gunicorn run:app"
