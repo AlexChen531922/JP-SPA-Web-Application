@@ -23,7 +23,7 @@ def customer_required(f):
 
         user = session.get('user', {})
         # 修改：允許 customer 或 admin 或 staff
-        if user.get('role') not in ['customer', 'admin']:
+        if user.get('role') not in ['customer', 'admin', 'staff']:
             flash('此功能僅限會員使用', 'error')
             return redirect(url_for('main.home'))
         return f(*args, **kwargs)

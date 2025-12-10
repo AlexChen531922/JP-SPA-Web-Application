@@ -226,3 +226,23 @@ def reset_password(user_id, password_plaintext):
         database.connection.commit()
     finally:
         cursor.close()
+
+# 檔案：project/db.py (請加在最下面)
+
+
+def get_user_by_line_id(line_id):
+    """透過 LINE User ID 查找使用者 (LINE 登入用)"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("SELECT * FROM users WHERE line_id = %s", (line_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    return user
+
+
+def get_user_by_email(email):
+    """透過 Email 查找使用者"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+    user = cursor.fetchone()
+    cursor.close()
+    return user

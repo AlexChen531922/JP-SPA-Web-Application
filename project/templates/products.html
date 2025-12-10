@@ -84,7 +84,7 @@
 
         <!-- Footer 不觸發 modal -->
         <div class="card-footer bg-white border-0 pt-0">
-          {% if session.get('user', {}).get('role') in ['customer', 'admin'] %}
+          {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
           <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="quantity" value="1">

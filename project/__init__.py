@@ -5,15 +5,16 @@ Registers all blueprints including new reports system
 
 import os
 from flask import Flask, render_template
-from project.extensions import database, csrf, bootstrap
+from werkzeug.middleware.proxy_fix import ProxyFix
+from project.extensions import database, csrf, bootstrap, mail
 from dotenv import load_dotenv
 from datetime import timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
-# ⭐ 新增：定義上傳資料夾路徑
 UPLOAD_FOLDER = os.path.join(STATIC_DIR, "img")
+is_production = os.environ.get('FLASK_ENV') == 'production'
 
 load_dotenv()
 
@@ -51,19 +52,28 @@ def create_app():
         MAIL_DEFAULT_SENDER=("晶品芳療", os.environ.get("MAIL_USERNAME")),
 
         # LINE Configuration
-        LINE_NOTIFY_TOKEN=os.environ.get("LINE_NOTIFY_TOKEN"),
+        LINE_CHANNEL_ID=os.environ.get("LINE_CHANNEL_ID"),
+        LINE_CHANNEL_SECRET=os.environ.get("LINE_CHANNEL_SECRET"),
         LINE_CHANNEL_ACCESS_TOKEN=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"),
+        LINE_ADMIN_USER_ID=os.environ.get("LINE_ADMIN_USER_ID"),
 
         # Session Security
         PERMANENT_SESSION_LIFETIME=timedelta(minutes=15),
+        SESSION_COOKIE_SECURE=is_production,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
+
+    )
+
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
     )
 
     # Initialize extensions
     database.init_app(app)
     csrf.init_app(app)
     bootstrap.init_app(app)
+    mail.init_app(app)
 
     # Context processors
     @app.context_processor

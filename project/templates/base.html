@@ -204,11 +204,17 @@
         {% set role = session.get('user', {}).get('role') %}
         {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
 
-        <!-- Role-specific buttons -->
         {% if role in ['staff', 'admin'] %}
         <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm">
           <i class="bi bi-speedometer2"></i> 管理後台
         </a>
+
+        {% if role == 'staff', 'admin' %}
+        <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative">
+          <i class="bi bi-cart3"></i> 購物車
+        </a>
+        {% endif %}
+
         {% elif role == 'customer' %}
         <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative">
           <i class="bi bi-cart3"></i> 購物車
@@ -283,7 +289,7 @@
           <p class="text-muted">提供專業芳香療法課程與天然精油產品</p>
           <p class="text-muted small">
             <i class="bi bi-geo-alt"></i> 新北市新莊區思源路296巷37號1樓<br>
-            <i class="bi bi-envelope"></i> apple630203@gmail.com
+            <i class="bi bi-envelope"></i> jpin20200322@gmail.com
           </p>
         </div>
 
@@ -370,7 +376,19 @@
                   <div class="form-text small">需含大寫、小寫、數字及符號，至少10碼</div>
                 </div>
 
+
                 <button type="submit" class="btn btn-primary w-100">登入</button>
+
+                <div class="text-center my-2 position-relative">
+                  <hr class="m-0">
+                  <span
+                    class="position-absolute top-50 start-50 translate-middle bg-white px-2 text-muted small">或</span>
+                </div>
+
+                <a href="{{ url_for('auth.line_login') }}" class="btn w-100 text-white"
+                  style="background-color: #00C300;">
+                  <i class="bi bi-line me-2"></i> 使用 LINE 帳號登入
+                </a>
 
                 <div class="text-right mt-3">
                   <a href="{{ url_for('auth.forgot_password') }}" class="small text-decoration-none">忘記密碼？</a>
@@ -382,6 +400,14 @@
             <div class="tab-pane fade" id="signup">
               <form method="POST" action="{{ url_for('auth.register') }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                {% if session.get('binding_line_name') %}
+                <div class="alert alert-success py-2 mb-3 small">
+                  <i class="bi bi-line me-1"></i>
+                  正在綁定 LINE 帳號：<strong>{{ session.get('binding_line_name') }}</strong><br>
+                  請設定您的會員帳號密碼以完成綁定。
+                </div>
+                {% endif %}
 
                 <div class="mb-3">
                   <label class="form-label">帳號</label>
@@ -407,6 +433,12 @@
                     <label class="form-label">名字</label>
                     <input type="text" name="firstname" class="form-control" required>
                   </div>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label">LINE ID <span class="text-muted small">(選填)</span></label>
+                  <input type="text" name="line_id" class="form-control" placeholder="您的LINEID"
+                    value="{{ session.get('binding_line_id', '') }}">
                 </div>
 
                 <input type="hidden" name="role" value="customer">
@@ -450,7 +482,7 @@
       <span class="icon-label">Instagram</span>
     </a>
 
-    <a href="mailto:info@jparomatic.com" class="social-icon email">
+    <a href="mailto:jpin20200322@gmail.com" class="social-icon email">
       <i class="bi bi-envelope-fill"></i>
       <span class="icon-label">Email</span>
     </a>
@@ -576,7 +608,39 @@
 
   <!-- Bootstrap JS -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-  {% block scripts %}{% endblock %}
+  {% block scripts %}
+
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      // 檢查網址參數是否有 open_register=true
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('open_register') === 'true') {
+
+        // 找到登入 Modal
+        var loginModalEl = document.getElementById('loginModal');
+        if (loginModalEl) {
+          var modal = new bootstrap.Modal(loginModalEl);
+          modal.show();
+
+          // 切換到「註冊」分頁 (假設您的註冊 tab id 是 "signup-tab" 或類似名稱)
+          // 這裡模擬點擊「註冊」按鈕
+          var signupTabBtn = document.querySelector('button[data-bs-target="#signup"]');
+          if (signupTabBtn) {
+            signupTabBtn.click();
+
+            if (urlParams.get('open_login') === 'true') {
+              var loginModalEl = document.getElementById('loginModal');
+              if (loginModalEl) {
+                var modal = new bootstrap.Modal(loginModalEl);
+                modal.show();
+              }
+            }
+          }
+        }
+      }
+    });
+  </script>
+  {% endblock %}
 </body>
 
 </html>

@@ -14,6 +14,13 @@ from decimal import Decimal
 from project.services import admin_update_order_with_inventory
 from project.db import get_current_user_id
 from project.audit import log_activity
+from project.decorators import admin_required, staff_required
+from project.notifications import (
+    notify_order_confirmed,
+    notify_booking_confirmed,
+    notify_order_status_update,
+    notify_booking_status_update
+)
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -47,27 +54,13 @@ def staff_required(f):
     return decorated_function
 
 
-def admin_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if get_current_user_role() != 'admin':
-            flash('此功能僅限管理員使用', 'error')
-            return redirect(url_for('admin.dashboard'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-# =====================================================
-# DASHBOARD WITH COMPLETE DATA
-# =====================================================
-
-
 @admin_bp.route('/dashboard')
 @staff_required
 def dashboard():
     tab = request.args.get('tab', 'overview')
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # Basic statistics
+    # 1. 基礎計數 (Counts)
     cursor.execute(
         "SELECT COUNT(*) as count FROM products WHERE is_active = TRUE")
     product_count = cursor.fetchone()['count']
@@ -88,9 +81,48 @@ def dashboard():
         "SELECT COUNT(*) as count FROM users WHERE role = 'customer'")
     customer_count = cursor.fetchone()['count']
 
+    # ⭐ 新增：文章總數
     cursor.execute(
-        "SELECT COALESCE(SUM(total_amount), 0) as total FROM orders WHERE status != 'cancelled'")
-    total_revenue = cursor.fetchone()['total']
+        "SELECT COUNT(*) as count FROM blog_posts WHERE status = 'published'")
+    post_count = cursor.fetchone()['count']
+
+    # 2. 營收計算 (Revenue)
+    # 總營收
+    cursor.execute("""
+        SELECT 
+            (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status != 'cancelled') +
+            (SELECT COALESCE(SUM(total_amount), 0) FROM bookings WHERE status != 'cancelled') 
+        as total_revenue
+    """)
+    res = cursor.fetchone()
+    total_revenue = float(res['total_revenue']
+                          ) if res and res['total_revenue'] else 0.0
+
+    # 訂單成本
+    cursor.execute("""
+        SELECT COALESCE(SUM(oi.quantity * p.cost), 0) as order_cost
+        FROM order_items oi
+        JOIN products p ON oi.product_id = p.id
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.status != 'cancelled'
+    """)
+    res = cursor.fetchone()
+    order_cost = float(res['order_cost']) if res and res['order_cost'] else 0.0
+
+    # 課程成本
+    cursor.execute("""
+        SELECT COALESCE(SUM(b.sessions_purchased * (c.service_fee + c.product_fee)), 0) as course_cost
+        FROM bookings b
+        JOIN courses c ON b.course_id = c.id
+        WHERE b.status != 'cancelled'
+    """)
+    res = cursor.fetchone()
+    course_cost = float(
+        res['course_cost']) if res and res['course_cost'] else 0.0
+
+    # 計算淨利
+    total_cost = order_cost + course_cost
+    net_profit = total_revenue - total_cost
 
     # Recent orders
     cursor.execute("""
@@ -142,34 +174,30 @@ def dashboard():
         "SELECT * FROM course_categories ORDER BY display_order, name")
     course_categories = cursor.fetchall()
 
-    # Events with customer names
+    # Events
     cursor.execute("""
-        SELECT e.*,
-               CONCAT(u.firstname, ' ', u.surname) as customer_name
+        SELECT e.*, CONCAT(u.firstname, ' ', u.surname) as customer_name
         FROM events e
         LEFT JOIN users u ON e.customer_id = u.id
         ORDER BY e.start_date DESC
     """)
     events = cursor.fetchall()
 
-    # Inventory products
+    # Inventory
     cursor.execute("""
-        SELECT id, name, stock_quantity, cost, price
+        SELECT id, name, stock_quantity, cost, price, 
+               last_purchase_date, last_sale_date, unit
         FROM products
         ORDER BY name
     """)
     inventory_products = cursor.fetchall()
 
-    # Customers for event dropdown
-    cursor.execute("""
-        SELECT id, firstname, surname
-        FROM users
-        WHERE role = 'customer'
-        ORDER BY firstname
-    """)
+    # Customers dropdown
+    cursor.execute(
+        "SELECT id, firstname, surname FROM users WHERE role = 'customer' ORDER BY firstname")
     customers = cursor.fetchall()
 
-    # Orders for management
+    # Orders full list
     cursor.execute("""
         SELECT o.*, u.username, u.firstname, u.surname, u.email, u.phone
         FROM orders o
@@ -178,16 +206,13 @@ def dashboard():
     """)
     orders = cursor.fetchall()
 
-    # 查詢所有訂單的細項 (Items)
+    # Order Items Map
     cursor.execute("""
-        SELECT oi.order_id, oi.quantity, oi.unit_price, oi.subtotal,
-               p.name as product_name
+        SELECT oi.order_id, oi.quantity, oi.unit_price, oi.subtotal, p.name as product_name
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
     """)
     all_items = cursor.fetchall()
-
-    # 將細項整理成字典 {order_id: [item1, item2...]}
     order_items_map = {}
     for item in all_items:
         oid = item['order_id']
@@ -195,12 +220,10 @@ def dashboard():
             order_items_map[oid] = []
         order_items_map[oid].append(item)
 
-    # Bookings for management
+    # Bookings full list
     cursor.execute("""
-        SELECT b.*, 
-               u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
-               c.name as course_name, c.duration,
-               cs.start_time, cs.end_time
+        SELECT b.*, u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
+               c.name as course_name, c.duration, cs.start_time, cs.end_time
         FROM bookings b
         LEFT JOIN users u ON b.customer_id = u.id
         LEFT JOIN courses c ON b.course_id = c.id
@@ -209,13 +232,11 @@ def dashboard():
     """)
     bookings = cursor.fetchall()
 
-# Customer list (Updated with full details)
+    # Customer list
     cursor.execute("""
         SELECT u.id, u.username, u.email, u.firstname, u.surname,
-               u.phone, u.line_id, u.gender, u.occupation,
-               u.created_at,
-               u.birth_date,  -- ⭐ 新增這一行：查詢生日原始資料
-               u.source_id,   -- ⭐ 新增這一行：查詢來源 ID
+               u.phone, u.line_id, u.gender, u.occupation, u.created_at,
+               u.birth_date, u.source_id,
                TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age,
                cs.name as source_name,
                COUNT(DISTINCT o.id) as order_count,
@@ -230,21 +251,20 @@ def dashboard():
     """)
     customers_list = cursor.fetchall()
 
-    # Blog posts
+    # Posts
     cursor.execute("""
-        SELECT p.*, u.firstname, u.surname,
-               CONCAT(u.firstname, ' ', u.surname) as author_name
+        SELECT p.*, u.firstname, u.surname, CONCAT(u.firstname, ' ', u.surname) as author_name
         FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
         ORDER BY p.created_at DESC
     """)
     posts = cursor.fetchall()
-# 只有 Admin 才能查看操作紀錄
+
+    # Audit Logs (Admin Only)
     audit_logs = []
     if get_current_user_role() == 'admin':
         cursor.execute("""
-            SELECT a.*, 
-                   u.username, u.firstname, u.surname,
+            SELECT a.*, u.username, u.firstname, u.surname,
                    CONCAT(u.firstname, ' ', u.surname) as operator_name
             FROM audit_logs a
             LEFT JOIN users u ON a.user_id = u.id
@@ -253,19 +273,21 @@ def dashboard():
         """)
         audit_logs = cursor.fetchall()
 
-    # Get customer sources for dropdown
     cursor.execute("SELECT * FROM customer_sources ORDER BY id")
     customer_sources = cursor.fetchall()
 
     cursor.close()
 
+    # ⭐ 更新：傳遞更多數據給前端
     stats = {
         'products': product_count,
         'courses': course_count,
         'orders': order_count,
         'bookings': booking_count,
         'customers': customer_count,
-        'revenue': float(total_revenue)
+        'posts': post_count,
+        'revenue': float(total_revenue),
+        'net_profit': net_profit
     }
 
     return render_template(
@@ -286,7 +308,8 @@ def dashboard():
         customers_list=customers_list,
         customer_sources=customer_sources,
         posts=posts,
-        order_items_map=order_items_map
+        order_items_map=order_items_map,
+        audit_logs=audit_logs
     )
 
 # =====================================================
@@ -419,29 +442,86 @@ def update_product_modal(product_id):
 @admin_bp.route('/product/<int:product_id>/delete', methods=['POST'])
 @admin_required
 def delete_product_modal(product_id):
-    """Delete product"""
+    """
+    Delete product (Smart Delete)
+    如果有訂單紀錄 -> 改為停用 (Soft Delete)
+    如果完全無紀錄 -> 真刪除 (Hard Delete)
+    """
     try:
-        cursor = database.connection.cursor()
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-        # Get name for log
+        # 1. 取得產品名稱 (給 Log 用)
         cursor.execute(
             "SELECT name FROM products WHERE id = %s", (product_id,))
         res = cursor.fetchone()
-        p_name = res[0] if res else 'Unknown'
+        p_name = res['name'] if res else 'Unknown'
 
-        cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+        # 2. 檢查是否有關聯的訂單 (這是主要擋住刪除的原因)
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM order_items WHERE product_id = %s", (product_id,))
+        order_count = cursor.fetchone()['count']
+
+        if order_count > 0:
+            # A. 有訂單紀錄 -> 執行「停用」
+            cursor.execute(
+                "UPDATE products SET is_active = FALSE WHERE id = %s", (product_id,))
+            msg = f'產品「{p_name}」已有 {order_count} 筆銷售紀錄，已自動改為「停用」狀態（保留歷史資料）。'
+            action = 'deactivate'
+        else:
+            # B. 無訂單紀錄 -> 執行「真刪除」
+            cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
+            msg = f'產品「{p_name}」已永久刪除。'
+            action = 'delete'
+
         database.connection.commit()
         cursor.close()
 
-        # ⭐ LOG ACTIVITY
-        log_activity('delete', 'product', product_id, {'name': p_name})
+        # LOG ACTIVITY
+        log_activity(action, 'product', product_id, {'name': p_name})
 
-        flash('產品已刪除', 'success')
+        flash(msg, 'success')
+
     except Exception as e:
         database.connection.rollback()
+        # 印出完整錯誤以便除錯
+        print(f"Delete Product Error: {e}")
         flash(f'刪除失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='products'))
+
+
+@admin_bp.route('/api/product/<int:product_id>')
+@staff_required
+def get_product_json(product_id):
+    """API to get product data for modal"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
+    product = cursor.fetchone()
+    cursor.close()
+
+    if product:
+        # 處理 Decimal 轉 float (以免 JSON 報錯)
+        for key, value in product.items():
+            if isinstance(value, Decimal):
+                product[key] = float(value)
+        return jsonify(product)
+    return jsonify({'error': 'Not found'}), 404
+
+
+@admin_bp.route('/api/course/<int:course_id>')
+@staff_required
+def get_course_json(course_id):
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
+    course = cursor.fetchone()
+    cursor.close()
+
+    if course:
+        for key in ['regular_price', 'experience_price', 'service_fee', 'product_fee']:
+            if key in course and course[key] is not None:
+                course[key] = float(course[key])
+        return jsonify(course)
+    return jsonify({'error': 'Not found'}), 404
 
 # =====================================================
 # COURSE MANAGEMENT - WITH AUDIT LOG
@@ -484,14 +564,48 @@ def add_course_modal():
         """, (name, category_id, regular_price, experience_price, service_fee, product_fee, duration, sessions, description, image_url))
 
         course_id = cursor.lastrowid
+        if duration and duration > 0:
+            schedules_data = []
+            today = datetime.now().date()
+
+            # 設定每天的開場時間 (整點)
+            open_hours = [9, 10, 11, 12, 13, 14, 15, 16, 17]
+
+            # 迴圈產生 365 天
+            for i in range(365):
+                current_date = today + timedelta(days=i)
+
+                # (進階：如果想跳過週日，可以加這行)
+                # if current_date.weekday() == 6: continue
+
+                for hour in open_hours:
+                    # 1. 組合開始時間 (日期 + 小時)
+                    # datetime.min.time() 是 00:00:00，replace(hour=hour) 變 09:00:00
+                    start_dt = datetime.combine(
+                        current_date, datetime.min.time().replace(hour=hour))
+
+                    # 2. 計算結束時間 (開始 + 課程時長)
+                    end_dt = start_dt + timedelta(minutes=duration)
+
+                    # 3. 加入列表 (course_id, start, end, capacity=1, booked=0, active=True)
+                    schedules_data.append(
+                        (course_id, start_dt, end_dt, 1, 0, True))
+
+            # 4. 批量寫入資料庫 (使用 executemany 效能極佳)
+            if schedules_data:
+                cursor.executemany("""
+                    INSERT INTO course_schedules 
+                    (course_id, start_time, end_time, max_capacity, current_bookings, is_active)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, schedules_data)
         database.connection.commit()
         cursor.close()
 
         # ⭐ LOG ACTIVITY
         log_activity('create', 'course', course_id, {
                      'name': name, 'price': regular_price})
+        flash('課程已新增，並已自動生成未來一年的時段', 'success')
 
-        flash('課程已新增', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'新增失敗: {str(e)}', 'error')
@@ -561,26 +675,53 @@ def update_course_modal(course_id):
 @admin_bp.route('/course/<int:course_id>/delete', methods=['POST'])
 @admin_required
 def delete_course_modal(course_id):
-    """Delete course"""
+    """
+    Delete course (Smart Delete)
+    如果有預約紀錄 -> 改為停用 (Soft Delete)
+    如果完全無紀錄 -> 真刪除 (Hard Delete)
+    """
     try:
-        cursor = database.connection.cursor()
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-        # Get name
+        # 1. 取得課程名稱 (給 Log 用)
         cursor.execute("SELECT name FROM courses WHERE id = %s", (course_id,))
         res = cursor.fetchone()
-        c_name = res[0] if res else 'Unknown'
+        c_name = res['name'] if res else 'Unknown'
 
-        cursor.execute("DELETE FROM courses WHERE id = %s", (course_id,))
+        # 2. 檢查是否有關聯的預約
+        cursor.execute(
+            "SELECT COUNT(*) as count FROM bookings WHERE course_id = %s", (course_id,))
+        booking_count = cursor.fetchone()['count']
+
+        if booking_count > 0:
+            # A. 有預約紀錄 -> 執行「停用」
+            cursor.execute(
+                "UPDATE courses SET is_active = FALSE WHERE id = %s", (course_id,))
+            msg = f'課程「{c_name}」已有 {booking_count} 筆預約紀錄，已自動改為「停用」狀態（保留歷史資料）。'
+            action = 'deactivate'
+        else:
+            # B. 無預約紀錄 -> 執行「真刪除」
+            # 先刪除關聯的時段 (course_schedules) 以免外鍵錯誤
+            cursor.execute(
+                "DELETE FROM course_schedules WHERE course_id = %s", (course_id,))
+            # 再刪除課程
+            cursor.execute("DELETE FROM courses WHERE id = %s", (course_id,))
+            msg = f'課程「{c_name}」已永久刪除。'
+            action = 'delete'
+
         database.connection.commit()
         cursor.close()
 
-        # ⭐ LOG ACTIVITY
-        log_activity('delete', 'course', course_id, {'name': c_name})
+        # LOG ACTIVITY
+        log_activity(action, 'course', course_id, {'name': c_name})
 
-        flash('課程已刪除', 'success')
+        flash(msg, 'success')
+
     except Exception as e:
         database.connection.rollback()
-        flash(f'刪除失敗: {str(e)}', 'error')
+        # 印出完整錯誤以便除錯
+        print(f"Delete Error: {e}")
+        flash(f'操作失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='courses'))
 
@@ -809,10 +950,67 @@ def delete_event(event_id):
 # =====================================================
 
 
+# =====================================================
+# INVENTORY MANAGEMENT (NEW: RESTOCK)
+# =====================================================
+
+@admin_bp.route('/inventory/restock', methods=['POST'])
+@staff_required
+def restock_product():
+    """進貨入庫 (新增庫存)"""
+    try:
+        product_id = request.form.get('product_id', type=int)
+        quantity = request.form.get('quantity', type=int)
+        cost = request.form.get('cost', type=float)  # 進貨成本
+        notes = request.form.get('notes', '').strip()
+
+        if not product_id or quantity <= 0:
+            flash('請輸入有效的產品與數量', 'error')
+            return redirect(url_for('admin.dashboard', tab='inventory'))
+
+        cursor = database.connection.cursor()
+
+        # 1. 更新庫存 + 更新成本(若有輸入) + 更新最後進貨日
+        if cost and cost > 0:
+            cursor.execute("""
+                UPDATE products 
+                SET stock_quantity = stock_quantity + %s, 
+                    cost = %s,
+                    last_purchase_date = NOW()
+                WHERE id = %s
+            """, (quantity, cost, product_id))
+        else:
+            cursor.execute("""
+                UPDATE products 
+                SET stock_quantity = stock_quantity + %s,
+                    last_purchase_date = NOW()
+                WHERE id = %s
+            """, (quantity, product_id))
+
+        # 2. 寫入 Log
+        cursor.execute("""
+            INSERT INTO inventory_logs 
+            (product_id, change_amount, change_type, notes, created_by)
+            VALUES (%s, %s, 'purchase', %s, %s)
+        """, (product_id, quantity, notes or 'Manual Restock', get_current_user_id()))
+
+        database.connection.commit()
+        cursor.close()
+
+        log_activity('restock', 'inventory', product_id, {'qty': quantity})
+        flash(f'成功進貨 {quantity} 件', 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'進貨失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='inventory'))
+
+
 @admin_bp.route('/inventory/adjust', methods=['POST'])
 @staff_required
 def adjust_inventory_modal():
-    """Adjust inventory"""
+    """Adjust inventory (盤點調整)"""
     try:
         product_id = request.form.get('product_id', type=int)
         change_amount = request.form.get('change_amount', type=int)
@@ -825,14 +1023,14 @@ def adjust_inventory_modal():
 
         cursor = database.connection.cursor()
 
-        # 1. 更新產品實際庫存 (Update product stock)
+        # 1. 更新產品實際庫存
         cursor.execute("""
             UPDATE products 
             SET stock_quantity = stock_quantity + %s 
             WHERE id = %s
         """, (change_amount, product_id))
 
-        # 2. 寫入庫存變動流水帳 (Insert inventory_logs - 這是業務邏輯紀錄)
+        # 2. 寫入庫存日誌
         cursor.execute("""
             INSERT INTO inventory_logs 
             (product_id, change_amount, change_type, notes, created_by)
@@ -842,7 +1040,6 @@ def adjust_inventory_modal():
         database.connection.commit()
         cursor.close()
 
-        # ⭐ 3. 新增這行：寫入後台審計日誌 (Admin Audit Log - 這是操作行為紀錄)
         log_activity('update', 'inventory', product_id, {
             'amount': change_amount,
             'type': change_type,
@@ -855,34 +1052,112 @@ def adjust_inventory_modal():
         flash(f'調整失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='inventory'))
+
 # =====================================================
-# ORDER & BOOKING STATUS UPDATES
+# ORDER STATUS & INVENTORY SYNC (CRITICAL)
 # =====================================================
 
+
+# 記得確認檔案最上方有匯入通知函式
+# from project.notifications import notify_order_confirmed, notify_order_status_update
 
 @admin_bp.route('/order/<int:order_id>/update-status', methods=['POST'])
 @staff_required
 def update_order_status(order_id):
-    """Update order status with inventory handling"""
+    """
+    更新訂單狀態並連動庫存 + 發送通知 (修正變數名稱版)
+    """
     try:
-        status = request.form.get('status')
+        new_status = request.form.get('status')
         allowed_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
 
-        if status not in allowed_statuses:
+        if new_status not in allowed_statuses:
             flash('無效的狀態', 'error')
             return redirect(url_for('admin.dashboard', tab='orders'))
 
-        # ⭐ FIX: Use service to handle inventory restore
-        admin_id = get_current_user_id()
-        success = admin_update_order_with_inventory(order_id, status, admin_id)
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-        if success:
-            log_activity('update', 'order', order_id, {'status': status})
-            flash('訂單狀態已更新', 'success')
-        else:
-            flash('更新失敗', 'error')
+        # 1. ⭐ 修正：將查詢結果賦值給 order_info (之前可能寫成 order)
+        cursor.execute("""
+            SELECT o.status, o.total_amount, u.email, u.firstname, u.line_id 
+            FROM orders o
+            JOIN users u ON o.customer_id = u.id
+            WHERE o.id = %s
+        """, (order_id,))
+        order_info = cursor.fetchone()  # <--- 關鍵修改：定義 order_info
+
+        if not order_info:
+            cursor.close()
+            flash('訂單不存在', 'error')
+            return redirect(url_for('admin.dashboard', tab='orders'))
+
+        old_status = order_info['status']
+
+        # 狀態沒變，直接返回
+        if old_status == new_status:
+            cursor.close()
+            return redirect(url_for('admin.dashboard', tab='orders'))
+
+        # 2. 庫存連動邏輯 (保持不變)
+        if old_status != 'cancelled' and new_status == 'cancelled':
+            cursor.execute(
+                "SELECT product_id, quantity FROM order_items WHERE order_id = %s", (order_id,))
+            items = cursor.fetchall()
+            for item in items:
+                cursor.execute("UPDATE products SET stock_quantity = stock_quantity + %s WHERE id = %s",
+                               (item['quantity'], item['product_id']))
+                cursor.execute("INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by) VALUES (%s, %s, 'return', %s, 'Order Cancelled', %s)",
+                               (item['product_id'], item['quantity'], order_id, get_current_user_id()))
+
+        elif old_status == 'cancelled' and new_status in ['pending', 'confirmed', 'completed']:
+            cursor.execute(
+                "SELECT product_id, quantity FROM order_items WHERE order_id = %s", (order_id,))
+            items = cursor.fetchall()
+            for item in items:
+                cursor.execute(
+                    "SELECT stock_quantity, name FROM products WHERE id = %s", (item['product_id'],))
+                prod = cursor.fetchone()
+                if prod['stock_quantity'] < item['quantity']:
+                    raise Exception(f"產品「{prod['name']}」庫存不足，無法恢復訂單")
+                cursor.execute("UPDATE products SET stock_quantity = stock_quantity - %s, last_sale_date = NOW() WHERE id = %s",
+                               (item['quantity'], item['product_id']))
+                cursor.execute("INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by) VALUES (%s, %s, 'sale', %s, 'Order Restored', %s)",
+                               (item['product_id'], -item['quantity'], order_id, get_current_user_id()))
+
+        elif new_status == 'completed':
+            cursor.execute(
+                "SELECT product_id FROM order_items WHERE order_id = %s", (order_id,))
+            items = cursor.fetchall()
+            for item in items:
+                cursor.execute(
+                    "UPDATE products SET last_sale_date = NOW() WHERE id = %s", (item['product_id'],))
+
+        # 3. 更新狀態
+        cursor.execute(
+            "UPDATE orders SET status = %s WHERE id = %s", (new_status, order_id))
+        database.connection.commit()
+        cursor.close()
+
+        # 4. ⭐ 發送通知 (現在 order_info 已經有定義了，不會報錯)
+        customer_data = {
+            'email': order_info['email'],
+            'firstname': order_info['firstname'],
+            'line_id': order_info['line_id']
+        }
+
+        if new_status == 'confirmed' and old_status != 'confirmed':
+            notify_order_confirmed(
+                order_id, customer_data, order_info['total_amount'])
+        elif new_status != old_status:
+            notify_order_status_update(
+                order_id, customer_data['firstname'], customer_data['email'], new_status)
+
+        log_activity('update', 'order', order_id, {
+                     'old': old_status, 'new': new_status})
+        flash(f'訂單狀態已更新 ({old_status} -> {new_status}) 並已發送通知', 'success')
 
     except Exception as e:
+        database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='orders'))
@@ -891,7 +1166,7 @@ def update_order_status(order_id):
 @admin_bp.route('/booking/<int:booking_id>/update-status', methods=['POST'])
 @staff_required
 def update_booking_status(booking_id):
-    """Update booking status"""
+    """Update booking status with notifications"""
     try:
         status = request.form.get('status')
         allowed_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
@@ -900,18 +1175,52 @@ def update_booking_status(booking_id):
             flash('無效的狀態', 'error')
             return redirect(url_for('admin.dashboard', tab='bookings'))
 
-        cursor = database.connection.cursor()
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+        # 1. ⭐ 獲取預約詳細資訊 (包含課程名稱、時間、客戶資料)
         cursor.execute("""
-            UPDATE bookings 
-            SET status = %s 
-            WHERE id = %s
-        """, (status, booking_id))
+            SELECT b.status, c.name as course_name, cs.start_time, 
+                   u.email, u.firstname, u.line_id
+            FROM bookings b
+            JOIN users u ON b.customer_id = u.id
+            JOIN courses c ON b.course_id = c.id
+            LEFT JOIN course_schedules cs ON b.schedule_id = cs.id
+            WHERE b.id = %s
+        """, (booking_id,))
+        booking_info = cursor.fetchone()
+
+        # 2. 更新狀態
+        cursor.execute(
+            "UPDATE bookings SET status = %s WHERE id = %s", (status, booking_id))
         database.connection.commit()
         cursor.close()
 
+        # 3. ⭐ 發送通知
+        if booking_info:
+            customer_data = {
+                'email': booking_info['email'],
+                'firstname': booking_info['firstname'],
+                'line_id': booking_info['line_id']
+            }
+
+            # 格式化時間
+            time_str = "未定"
+            if booking_info['start_time']:
+                time_str = booking_info['start_time'].strftime(
+                    '%Y-%m-%d %H:%M')
+
+            if status == 'confirmed':
+                # 變成已確認 -> 發送確認信 (Email + LINE)
+                notify_booking_confirmed(
+                    booking_id, customer_data, booking_info['course_name'], time_str)
+            else:
+                # 其他狀態 -> 一般通知
+                notify_booking_status_update(
+                    booking_id, customer_data['firstname'], customer_data['email'], booking_info['course_name'], status)
+
         log_activity('update', 'booking', booking_id, {'status': status})
 
-        flash('預約狀態已更新', 'success')
+        flash('預約狀態已更新並發送通知', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
@@ -955,9 +1264,136 @@ def update_course_capacity(course_id):
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='courses'))
+
+# --------------------------------------------------------
+# SCHEDULE MANAGEMENT API (PER SLOT)
+# --------------------------------------------------------
+
+
+@admin_bp.route('/api/course/<int:course_id>/schedules')
+@staff_required
+def get_course_schedules_api(course_id):
+    """取得該課程未來的時段列表 (供前端 Modal 使用)"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    # 只撈取未來 30 天內的時段，避免資料過多
+    cursor.execute("""
+        SELECT id, start_time, end_time, max_capacity, current_bookings
+        FROM course_schedules
+        WHERE course_id = %s 
+          AND start_time > NOW()
+          AND start_time < DATE_ADD(NOW(), INTERVAL 30 DAY)
+        ORDER BY start_time ASC
+    """, (course_id,))
+
+    schedules = cursor.fetchall()
+    cursor.close()
+
+    # 轉換時間格式為字串
+    data = []
+    for s in schedules:
+        data.append({
+            'id': s['id'],
+            'date': s['start_time'].strftime('%Y-%m-%d'),
+            'time': f"{s['start_time'].strftime('%H:%M')} - {s['end_time'].strftime('%H:%M')}",
+            'max_capacity': s['max_capacity'],
+            'current_bookings': s['current_bookings']
+        })
+
+    return jsonify(data)
+
+
+@admin_bp.route('/schedule/<int:schedule_id>/update-capacity', methods=['POST'])
+@staff_required
+def update_single_schedule_capacity(schedule_id):
+    """更新單一時段的人數上限"""
+    try:
+        data = request.get_json()
+        new_capacity = int(data.get('max_capacity'))
+
+        if new_capacity < 1:
+            return jsonify({'success': False, 'message': '人數必須大於 0'}), 400
+
+        cursor = database.connection.cursor()
+
+        # 檢查是否小於目前已預約人數 (防止超賣)
+        cursor.execute(
+            "SELECT current_bookings FROM course_schedules WHERE id = %s", (schedule_id,))
+        row = cursor.fetchone()
+        if not row:
+            return jsonify({'success': False, 'message': '時段不存在'}), 404
+
+        # 更新
+        cursor.execute("""
+            UPDATE course_schedules 
+            SET max_capacity = %s 
+            WHERE id = %s
+        """, (new_capacity, schedule_id))
+
+        database.connection.commit()
+        cursor.close()
+
+        # 記錄 Log (可選，避免洗版可註解掉)
+        # log_activity('update', 'schedule', schedule_id, {'capacity': new_capacity})
+
+        return jsonify({'success': True})
+
+    except Exception as e:
+        database.connection.rollback()
+        return jsonify({'success': False, 'message': str(e)}), 500
+
 # =====================================================
 # CUSTOMER MANAGEMENT
 # =====================================================
+
+# ... (在 update_customer 函式上方，插入這一段) ...
+
+
+@admin_bp.route('/customer/add', methods=['POST'])
+@staff_required  # ⭐ 這裡設定 staff 就能用，不用 admin
+def add_customer():
+    try:
+        # 1. 抓取資料
+        username = request.form.get('username')
+        password = request.form.get('password')
+        firstname = request.form.get('firstname')
+        surname = request.form.get('surname')
+        email = request.form.get('email')
+        phone = request.form.get('phone')
+
+        # 2. 引用 db 函式
+        from project.db import add_user, check_username_exists
+
+        # 3. 檢查並新增
+        if check_username_exists(username):
+            flash('帳號已存在', 'error')
+        else:
+            # 建立一個假物件來傳遞資料
+            class MockForm:
+                pass
+            form = MockForm()
+            form.username = type('o', (), {'data': username})
+            form.password = type('o', (), {'data': password})
+            form.firstname = type('o', (), {'data': firstname})
+            form.surname = type('o', (), {'data': surname})
+            form.email = type('o', (), {'data': email})
+            form.role = type('o', (), {'data': 'customer'})
+
+            add_user(form)  # 這會自動加密密碼
+
+            # 補上電話
+            cursor = database.connection.cursor()
+            cursor.execute(
+                "UPDATE users SET phone=%s WHERE username=%s", (phone, username))
+            database.connection.commit()
+            cursor.close()
+
+            flash('客戶新增成功', 'success')
+
+    except Exception as e:
+        flash(f'失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='customers'))
 
 
 @admin_bp.route('/customer/<int:customer_id>/update', methods=['POST'])

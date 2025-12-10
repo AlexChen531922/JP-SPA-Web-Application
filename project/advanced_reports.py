@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import MySQLdb.cursors
 from project.extensions import database
-from project.admin import staff_required
+# ⭐ 修改：改用 admin_required，並建議從 decorators 匯入以避免循環引用
+from project.decorators import admin_required
 
 reports_bp = Blueprint('reports', __name__, url_prefix='/admin/reports')
 
@@ -60,7 +61,7 @@ def get_date_range(period, custom_start=None, custom_end=None):
 
 
 @reports_bp.route('/')
-@staff_required
+@admin_required  # ⭐ 修改：僅限 Admin
 def dashboard():
     """Main reports dashboard with filters"""
     period = request.args.get('period', 'month')
@@ -172,7 +173,7 @@ def dashboard():
 
 
 @reports_bp.route('/products')
-@staff_required
+@admin_required  # ⭐ 修改：僅限 Admin
 def product_rankings():
     """Product sales rankings with filters"""
     period = request.args.get('period', 'month')
@@ -239,7 +240,7 @@ def product_rankings():
 
 
 @reports_bp.route('/courses')
-@staff_required
+@admin_required  # ⭐ 修改：僅限 Admin
 def course_rankings():
     """Course booking rankings with filters"""
     period = request.args.get('period', 'month')
@@ -315,7 +316,7 @@ def course_rankings():
 
 
 @reports_bp.route('/events')
-@staff_required
+@admin_required  # ⭐ 修改：僅限 Admin
 def event_analytics():
     """Event performance analytics"""
     period = request.args.get('period', 'month')
@@ -383,7 +384,7 @@ def event_analytics():
 
 
 @reports_bp.route('/customers')
-@staff_required
+@admin_required  # ⭐ 修改：僅限 Admin
 def customer_analytics():
     """Customer behavior analytics"""
     period = request.args.get('period', 'month')
@@ -451,7 +452,7 @@ def customer_analytics():
 
 
 @reports_bp.route('/export/<report_type>')
-@staff_required
+@admin_required  # ⭐ 修改：僅限 Admin
 def export_report(report_type):
     """Export reports to CSV"""
     import csv

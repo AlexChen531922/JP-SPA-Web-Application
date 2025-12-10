@@ -30,6 +30,9 @@ class RegisterForm(FlaskForm):
     surname = StringField('姓氏', validators=[
         DataRequired(message='請輸入姓氏')
     ])
+
+    line_id = StringField('LINE ID', validators=[Optional()])
+
     role = SelectField('註冊身份', choices=[
         ('customer', '一般會員'),
         ('staff', '員工')

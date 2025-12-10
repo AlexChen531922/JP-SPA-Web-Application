@@ -70,22 +70,38 @@
               <thead class="table-light">
                 <tr>
                   <th>課程名稱</th>
-                  <th>購買堂數</th>
-                  <th>剩餘堂數</th>
+                  <th>購買/剩餘</th>
+                  <th>狀態</th>
                   <th>購買日期</th>
+                  <th class="text-end">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {% for course in active_courses %}
                 <tr>
                   <td class="fw-bold">{{ course.course_name }}</td>
-                  <td>{{ course.sessions_purchased }}</td>
-                  <td><span class="badge bg-success fs-6">{{ course.sessions_remaining }}</span></td>
+                  <td>{{ course.sessions_purchased }} / <span class="text-success fw-bold">{{ course.sessions_remaining
+                      }}</span></td>
+                  <td>
+                    {% if course.status == 'pending' %}<span class="badge bg-warning text-dark">待確認</span>
+                    {% elif course.status == 'confirmed' %}<span class="badge bg-primary">已確認</span>
+                    {% else %}<span class="badge bg-secondary">{{ course.status }}</span>
+                    {% endif %}
+                  </td>
                   <td class="text-muted">{{ course.created_at.strftime('%Y-%m-%d') }}</td>
+                  <td class="text-end">
+                    {% if course.status in ['pending', 'confirmed'] %}
+                    <form action="{{ url_for('customer.cancel_booking', booking_id=course.id) }}" method="POST"
+                      class="d-inline" onsubmit="return confirm('確定要取消此預約嗎？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-sm btn-outline-danger">取消</button>
+                    </form>
+                    {% endif %}
+                  </td>
                 </tr>
                 {% else %}
                 <tr>
-                  <td colspan="4" class="text-center py-4 text-muted">目前沒有進行中的課程</td>
+                  <td colspan="5" class="text-center py-4 text-muted">目前沒有進行中的課程</td>
                 </tr>
                 {% endfor %}
               </tbody>
@@ -114,20 +130,24 @@
                   <td>#{{ order.id }}</td>
                   <td class="fw-bold">NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
                   <td>
-                    {% if order.status == 'pending' %}
-                    <span class="badge bg-warning text-dark">待確認</span>
-                    {% elif order.status == 'confirmed' %}
-                    <span class="badge bg-info text-dark">已確認</span>
-                    {% elif order.status == 'completed' %}
-                    <span class="badge bg-success">已完成</span>
-                    {% else %}
-                    <span class="badge bg-secondary">{{ order.status }}</span>
+                    {% if order.status == 'pending' %}<span class="badge bg-warning text-dark">待確認</span>
+                    {% elif order.status == 'confirmed' %}<span class="badge bg-primary">已確認</span>
+                    {% elif order.status == 'completed' %}<span class="badge bg-success">已完成</span>
+                    {% elif order.status == 'cancelled' %}<span class="badge bg-secondary">已取消</span>
                     {% endif %}
                   </td>
                   <td class="text-muted small">{{ order.created_at.strftime('%Y-%m-%d') }}</td>
                   <td class="text-end">
                     <a href="{{ url_for('customer.order_detail', order_id=order.id) }}"
                       class="btn btn-sm btn-outline-primary">詳情</a>
+
+                    {% if order.status in ['pending', 'confirmed'] %}
+                    <form action="{{ url_for('customer.cancel_order', order_id=order.id) }}" method="POST"
+                      class="d-inline" onsubmit="return confirm('確定要取消這筆訂單嗎？取消後將釋出庫存。');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-sm btn-outline-danger">取消</button>
+                    </form>
+                    {% endif %}
                   </td>
                 </tr>
                 {% else %}
