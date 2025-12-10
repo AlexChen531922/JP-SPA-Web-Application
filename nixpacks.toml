@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["...", "mysql-client", "mariadb-connector-c", "pkg-config", "gcc"]
+
+[phases.build]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "gunicorn run:app"
