@@ -1,5 +1,5 @@
 [phases.setup]
-nixPkgs = ["...", "mysql-client", "mariadb-connector-c", "pkg-config", "gcc"]
+nixPkgs = ["python3", "mysql-client", "mariadb-connector-c", "pkg-config", "gcc"]
 
 [phases.build]
 cmds = ["pip install -r requirements.txt"]
