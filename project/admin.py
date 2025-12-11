@@ -1350,11 +1350,12 @@ def update_single_schedule_capacity(schedule_id):
 # ... (在 update_customer 函式上方，插入這一段) ...
 
 
+# 找到原本的 add_customer，替換成下面這樣
 @admin_bp.route('/customer/add', methods=['POST'])
 @staff_required
 def add_customer():
     try:
-        # 1. 抓取所有資料 (包含新欄位)
+        # 1. 抓取資料
         username = request.form.get('username')
         password = request.form.get('password')
         firstname = request.form.get('firstname')
@@ -1362,45 +1363,44 @@ def add_customer():
         email = request.form.get('email')
         phone = request.form.get('phone')
 
-        # 新增的欄位
+        # 其他欄位
         line_id = request.form.get('line_id')
-        gender = request.form.get('gender', 'other')  # 預設 other
+        gender = request.form.get('gender', 'other')
         birth_date = request.form.get('birth_date')
         occupation = request.form.get('occupation')
         address = request.form.get('address')
         source_id = request.form.get('source_id')
 
-        # 處理空值轉換 (如果沒填生日或來源，要轉成 None 才能存入 DB)
+        # ⭐ 新增：備註欄位
+        notes = request.form.get('notes')
+
+        # 空值處理
         if not birth_date:
             birth_date = None
         if not source_id:
             source_id = None
 
-        # 2. 引用 db 函式 (只需檢查帳號是否存在)
         from project.db import check_username_exists
 
-        # 3. 檢查帳號
         if check_username_exists(username):
             flash('帳號已存在', 'error')
         else:
-            # 4. 執行 SQL 插入 (一次到位)
             cursor = database.connection.cursor()
-
-            # 加密密碼
             hashed_pw = generate_password_hash(password)
 
+            # ⭐ SQL 插入語句加入 notes
             sql = """
                 INSERT INTO users (
                     username, email, password_hash, 
                     firstname, surname, phone, 
                     line_id, gender, birth_date, 
-                    occupation, address, source_id, 
+                    occupation, address, source_id, notes,
                     role, created_at
                 ) VALUES (
                     %s, %s, %s, 
                     %s, %s, %s, 
                     %s, %s, %s, 
-                    %s, %s, %s, 
+                    %s, %s, %s, %s,
                     'customer', NOW()
                 )
             """
@@ -1408,16 +1408,15 @@ def add_customer():
                 username, email, hashed_pw,
                 firstname, surname, phone,
                 line_id, gender, birth_date,
-                occupation, address, source_id
+                occupation, address, source_id, notes
             ))
 
             database.connection.commit()
             cursor.close()
 
-            flash('客戶新增成功 (資料完整)', 'success')
+            flash('客戶新增成功', 'success')
 
     except Exception as e:
-        # 如果是 Duplicate entry 代表 email 或 username 重複
         if "Duplicate entry" in str(e):
             flash('新增失敗：帳號或 Email 已被使用', 'error')
         else:

@@ -587,70 +587,91 @@
       </div>
       <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
-          <table class="table table-hover mb-0">
-            <thead class="table-light">
-              <tr>
-                <th>姓名</th>
-                <th>性別</th>
-                <th>年齡/生日</th>
-                <th>聯絡資訊</th>
-                <th>職業</th>
-                <th>消費次數</th>
-                <th class="text-end">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for customer in customers_list %}
-              <tr>
-                <td>{{ customer.firstname }} {{ customer.surname }}</td>
-                <td>
-                  {% if customer.gender == 'female' %}<i class="bi bi-gender-female text-danger"></i>
-                  {% elif customer.gender == 'male' %}<i class="bi bi-gender-male text-primary"></i>
-                  {% else %}<i class="bi bi-gender-ambiguous"></i>{% endif %}
-                </td>
-                <td>
-                  {{ customer.age }}歲 <br>
-                  <small class="text-muted">{{ customer.birth_date }}</small>
-                </td>
-                <td>
-                  <small>{{ customer.phone }}</small><br>
-                  <small class="text-muted">{{ customer.line_id }}</small>
-                </td>
-                <td>{{ customer.occupation }}</td>
-                <td>
-                  <span class="badge bg-primary">{{ customer.order_count }}訂</span>
-                  <span class="badge bg-success">{{ customer.booking_count }}約</span>
-                </td>
-                <td class="text-end">
-                  {% set safe_customer_data = {
-                  'id': customer.id,
-                  'firstname': customer.firstname,
-                  'surname': customer.surname,
-                  'email': customer.email,
-                  'phone': customer.phone,
-                  'line_id': customer.line_id,
-                  'gender': customer.gender,
-                  'birth_date': customer.birth_date | string,
-                  'occupation': customer.occupation,
-                  'address': customer.address,
-                  'source_id': customer.source_id
-                  } %}
-                  <button type="button" class="btn btn-sm btn-outline-primary"
-                    onclick="openEditCustomerModal({{ safe_customer_data | tojson | forceescape }})">
-                    <i class="bi bi-pencil"></i>
-                  </button>
-                  {% if session.get('user', {}).get('role') == 'admin' %}
-                  <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
-                    class="d-inline" onsubmit="return confirm('確定要刪除？');">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                  </form>
-                  {% endif %}
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0" style="min-width: 1000px;">
+              <thead class="table-light">
+                <tr>
+                  <th>姓名</th>
+                  <th>性別/年齡</th>
+                  <th>LINE ID</th>
+                  <th>電話</th>
+                  <th>職業</th>
+                  <th>備註</th>
+                  <th>消費次數</th>
+                  <th class="text-end">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for customer in customers_list %}
+                <tr>
+                  <td>
+                    <div class="fw-bold">{{ customer.surname }}{{ customer.firstname }}</div>
+                    <small class="text-muted" style="font-size:0.8em;">{{ customer.username }}</small>
+                  </td>
+                  <td>
+                    {% if customer.gender == 'female' %}<i class="bi bi-gender-female text-danger"></i>
+                    {% elif customer.gender == 'male' %}<i class="bi bi-gender-male text-primary"></i>
+                    {% else %}<i class="bi bi-gender-ambiguous"></i>{% endif %}
+                    {{ customer.age }}歲
+                  </td>
+                  <td>
+                    {% if customer.line_id %}
+                    <span class="text-success"><i class="bi bi-line"></i> {{ customer.line_id }}</span>
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if customer.phone %}
+                    {{ customer.phone }}
+                    {% else %}
+                    <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td><small>{{ customer.occupation or '-' }}</small></td>
+                  <td>
+                    <small class="text-muted text-truncate d-inline-block" style="max-width: 150px;"
+                      title="{{ customer.notes }}">
+                      {{ customer.notes or '' }}
+                    </small>
+                  </td>
+                  <td>
+                    <span class="badge bg-primary">{{ customer.order_count }}訂</span>
+                    <span class="badge bg-success">{{ customer.booking_count }}約</span>
+                  </td>
+                  <td class="text-end">
+                    {% set safe_customer_data = {
+                    'id': customer.id,
+                    'firstname': customer.firstname,
+                    'surname': customer.surname,
+                    'email': customer.email,
+                    'phone': customer.phone,
+                    'line_id': customer.line_id,
+                    'gender': customer.gender,
+                    'birth_date': customer.birth_date | string,
+                    'occupation': customer.occupation,
+                    'address': customer.address,
+                    'source_id': customer.source_id,
+                    'notes': customer.notes
+                    } %}
+                    <button type="button" class="btn btn-sm btn-outline-primary"
+                      onclick="openEditCustomerModal({{ safe_customer_data | tojson | forceescape }})">
+                      <i class="bi bi-pencil"></i> 檢視
+                    </button>
+
+                    {% if session.get('user', {}).get('role') == 'admin' %}
+                    <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
+                      class="d-inline" onsubmit="return confirm('確定要刪除？');">
+                      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                      <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                    </form>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1195,29 +1216,37 @@
       <form id="editCustomerForm" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header">
-          <h5 class="modal-title">編輯客戶</h5><button class="btn-close" data-bs-dismiss="modal"></button>
+          <h5 class="modal-title">檢視/編輯客戶資料</h5>
+          <button class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">
           <div class="row g-3">
-            <div class="col-6"><label>姓</label><input name="surname" id="edit_cust_surname" class="form-control"></div>
-            <div class="col-6"><label>名</label><input name="firstname" id="edit_cust_firstname" class="form-control">
-            </div>
-            <div class="col-6"><label>Email</label><input name="email" id="edit_cust_email" class="form-control"></div>
-            <div class="col-6"><label>電話</label><input name="phone" id="edit_cust_phone" class="form-control"></div>
-            <div class="col-6"><label>Line</label><input name="line_id" id="edit_cust_line_id" class="form-control">
-            </div>
-            <div class="col-6"><label>職業</label><input name="occupation" id="edit_cust_occupation" class="form-control">
-            </div>
-            <div class="col-6"><label>性別</label>
+            <div class="col-6"><label class="form-label">姓</label><input name="surname" id="edit_cust_surname"
+                class="form-control"></div>
+            <div class="col-6"><label class="form-label">名</label><input name="firstname" id="edit_cust_firstname"
+                class="form-control"></div>
+
+            <div class="col-6"><label class="form-label">Email</label><input name="email" id="edit_cust_email"
+                class="form-control"></div>
+            <div class="col-6"><label class="form-label">電話</label><input name="phone" id="edit_cust_phone"
+                class="form-control"></div>
+
+            <div class="col-6"><label class="form-label">Line ID</label><input name="line_id" id="edit_cust_line_id"
+                class="form-control"></div>
+            <div class="col-6"><label class="form-label">職業</label><input name="occupation" id="edit_cust_occupation"
+                class="form-control"></div>
+
+            <div class="col-6"><label class="form-label">性別</label>
               <select name="gender" id="edit_cust_gender" class="form-select">
                 <option value="female">女</option>
                 <option value="male">男</option>
                 <option value="other">其他</option>
               </select>
             </div>
-            <div class="col-6"><label>生日</label><input name="birth_date" id="edit_cust_birth_date" type="date"
-                class="form-control"></div>
-            <div class="col-6"><label>來源</label>
+            <div class="col-6"><label class="form-label">生日</label><input name="birth_date" id="edit_cust_birth_date"
+                type="date" class="form-control"></div>
+
+            <div class="col-6"><label class="form-label">來源</label>
               <select name="source_id" id="edit_cust_source" class="form-select">
                 <option value="">無</option>
                 {% for s in customer_sources %}
@@ -1225,12 +1254,20 @@
                 {% endfor %}
               </select>
             </div>
-            <div class="col-12"><label>地址</label><input name="address" id="edit_cust_address" class="form-control">
+
+            <div class="col-12"><label class="form-label">地址</label><input name="address" id="edit_cust_address"
+                class="form-control"></div>
+
+            <div class="col-12">
+              <label class="form-label">備註</label>
+              <textarea name="notes" id="edit_cust_notes" class="form-control" rows="3"></textarea>
             </div>
           </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button
-            class="btn btn-primary">更新</button></div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button class="btn btn-primary">更新</button>
+        </div>
       </form>
     </div>
   </div>
@@ -1247,28 +1284,34 @@
         </div>
         <div class="modal-body">
           <div class="row g-3">
-            <div class="col-6"><label>帳號 *</label><input name="username" class="form-control" required></div>
-            <div class="col-6"><label>密碼 *</label><input name="password" type="password" class="form-control" required>
-            </div>
-            <div class="col-6"><label>姓氏 *</label><input name="surname" class="form-control" required></div>
-            <div class="col-6"><label>名字 *</label><input name="firstname" class="form-control" required></div>
-            <div class="col-12"><label>Email *</label><input name="email" type="email" class="form-control" required>
+            <div class="col-md-6"><label class="form-label">帳號 *</label><input name="username" class="form-control"
+                required></div>
+            <div class="col-md-6"><label class="form-label">密碼 *</label><input name="password" type="password"
+                class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">姓氏 *</label><input name="surname" class="form-control"
+                required></div>
+            <div class="col-md-6"><label class="form-label">名字 *</label><input name="firstname" class="form-control"
+                required></div>
+            <div class="col-12"><label class="form-label">Email *</label><input name="email" type="email"
+                class="form-control" required></div>
+
+            <div class="col-md-6"><label class="form-label">電話</label><input name="phone" class="form-control"></div>
+            <div class="col-md-6"><label class="form-label">Line ID</label><input name="line_id" class="form-control">
             </div>
 
-            <div class="col-6"><label>電話</label><input name="phone" class="form-control"></div>
-            <div class="col-6"><label>Line ID</label><input name="line_id" class="form-control"></div>
-
-            <div class="col-6"><label>性別</label>
+            <div class="col-md-6"><label class="form-label">性別</label>
               <select name="gender" class="form-select">
                 <option value="female" selected>女</option>
                 <option value="male">男</option>
                 <option value="other">其他</option>
               </select>
             </div>
-            <div class="col-6"><label>生日</label><input name="birth_date" type="date" class="form-control"></div>
+            <div class="col-md-6"><label class="form-label">生日</label><input name="birth_date" type="date"
+                class="form-control"></div>
 
-            <div class="col-6"><label>職業</label><input name="occupation" class="form-control"></div>
-            <div class="col-6"><label>來源</label>
+            <div class="col-md-6"><label class="form-label">職業</label><input name="occupation" class="form-control">
+            </div>
+            <div class="col-md-6"><label class="form-label">來源</label>
               <select name="source_id" class="form-select">
                 <option value="">無</option>
                 {% for s in customer_sources %}
@@ -1277,7 +1320,12 @@
               </select>
             </div>
 
-            <div class="col-12"><label>地址</label><input name="address" class="form-control"></div>
+            <div class="col-12"><label class="form-label">地址</label><input name="address" class="form-control"></div>
+
+            <div class="col-12">
+              <label class="form-label">備註</label>
+              <textarea name="notes" class="form-control" rows="3" placeholder="例如：對精油過敏、喜歡重手感..."></textarea>
+            </div>
           </div>
         </div>
         <div class="modal-footer">
@@ -1663,6 +1711,7 @@
 
   // Edit Customer
   function openEditCustomerModal(cust) {
+    // 填入基本資料
     document.getElementById('edit_cust_surname').value = cust.surname || '';
     document.getElementById('edit_cust_firstname').value = cust.firstname || '';
     document.getElementById('edit_cust_email').value = cust.email || '';
@@ -1673,8 +1722,15 @@
     document.getElementById('edit_cust_birth_date').value = cust.birth_date || '';
     document.getElementById('edit_cust_source').value = cust.source_id || '';
 
+    // ⭐ 修正 1：這裡原本寫 data.notes，要改成 cust.notes
+    document.getElementById('edit_cust_notes').value = cust.notes || '';
+    document.getElementById('edit_cust_address').value = cust.address || '';
+
+    // ⭐ 修正 2：網址替換建議去掉後面的斜線，寫 '/0' 就好，這樣相容性最高
     let url = "{{ url_for('admin.update_customer', customer_id=0) }}";
-    document.getElementById('editCustomerForm').action = url.replace('/0/', '/' + cust.id + '/');
+    document.getElementById('editCustomerForm').action = url.replace('/0', '/' + cust.id);
+
+    // 顯示 Modal
     new bootstrap.Modal(document.getElementById('editCustomerModal')).show();
   }
 

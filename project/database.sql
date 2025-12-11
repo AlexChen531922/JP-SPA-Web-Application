@@ -411,7 +411,7 @@ INSERT INTO users (username, email, password_hash, firstname, surname, role, cre
     'REPLACE_WITH_YOUR_HASHED_PASSWORD', 
     'Staff', 
     'Five', 
-    'staff', 
+    'staff',    
     NOW()
 );
 
@@ -419,3 +419,15 @@ INSERT INTO users (username, email, password_hash, firstname, surname, role, cre
 INSERT INTO blog_posts (title, summary, content, author_id, status, published_at) 
 SELECT '開幕誌慶', '歡迎來到晶品芳療', '<p>我們提供最優質的服務...</p>', id, 'published', NOW()
 FROM users WHERE role='admin' LIMIT 1;
+
+-- 1. 在 users 表增加備註欄位 (TEXT 類型可以寫比較多字)
+ALTER TABLE users ADD COLUMN notes TEXT;
+
+-- 2. 更新現有的來源名稱 (將英文改成中文)
+-- 假設您原本資料庫裡是存英文 name，如果找不到會沒反應，沒關係
+UPDATE customer_sources SET name = 'Google搜尋網站' WHERE name = 'google search';
+UPDATE customer_sources SET name = '朋友推薦' WHERE name LIKE '%friend%'; 
+
+-- 3. 新增缺少的來源
+INSERT INTO customer_sources (name) VALUES ('過路客');
+INSERT INTO customer_sources (name) VALUES ('Tiktok');
