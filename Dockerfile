@@ -17,7 +17,8 @@ COPY requirements_lock.txt .
 
 # 5. ⭐ 關鍵修改：強制重新安裝並編譯 mysqlclient/flask-mysqldb
 # --no-binary :all: 表示不使用預編譯包，全部現場編譯
-RUN pip install --no-cache-dir --no-binary :all: -r requirements_lock.txt
+# 改只強制編譯 mysqlclient，其他如 cryptography 則使用預編譯包 (比較快又不會錯)
+RUN pip install --no-cache-dir --no-binary mysqlclient -r requirements_lock.txt
 
 # 6. 複製剩餘程式碼
 COPY . .
