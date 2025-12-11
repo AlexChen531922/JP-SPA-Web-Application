@@ -591,8 +591,10 @@
             <thead class="table-light">
               <tr>
                 <th>姓名</th>
-                <th>性別/年齡</th>
-                <th>聯絡</th>
+                <th>性別</th>
+                <th>年齡/生日</th>
+                <th>聯絡資訊</th>
+                <th>職業</th>
                 <th>消費次數</th>
                 <th class="text-end">操作</th>
               </tr>
@@ -605,12 +607,16 @@
                   {% if customer.gender == 'female' %}<i class="bi bi-gender-female text-danger"></i>
                   {% elif customer.gender == 'male' %}<i class="bi bi-gender-male text-primary"></i>
                   {% else %}<i class="bi bi-gender-ambiguous"></i>{% endif %}
-                  {{ customer.age or '?' }}歲
+                </td>
+                <td>
+                  {{ customer.age }}歲 <br>
+                  <small class="text-muted">{{ customer.birth_date }}</small>
                 </td>
                 <td>
                   <small>{{ customer.phone }}</small><br>
                   <small class="text-muted">{{ customer.line_id }}</small>
                 </td>
+                <td>{{ customer.occupation }}</td>
                 <td>
                   <span class="badge bg-primary">{{ customer.order_count }}訂</span>
                   <span class="badge bg-success">{{ customer.booking_count }}約</span>
@@ -626,6 +632,7 @@
                   'gender': customer.gender,
                   'birth_date': customer.birth_date | string,
                   'occupation': customer.occupation,
+                  'address': customer.address,
                   'source_id': customer.source_id
                   } %}
                   <button type="button" class="btn btn-sm btn-outline-primary"
@@ -1212,9 +1219,13 @@
                 class="form-control"></div>
             <div class="col-6"><label>來源</label>
               <select name="source_id" id="edit_cust_source" class="form-select">
-                <option value="">無</option>{% for s in customer_sources %}<option value="{{ s.id }}">{{ s.name }}
-                </option>{% endfor %}
+                <option value="">無</option>
+                {% for s in customer_sources %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
               </select>
+            </div>
+            <div class="col-12"><label>地址</label><input name="address" id="edit_cust_address" class="form-control">
             </div>
           </div>
         </div>
@@ -1226,7 +1237,7 @@
 </div>
 
 <div class="modal fade" id="addCustomerModal" tabindex="-1">
-  <div class="modal-dialog">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <form action="{{ url_for('admin.add_customer') }}" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1243,7 +1254,30 @@
             <div class="col-6"><label>名字 *</label><input name="firstname" class="form-control" required></div>
             <div class="col-12"><label>Email *</label><input name="email" type="email" class="form-control" required>
             </div>
-            <div class="col-12"><label>電話</label><input name="phone" class="form-control"></div>
+
+            <div class="col-6"><label>電話</label><input name="phone" class="form-control"></div>
+            <div class="col-6"><label>Line ID</label><input name="line_id" class="form-control"></div>
+
+            <div class="col-6"><label>性別</label>
+              <select name="gender" class="form-select">
+                <option value="female" selected>女</option>
+                <option value="male">男</option>
+                <option value="other">其他</option>
+              </select>
+            </div>
+            <div class="col-6"><label>生日</label><input name="birth_date" type="date" class="form-control"></div>
+
+            <div class="col-6"><label>職業</label><input name="occupation" class="form-control"></div>
+            <div class="col-6"><label>來源</label>
+              <select name="source_id" class="form-select">
+                <option value="">無</option>
+                {% for s in customer_sources %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-12"><label>地址</label><input name="address" class="form-control"></div>
           </div>
         </div>
         <div class="modal-footer">

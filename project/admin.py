@@ -2,6 +2,7 @@
 Complete Admin Management System with Advanced Reporting
 Fixed all CRUD operations and inventory integration
 """
+from werkzeug.security import generate_password_hash  # 記得確認有沒有 import
 from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, current_app
 from functools import wraps
 from werkzeug.utils import secure_filename
@@ -1350,10 +1351,10 @@ def update_single_schedule_capacity(schedule_id):
 
 
 @admin_bp.route('/customer/add', methods=['POST'])
-@staff_required  # ⭐ 這裡設定 staff 就能用，不用 admin
+@staff_required
 def add_customer():
     try:
-        # 1. 抓取資料
+        # 1. 抓取所有資料 (包含新欄位)
         username = request.form.get('username')
         password = request.form.get('password')
         firstname = request.form.get('firstname')
@@ -1361,37 +1362,66 @@ def add_customer():
         email = request.form.get('email')
         phone = request.form.get('phone')
 
-        # 2. 引用 db 函式
-        from project.db import add_user, check_username_exists
+        # 新增的欄位
+        line_id = request.form.get('line_id')
+        gender = request.form.get('gender', 'other')  # 預設 other
+        birth_date = request.form.get('birth_date')
+        occupation = request.form.get('occupation')
+        address = request.form.get('address')
+        source_id = request.form.get('source_id')
 
-        # 3. 檢查並新增
+        # 處理空值轉換 (如果沒填生日或來源，要轉成 None 才能存入 DB)
+        if not birth_date:
+            birth_date = None
+        if not source_id:
+            source_id = None
+
+        # 2. 引用 db 函式 (只需檢查帳號是否存在)
+        from project.db import check_username_exists
+
+        # 3. 檢查帳號
         if check_username_exists(username):
             flash('帳號已存在', 'error')
         else:
-            # 建立一個假物件來傳遞資料
-            class MockForm:
-                pass
-            form = MockForm()
-            form.username = type('o', (), {'data': username})
-            form.password = type('o', (), {'data': password})
-            form.firstname = type('o', (), {'data': firstname})
-            form.surname = type('o', (), {'data': surname})
-            form.email = type('o', (), {'data': email})
-            form.role = type('o', (), {'data': 'customer'})
-
-            add_user(form)  # 這會自動加密密碼
-
-            # 補上電話
+            # 4. 執行 SQL 插入 (一次到位)
             cursor = database.connection.cursor()
-            cursor.execute(
-                "UPDATE users SET phone=%s WHERE username=%s", (phone, username))
+
+            # 加密密碼
+            hashed_pw = generate_password_hash(password)
+
+            sql = """
+                INSERT INTO users (
+                    username, email, password_hash, 
+                    firstname, surname, phone, 
+                    line_id, gender, birth_date, 
+                    occupation, address, source_id, 
+                    role, created_at
+                ) VALUES (
+                    %s, %s, %s, 
+                    %s, %s, %s, 
+                    %s, %s, %s, 
+                    %s, %s, %s, 
+                    'customer', NOW()
+                )
+            """
+            cursor.execute(sql, (
+                username, email, hashed_pw,
+                firstname, surname, phone,
+                line_id, gender, birth_date,
+                occupation, address, source_id
+            ))
+
             database.connection.commit()
             cursor.close()
 
-            flash('客戶新增成功', 'success')
+            flash('客戶新增成功 (資料完整)', 'success')
 
     except Exception as e:
-        flash(f'失敗: {str(e)}', 'error')
+        # 如果是 Duplicate entry 代表 email 或 username 重複
+        if "Duplicate entry" in str(e):
+            flash('新增失敗：帳號或 Email 已被使用', 'error')
+        else:
+            flash(f'新增失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='customers'))
 
