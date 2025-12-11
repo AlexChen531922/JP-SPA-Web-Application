@@ -766,7 +766,7 @@
 
     <div class="tab-pane fade {% if tab == 'inventory' %}show active{% endif %}" id="inventory">
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h4 class="fw-bold mb-0"><i class="bi bi-boxes"></i> 專業庫存管理</h4>
+        <h4 class="fw-bold mb-0"><i class="bi bi-boxes"></i> 庫存管理</h4>
         <div>
           <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#addProductModal">
             <i class="bi bi-plus-lg"></i> 建立新產品
@@ -787,37 +787,68 @@
             <table class="table table-hover mb-0 align-middle text-nowrap">
               <thead class="table-light">
                 <tr>
+                  <th style="width: 60px;">圖片</th>
                   <th>產品名稱</th>
-                  {% if session.get('user', {}).get('role') == 'admin' %}
+                  <th>類別</th> {% if session.get('user', {}).get('role') == 'admin' %}
                   <th class="text-danger">成本價</th>
                   {% endif %}
+
                   <th>售價</th>
-                  <th>單位</th>
-                  <th>目前庫存</th>
-                  <th>最後進貨日</th>
-                  <th>最後銷售日</th>
+                  <th>庫存</th>
+
+                  <th>描述</th>
+                  <th>最後進貨</th>
+                  <th>最後銷售</th>
                   <th class="text-end">操作</th>
                 </tr>
               </thead>
               <tbody>
                 {% for prod in inventory_products %}
                 <tr>
+                  <td>
+                    {% if prod.image %}
+                    <img src="{{ url_for('static', filename='img/' + prod.image) }}" alt="Product" class="rounded"
+                      style="width: 40px; height: 40px; object-fit: cover;">
+                    {% else %}
+                    <div class="bg-light rounded d-flex align-items-center justify-content-center text-muted"
+                      style="width: 40px; height: 40px;">
+                      <i class="bi bi-image"></i>
+                    </div>
+                    {% endif %}
+                  </td>
+
                   <td class="fw-bold">{{ prod.name }}</td>
+
+                  <td>
+                    {% if prod.category_name %}
+                    <span class="badge bg-secondary bg-opacity-10 text-dark border">
+                      {{ prod.category_name }}
+                    </span>
+                    {% else %}
+                    <span class="text-muted small">-</span>
+                    {% endif %}
+                  </td>
 
                   {% if session.get('user', {}).get('role') == 'admin' %}
                   <td class="text-danger">NT$ {{ '{:,.0f}'.format(prod.cost or 0) }}</td>
                   {% endif %}
 
-                  <td>NT$ {{ '{:,.0f}'.format(prod.price) }}</td>
-                  <td>{{ prod.unit or '件' }}</td>
+                  <td>NT$ {{ '{:,.0f}'.format(prod.price) }} / {{ prod.unit or '件' }}</td>
 
                   <td>
-                    {% if prod.stock_quantity <= 0 %} <span class="badge bg-danger fs-6">缺貨</span>
-                      {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark fs-6">{{
+                    {% if prod.stock_quantity <= 0 %} <span class="badge bg-danger">缺貨</span>
+                      {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark">{{
                         prod.stock_quantity }} (緊張)</span>
                         {% else %}
-                        <span class="badge bg-success fs-6">{{ prod.stock_quantity }}</span>
+                        <span class="badge bg-success">{{ prod.stock_quantity }}</span>
                         {% endif %}
+                  </td>
+
+                  <td>
+                    <small class="text-muted d-inline-block text-truncate" style="max-width: 150px;"
+                      title="{{ prod.description }}">
+                      {{ prod.description or '-' }}
+                    </small>
                   </td>
 
                   <td class="small text-muted">{{ prod.last_purchase_date.strftime('%Y-%m-%d') if

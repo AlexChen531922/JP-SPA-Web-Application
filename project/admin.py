@@ -184,12 +184,23 @@ def dashboard():
     """)
     events = cursor.fetchall()
 
-    # Inventory
+    # Inventory (更新版：加入圖片、描述與類別名稱)
     cursor.execute("""
-        SELECT id, name, stock_quantity, cost, price, 
-               last_purchase_date, last_sale_date, unit
-        FROM products
-        ORDER BY name
+        SELECT 
+            p.id, 
+            p.name, 
+            p.stock_quantity, 
+            p.cost, 
+            p.price, 
+            p.last_purchase_date, 
+            p.last_sale_date, 
+            p.unit,
+            p.image,           -- 新增：圖片檔名
+            p.description,     -- 新增：產品描述
+            c.name as category_name  -- 新增：透過 JOIN 抓取類別名稱
+        FROM products p
+        LEFT JOIN product_categories c ON p.category_id = c.id
+        ORDER BY p.name
     """)
     inventory_products = cursor.fetchall()
 
