@@ -4,16 +4,19 @@ Registers all blueprints including new reports system
 """
 
 import os
-from flask import Flask, render_template
+from flask import Flask, render_template, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 from project.extensions import database, csrf, bootstrap, mail
 from dotenv import load_dotenv
 from datetime import timedelta
+from flask_wtf.csrf import CSRFError
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_DIR = os.path.join(BASE_DIR, "templates")
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 UPLOAD_FOLDER = os.path.join(STATIC_DIR, "img")
+
+# 依照 Railway 的環境變數判斷是否為生產環境
 is_production = os.environ.get('FLASK_ENV') == 'production'
 
 load_dotenv()
@@ -27,14 +30,14 @@ def create_app():
         static_url_path='/static'
     )
 
-    # ⭐ 新增：確保上傳目錄存在，否則會報錯
+    # ⭐ 確保上傳目錄存在
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
 
     app.config.update(
         SECRET_KEY=os.environ.get("SECRET_KEY", "dev-key"),
 
-        # ⭐ 新增：設定 UPLOAD_FOLDER，讓 admin.py 讀取
+        # 設定 UPLOAD_FOLDER
         UPLOAD_FOLDER=UPLOAD_FOLDER,
 
         MYSQL_HOST=os.environ.get("MYSQL_HOST", "localhost"),
@@ -58,11 +61,16 @@ def create_app():
         LINE_ADMIN_USER_ID=os.environ.get("LINE_ADMIN_USER_ID"),
 
         # Session Security
-        PERMANENT_SESSION_LIFETIME=timedelta(minutes=15),
+        # 1. 改名 v3：讓舊的 v2 或預設 session 餅乾全部作廢，解決登入鬼打牆
+        SESSION_COOKIE_NAME='jparomatic_session_v2',
+
+        # 2. 閒置超時：120 分鐘後伺服器拒絕該餅乾
+        PERMANENT_SESSION_LIFETIME=timedelta(minutes=120),
+
+        # 3. 安全設定：依賴您的 Railway 環境變數
         SESSION_COOKIE_SECURE=is_production,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE='Lax',
-
     )
 
     app.wsgi_app = ProxyFix(
@@ -118,7 +126,16 @@ def create_app():
     def handle_403(e):
         return render_template("error.html", code=403, message="您沒有權限訪問此頁面"), 403
 
-    # Register blueprints
+    @app.errorhandler(CSRFError)
+    def handle_csrf_error(e):
+        return render_template("error.html", code=400, message="頁面停留過久導致驗證過期，請重新整理或重新登入"), 400
+
+    # ⭐ 重點新增：強制設定 Session 為非永久 (瀏覽器關閉即消失)
+    @app.before_request
+    def make_session_temporary():
+        session.permanent = False
+
+    # Register blueprints (您原本這段在 return 之後，那是錯的，一定要移上來)
     from project.views import main_bp
     app.register_blueprint(main_bp)
 
