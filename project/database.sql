@@ -431,3 +431,16 @@ UPDATE customer_sources SET name = '朋友推薦' WHERE name LIKE '%friend%';
 -- 3. 新增缺少的來源
 INSERT INTO customer_sources (name) VALUES ('過路客');
 INSERT INTO customer_sources (name) VALUES ('Tiktok');
+
+-- 6. 建立行銷活動表 (Campaigns) 
+CREATE TABLE IF NOT EXISTS campaigns (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(100) NOT NULL,
+    description TEXT,
+    start_date DATE,
+    end_date DATE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 7. 補上訂單與活動的關聯 
+ALTER TABLE orders ADD COLUMN campaign_id INT;
