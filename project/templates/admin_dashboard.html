@@ -453,6 +453,9 @@
 
     <div class="tab-pane fade {% if tab == 'orders' %}show active{% endif %}" id="orders">
       <h4 class="fw-bold mb-3"><i class="bi bi-cart"></i> 訂單管理</h4>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addOrderModal">
+        <i class="bi bi-plus-circle"></i> 建立/補登訂單
+      </button>
       <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
           <table class="table table-hover mb-0">
@@ -513,6 +516,9 @@
 
     <div class="tab-pane fade {% if tab == 'bookings' %}show active{% endif %}" id="bookings">
       <h4 class="fw-bold mb-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookingModal">
+        <i class="bi bi-plus-circle"></i> 建立/補登預約
+      </button>
       <div class="card border-0 shadow-sm">
         <div class="card-body p-0">
           <table class="table table-hover mb-0">
@@ -1405,6 +1411,152 @@
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
           <button type="submit" class="btn btn-primary px-4">確認進貨</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addOrderModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.add_order_manual') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title"><i class="bi bi-cart-plus"></i> 建立或補登訂單</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">客戶</label>
+              <select name="customer_id" class="form-select" required>
+                <option value="">請選擇客戶...</option>
+                {% for c in customers %}
+                <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-bold">訂單日期</label>
+              <input type="datetime-local" name="created_at" class="form-control" value="{{ now_str }}" required>
+              <div class="form-text text-muted">若為補登歷史資料，請選擇過去日期。</div>
+            </div>
+
+            <div class="col-md-8">
+              <label class="form-label fw-bold">產品</label>
+              <select name="product_id" class="form-select" required>
+                <option value="">請選擇產品...</option>
+                {% for p in inventory_products %}
+                <option value="{{ p.id }}" data-price="{{ p.price }}">
+                  {{ p.name }} (庫存: {{ p.stock_quantity }}) - ${{ '{:,.0f}'.format(p.price) }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-bold">數量</label>
+              <input type="number" name="quantity" class="form-control" value="1" min="1" required>
+            </div>
+
+            <div class="col-12 mt-4">
+              <div class="form-check form-switch p-3 bg-light rounded border">
+                <input class="form-check-input" type="checkbox" name="send_notification" id="orderNotifSwitch" checked>
+                <label class="form-check-label fw-bold" for="orderNotifSwitch">
+                  <i class="bi bi-bell"></i> 發送確認通知 (LINE/Email)
+                </label>
+                <div class="small text-muted mt-1">
+                  若是「補登歷史資料」，請<strong>取消勾選</strong>以免打擾客戶。<br>
+                  若是「代客下單」，保持勾選，系統將直接發送「已確認」通知。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">建立訂單</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="addBookingModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.add_booking_manual') }}" method="POST">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立或補登預約</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </div>
+
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label fw-bold">客戶</label>
+              <select name="customer_id" class="form-select" required>
+                <option value="">請選擇客戶...</option>
+                {% for c in customers %}
+                <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }}</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-bold">課程</label>
+              <select name="course_id" class="form-select" required>
+                <option value="">請選擇課程...</option>
+                {% for c in courses %}
+                <option value="{{ c.id }}">{{ c.name }} ({{ c.duration }}分)</option>
+                {% endfor %}
+              </select>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-bold">預約時間</label>
+              <input type="datetime-local" name="appointment_time" class="form-control" required>
+              <div class="form-text">可選擇過去時間進行補登。</div>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-bold">扣除/購買堂數</label>
+              <input type="number" name="sessions" class="form-control" value="1" min="1" required>
+            </div>
+
+            <div class="col-12">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="is_first_time" id="isFirstTime">
+                <label class="form-check-label" for="isFirstTime">這是該客戶首次體驗 (適用體驗價)</label>
+              </div>
+            </div>
+
+            <div class="col-12 mt-3">
+              <div class="form-check form-switch p-3 bg-light rounded border">
+                <input class="form-check-input" type="checkbox" name="send_notification" id="bookingNotifSwitch"
+                  checked>
+                <label class="form-check-label fw-bold" for="bookingNotifSwitch">
+                  <i class="bi bi-bell"></i> 發送確認通知 (LINE/Email)
+                </label>
+                <div class="small text-muted mt-1">
+                  補登歷史資料請<strong>取消勾選</strong>。<br>
+                  代客預約保持勾選，系統將直接發送「預約成功」通知。
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+          <button type="submit" class="btn btn-primary">建立預約</button>
         </div>
       </form>
     </div>

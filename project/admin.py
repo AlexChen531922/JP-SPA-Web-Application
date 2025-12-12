@@ -290,6 +290,8 @@ def dashboard():
 
     cursor.close()
 
+    now_str = datetime.now().strftime('%Y-%m-%dT%H:%M')
+
     # ⭐ 更新：傳遞更多數據給前端
     stats = {
         'products': product_count,
@@ -321,7 +323,8 @@ def dashboard():
         customer_sources=customer_sources,
         posts=posts,
         order_items_map=order_items_map,
-        audit_logs=audit_logs
+        audit_logs=audit_logs,
+        now_str=now_str
     )
 
 # =====================================================
@@ -1680,3 +1683,201 @@ def delete_post(post_id):
         flash(f"刪除失敗: {str(e)}", "error")
 
     return redirect(url_for("admin.dashboard", tab='posts'))
+
+# =====================================================
+# MANUAL ORDER & BOOKING (BACKDATING/CONCIERGE)
+# =====================================================
+
+
+@admin_bp.route('/order/add-manual', methods=['POST'])
+@staff_required
+def add_order_manual():
+    """管理員手動建立/補登訂單"""
+    try:
+        customer_id = request.form.get('customer_id')
+        product_id = request.form.get('product_id')
+        quantity = int(request.form.get('quantity', 1))
+        created_at_str = request.form.get('created_at')  # 格式: YYYY-MM-DDTHH:MM
+        send_notification = request.form.get('send_notification') == 'on'
+
+        if not customer_id or not product_id:
+            flash('請選擇客戶與產品', 'error')
+            return redirect(url_for('admin.dashboard', tab='orders'))
+
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+        # 1. 取得產品資訊 (價格、名稱)
+        cursor.execute(
+            "SELECT name, price, stock_quantity FROM products WHERE id = %s", (product_id,))
+        product = cursor.fetchone()
+
+        # 2. 計算金額
+        unit_price = product['price']
+        subtotal = unit_price * quantity
+        total_amount = subtotal  # 目前簡易版，單一商品
+
+        # 3. 處理日期 (補登關鍵)
+        if created_at_str:
+            created_at = datetime.strptime(created_at_str, '%Y-%m-%dT%H:%M')
+        else:
+            created_at = datetime.now()
+
+        # 4. 寫入訂單 (狀態直接為 confirmed)
+        # 補登或管理員代訂，視為已確認 (confirmed) 甚至已完成 (completed)
+        # 這裡預設 confirmed，讓庫存扣除邏輯一致
+        status = 'confirmed'
+
+        cursor.execute("""
+            INSERT INTO orders (customer_id, total_amount, status, created_at)
+            VALUES (%s, %s, %s, %s)
+        """, (customer_id, total_amount, status, created_at))
+        order_id = cursor.lastrowid
+
+        # 5. 寫入訂單項目
+        cursor.execute("""
+            INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (order_id, product_id, quantity, unit_price, subtotal))
+
+        # 6. 扣除庫存 (即便是補登，理論上也要扣庫存，保持數據一致)
+        cursor.execute("""
+            UPDATE products SET stock_quantity = stock_quantity - %s WHERE id = %s
+        """, (quantity, product_id))
+
+        # 7. 寫入庫存 Log
+        cursor.execute("""
+            INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by)
+            VALUES (%s, %s, 'sale', %s, 'Admin Manual Order', %s)
+        """, (product_id, -quantity, order_id, get_current_user_id()))
+
+        # 8. 取得客戶資料 (為了通知)
+        cursor.execute(
+            "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
+        user = cursor.fetchone()
+
+        database.connection.commit()
+        cursor.close()
+
+        # 9. 發送通知 (根據開關)
+        if send_notification and user:
+            try:
+                customer_data = {
+                    'email': user['email'],
+                    'firstname': user['firstname'],
+                    'line_id': user['line_id']
+                }
+                # 直接發送確認信
+                notify_order_confirmed(order_id, customer_data, total_amount)
+                flash('訂單已建立並發送通知', 'success')
+            except Exception as e:
+                print(f"Notification Error: {e}")
+                flash('訂單建立成功，但通知發送失敗', 'warning')
+        else:
+            flash('訂單已補登 (未發送通知)', 'success')
+
+        # Log Activity
+        log_activity('create', 'order', order_id, {
+                     'type': 'manual_admin', 'backdate': created_at_str})
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'建立失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='orders'))
+
+
+@admin_bp.route('/booking/add-manual', methods=['POST'])
+@staff_required
+def add_booking_manual():
+    """管理員手動建立/補登預約"""
+    try:
+        customer_id = request.form.get('customer_id')
+        course_id = request.form.get('course_id')
+        appt_time_str = request.form.get('appointment_time')
+        sessions = int(request.form.get('sessions', 1))
+        is_first_time = request.form.get('is_first_time') == 'on'
+        send_notification = request.form.get('send_notification') == 'on'
+
+        if not customer_id or not course_id or not appt_time_str:
+            flash('資料不完整', 'error')
+            return redirect(url_for('admin.dashboard', tab='bookings'))
+
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+        # 1. 取得課程資訊
+        cursor.execute(
+            "SELECT name, regular_price, experience_price FROM courses WHERE id = %s", (course_id,))
+        course = cursor.fetchone()
+
+        # 2. 計算價格
+        price = course['experience_price'] if is_first_time and course['experience_price'] else course['regular_price']
+        total_amount = price * sessions
+
+        # 3. 處理時間
+        appt_time = datetime.strptime(appt_time_str, '%Y-%m-%dT%H:%M')
+
+        # 4. 寫入預約 (手動建立通常不綁定 Schedule ID，設為 NULL)
+        # 狀態直接 confirmed
+        cursor.execute("""
+            INSERT INTO bookings 
+            (customer_id, course_id, schedule_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at)
+            VALUES (%s, %s, NULL, %s, %s, %s, %s, 'confirmed', %s)
+        """, (customer_id, course_id, total_amount, is_first_time, sessions, sessions, appt_time))  # 這裡用 appt_time 當作 created_at 或是預約時間?
+        # 通常 created_at 是下單時間。如果是補登，我們假設下單時間就是預約發生的時間。
+
+        booking_id = cursor.lastrowid
+
+        # 為了讓列表顯示時間，我們需要一個機制。
+        # 您的 bookings 表是關聯 course_schedules 顯示時間的。
+        # 如果手動預約沒有 schedule_id，列表可能會顯示「無」。
+        # *解決方案*：我們可以創建一個 "虛擬" 或 "單次" 的 schedule，或者修改 SQL 查詢讓它能讀取 bookings 自己的時間欄位。
+        # 鑑於不改動資料庫結構，我們這裡做一個變通：
+        # 如果系統強烈依賴 schedule_id，我們應該在這裡也插入一個 course_schedules 紀錄 (is_active=0, capacity=1, booked=1)
+
+        # 4.1 自動建立一個專屬時段 (為了讓時間顯示正常)
+        end_time = appt_time + timedelta(minutes=60)  # 預設1小時，或查課程長度
+        cursor.execute("""
+            INSERT INTO course_schedules (course_id, start_time, end_time, max_capacity, current_bookings, is_active)
+            VALUES (%s, %s, %s, 1, 1, 0)
+        """, (course_id, appt_time, end_time))
+        fake_schedule_id = cursor.lastrowid
+
+        # 更新 booking 的 schedule_id
+        cursor.execute("UPDATE bookings SET schedule_id = %s WHERE id = %s",
+                       (fake_schedule_id, booking_id))
+
+        # 5. 取得客戶資料
+        cursor.execute(
+            "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
+        user = cursor.fetchone()
+
+        database.connection.commit()
+        cursor.close()
+
+        # 6. 發送通知
+        if send_notification and user:
+            try:
+                customer_data = {
+                    'email': user['email'],
+                    'firstname': user['firstname'],
+                    'line_id': user['line_id']
+                }
+                time_str = appt_time.strftime('%Y-%m-%d %H:%M')
+                # 直接發送確認信
+                notify_booking_confirmed(
+                    booking_id, customer_data, course['name'], time_str)
+                flash('預約已建立並發送通知', 'success')
+            except Exception as e:
+                print(e)
+                flash('預約建立成功，但通知失敗', 'warning')
+        else:
+            flash('預約已補登 (未發送通知)', 'success')
+
+        log_activity('create', 'booking', booking_id, {
+                     'type': 'manual_admin', 'backdate': appt_time_str})
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'建立失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='bookings'))
