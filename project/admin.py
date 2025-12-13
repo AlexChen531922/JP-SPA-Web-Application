@@ -248,7 +248,7 @@ def dashboard():
     cursor.execute("""
         SELECT u.id, u.username, u.email, u.firstname, u.surname,
                u.phone, u.line_id, u.gender, u.occupation, u.created_at,
-               u.birth_date, u.source_id,
+               u.birth_date, u.source_id, u.address, u.notes,
                TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age,
                cs.name as source_name,
                COUNT(DISTINCT o.id) as order_count,

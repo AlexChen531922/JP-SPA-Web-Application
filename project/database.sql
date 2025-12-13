@@ -6,29 +6,6 @@
 -- 1. 指定使用 Railway 預設資料庫
 USE railway;
 
--- 2. 暫時關閉外鍵檢查 (為了順利重置表格)
-SET FOREIGN_KEY_CHECKS = 0;
-
--- 3. 清空舊表格 (如果有的話，確保是乾淨的開始)
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS products;
-DROP TABLE IF EXISTS product_categories;
-DROP TABLE IF EXISTS courses;
-DROP TABLE IF EXISTS course_categories;
-DROP TABLE IF EXISTS course_schedules;
-DROP TABLE IF EXISTS orders;
-DROP TABLE IF EXISTS order_items;
-DROP TABLE IF EXISTS bookings;
-DROP TABLE IF EXISTS booking_sessions;
-DROP TABLE IF EXISTS carts;
-DROP TABLE IF EXISTS cart_items;
-DROP TABLE IF EXISTS events;
-DROP TABLE IF EXISTS inventory_logs;
-DROP TABLE IF EXISTS audit_logs;
-DROP TABLE IF EXISTS contact_messages;
-DROP TABLE IF EXISTS blog_posts;
-DROP TABLE IF EXISTS customer_sources;
-
 -- 4. 開啟外鍵檢查
 SET FOREIGN_KEY_CHECKS = 1;
 
