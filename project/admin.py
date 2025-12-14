@@ -584,7 +584,7 @@ def add_course_modal():
             today = datetime.now().date()
 
             # 設定每天的開場時間 (整點)
-            open_hours = [9, 10, 11, 12, 13, 14, 15, 16, 17]
+            open_hours = list(range(9, 21))
 
             # 迴圈產生 365 天
             for i in range(365):
