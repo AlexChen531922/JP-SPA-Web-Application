@@ -372,11 +372,11 @@
 
                 <div class="mb-3">
                   <label class="form-label">密碼</label>
-                  <div class="input-group password-group">
-                    <input type="password" name="password" id="loginPassword" class="form-control" placeholder="請輸入密碼"
-                      required>
+                  <div class="input-group">
+                    <input type="password" name="password" id="loginPassword" class="form-control password-input"
+                      placeholder="請輸入密碼" required>
 
-                    <button class="btn btn-outline-secondary btn-toggle-password" type="button" id="toggleLoginBtn">
+                    <button class="btn btn-outline-secondary password-toggle-btn" type="button" id="toggleLoginBtn">
                       <i class="bi bi-eye-slash"></i>
                     </button>
                   </div>
@@ -427,11 +427,11 @@
 
                 <div class="mb-3">
                   <label class="form-label">密碼</label>
-                  <div class="input-group password-group">
-                    <input type="password" name="password" id="registerPassword" class="form-control"
-                      placeholder="10碼以上，含大小寫、數字、符號" required>
+                  <div class="input-group">
+                    <input type="password" name="password" id="registerPassword" class="form-control password-input"
+                      placeholder="請設定密碼" required>
 
-                    <button class="btn btn-outline-secondary btn-toggle-password" type="button" id="toggleRegisterBtn">
+                    <button class="btn btn-outline-secondary password-toggle-btn" type="button" id="toggleRegisterBtn">
                       <i class="bi bi-eye-slash"></i>
                     </button>
                   </div>
@@ -618,51 +618,31 @@
       transform: translateY(-50%) translateX(0);
     }
 
-    /* --- 密碼輸入框專用樣式 (強化版) --- */
-    .password-group {
-      position: relative;
-      display: flex;
-      flex-wrap: nowrap;
-      align-items: stretch;
-      width: 100%;
+    /* 強制讓輸入框右邊沒框線 */
+    .password-input {
+      border-right: 0 !important;
+      box-shadow: none !important;
+      /* 去掉原本醜醜的藍光 */
     }
 
-    .password-group .form-control {
-      border-right: none !important;
-      /* 強制去右框線 */
-      z-index: 1;
-    }
-
-    .password-group .form-control:focus {
-      border-color: #ced4da;
-      box-shadow: none;
-      border-right: none !important;
-    }
-
-    .password-group .btn-toggle-password {
-      border-left: none !important;
-      /* 強制去左框線 */
+    /* 強制讓按鈕左邊沒框線，且背景全白，層級最高 */
+    .password-toggle-btn {
+      border-left: 0 !important;
       background-color: white !important;
       color: #6c757d;
-      border-color: #ced4da;
-      z-index: 100 !important;
-      /* 強制層級最高，保證可點擊 */
+      z-index: 1000 !important;
+      /* ⭐ 關鍵：設為 1000 保證在最上層 */
       cursor: pointer;
     }
 
-    .password-group .btn-toggle-password:hover {
-      background-color: white !important;
-      color: #495057;
+    .password-toggle-btn:hover {
+      color: #333;
     }
 
-    /* 點擊時的光暈效果 */
-    .password-group:focus-within {
+    /* 當點擊輸入框時，讓整個群組外面發光 (模擬一體成型) */
+    .input-group:focus-within {
       box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
       border-radius: 0.375rem;
-    }
-
-    .password-group:focus-within .form-control,
-    .password-group:focus-within .btn-toggle-password {
       border-color: #86b7fe;
     }
   </style>
@@ -707,40 +687,42 @@
   <script>
     document.addEventListener('DOMContentLoaded', function () {
 
-      function setupPasswordToggle(inputId, buttonId) {
+      function initPasswordToggle(inputId, btnId) {
         const input = document.getElementById(inputId);
-        const button = document.getElementById(buttonId);
+        const btn = document.getElementById(btnId);
 
-        if (input && button) {
-          const icon = button.querySelector('i');
+        if (input && btn) {
+          // 綁定點擊事件
+          btn.addEventListener('click', function (e) {
+            // 1. 防止按鈕觸發任何預設行為 (例如 submit)
+            e.preventDefault();
+            e.stopPropagation();
 
-          button.addEventListener('click', function (e) {
-            e.preventDefault(); // 防止意外觸發表單提交
-
+            const icon = btn.querySelector('i');
             const currentType = input.getAttribute('type');
 
             if (currentType === 'password') {
-              // 動作：打開眼睛，顯示密碼
+              // 切換為顯示 (明碼)
               input.setAttribute('type', 'text');
               icon.classList.remove('bi-eye-slash'); // 移除閉眼
               icon.classList.add('bi-eye');       // 加上睜眼
             } else {
-              // 動作：閉上眼睛，隱藏密碼
+              // 切換為隱藏 (密碼)
               input.setAttribute('type', 'password');
               icon.classList.remove('bi-eye');    // 移除睜眼
               icon.classList.add('bi-eye-slash'); // 加上閉眼
             }
           });
         } else {
-          console.warn(`找不到元件: ${inputId} 或 ${buttonId}`);
+          console.warn('找不到 ID:', inputId, btnId);
         }
       }
 
-      // 初始化登入頁面
-      setupPasswordToggle('loginPassword', 'toggleLoginBtn');
+      // 啟動登入頁功能
+      initPasswordToggle('loginPassword', 'toggleLoginBtn');
 
-      // 初始化註冊頁面
-      setupPasswordToggle('registerPassword', 'toggleRegisterBtn');
+      // 啟動註冊頁功能
+      initPasswordToggle('registerPassword', 'toggleRegisterBtn');
     });
   </script>
   {% endblock %}
