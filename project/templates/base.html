@@ -372,13 +372,18 @@
 
                 <div class="mb-3">
                   <label class="form-label">密碼</label>
-                  <input type="password" name="password" class="form-control" required placeholder="10碼以上，含大小寫、數字、符號"
-                    pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W]).{10,}" title="密碼需至少10碼，且包含大小寫字母、數字及特殊符號">
-                  <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn">
-                    <i class="bi bi-eye"></i> </button>
+                  <div class="input-group">
+                    <input type="password" name="password" id="loginPassword" class="form-control border-end-0" required
+                      placeholder="10碼以上，含大小寫、數字、符號" pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W]).{10,}"
+                      title="密碼需至少10碼，且包含大小寫字母、數字及特殊符號">
+
+                    <button class="btn btn-outline-secondary border-start-0 bg-white" type="button"
+                      id="toggleLoginPasswordBtn">
+                      <i class="bi bi-eye"></i>
+                    </button>
+                  </div>
                   <div class="form-text small">需含大寫、小寫、數字及符號，至少10碼</div>
                 </div>
-
 
                 <button type="submit" class="btn btn-primary w-100">登入</button>
 
@@ -647,21 +652,29 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      const passwordInput = document.getElementById('passwordInput');
-      const toggleBtn = document.getElementById('togglePasswordBtn');
-      const icon = toggleBtn.querySelector('i');
+      const passwordInput = document.getElementById('loginPassword');
+      const toggleBtn = document.getElementById('toggleLoginPasswordBtn');
 
-      toggleBtn.addEventListener('click', function () {
-        // 1. 檢查目前的 type 是 password 還是 text
-        const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+      if (passwordInput && toggleBtn) {
+        const icon = toggleBtn.querySelector('i');
 
-        // 2. 切換屬性
-        passwordInput.setAttribute('type', type);
+        toggleBtn.addEventListener('click', function () {
+          // 檢查目前的 type 是 password 還是 text
+          const currentType = passwordInput.getAttribute('type');
 
-        // 3. 切換圖示 (睜眼/閉眼)
-        icon.classList.toggle('bi-eye');
-        icon.classList.toggle('bi-eye-slash');
-      });
+          if (currentType === 'password') {
+            // 切換成明碼
+            passwordInput.setAttribute('type', 'text');
+            icon.classList.remove('bi-eye');
+            icon.classList.add('bi-eye-slash'); // 變成閉眼/斜線眼
+          } else {
+            // 切換回密碼
+            passwordInput.setAttribute('type', 'password');
+            icon.classList.remove('bi-eye-slash');
+            icon.classList.add('bi-eye'); // 變成睜眼
+          }
+        });
+      }
     });
   </script>
   {% endblock %}
