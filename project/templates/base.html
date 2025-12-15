@@ -20,47 +20,39 @@
     /* 強制修正密碼輸入框外觀 */
     .password-group .form-control {
       border-right: 0 !important;
-      /* 去掉右邊框 */
       border-top-right-radius: 0 !important;
-      /* 去掉右上圓角 */
       border-bottom-right-radius: 0 !important;
-      /* 去掉右下圓角 */
       box-shadow: none !important;
-      /* 去掉聚焦時的藍光，改由外層控制 */
       z-index: 1;
+      /* 輸入框層級較低 */
     }
 
-    /* 強制修正眼睛按鈕外觀 */
-    .password-group .btn-toggle-password {
+    /* ⭐ 修正：將原本的 .btn-toggle-password 改為 .password-toggle-btn 以匹配 HTML */
+    .password-group .password-toggle-btn {
       border-left: 0 !important;
-      /* 去掉左邊框 */
       border-top-left-radius: 0 !important;
-      /* 去掉左上圓角 */
       border-bottom-left-radius: 0 !important;
-      /* 去掉左下圓角 */
       background-color: white !important;
       color: #6c757d !important;
       border-color: #ced4da !important;
       z-index: 100 !important;
-      /* ⭐ 層級最高，保證可點擊 */
+      /* ⭐ 關鍵：現在這個會生效了，按鈕會在最上層！ */
       cursor: pointer;
     }
 
-    .password-group .btn-toggle-password:hover {
+    .password-group .password-toggle-btn:hover {
       color: #333 !important;
     }
 
-    /* 當輸入框聚焦時，讓整個群組看起來像一起變色 (模擬 Bootstrap Focus 效果) */
-    .password-group:focus-within .form-control,
-    .password-group:focus-within .btn-toggle-password {
-      border-color: #86b7fe !important;
-      box-shadow: none !important;
-    }
-
-    /* 在群組外層加陰影，模擬一體成型 */
+    /* 聚焦效果 */
     .password-group:focus-within {
       box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
       border-radius: 0.375rem;
+    }
+
+    .password-group:focus-within .form-control,
+    .password-group:focus-within .password-toggle-btn {
+      border-color: #86b7fe !important;
     }
   </style>
   {% endblock %}
