@@ -618,47 +618,44 @@
       transform: translateY(-50%) translateX(0);
     }
 
-    /* --- 密碼輸入框專用樣式 (無縫融合版) --- */
+    /* --- 密碼輸入框專用樣式 (強化版) --- */
     .password-group {
       position: relative;
-      /* 定位基準 */
       display: flex;
       flex-wrap: nowrap;
       align-items: stretch;
+      width: 100%;
     }
 
     .password-group .form-control {
-      border-right: none;
-      /* 去掉右框線 */
+      border-right: none !important;
+      /* 強制去右框線 */
       z-index: 1;
-      /* 輸入框層級較低 */
     }
 
     .password-group .form-control:focus {
       border-color: #ced4da;
       box-shadow: none;
-      /* 去掉藍色光暈 */
-      border-right: none;
+      border-right: none !important;
     }
 
     .password-group .btn-toggle-password {
-      border-left: none;
-      /* 去掉左框線 */
-      background-color: white;
+      border-left: none !important;
+      /* 強制去左框線 */
+      background-color: white !important;
       color: #6c757d;
-      /* 淺灰色 */
       border-color: #ced4da;
-      z-index: 10;
-      /* ⭐ 關鍵：層級調高，確保可以被點擊 */
+      z-index: 100 !important;
+      /* 強制層級最高，保證可點擊 */
       cursor: pointer;
     }
 
     .password-group .btn-toggle-password:hover {
-      background-color: white;
+      background-color: white !important;
       color: #495057;
     }
 
-    /* 點擊輸入框時，讓整個群組看起來像一起變色 */
+    /* 點擊時的光暈效果 */
     .password-group:focus-within {
       box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
       border-radius: 0.375rem;
