@@ -377,7 +377,7 @@
                       required>
 
                     <button class="btn btn-outline-secondary btn-toggle-password" type="button" id="toggleLoginBtn">
-                      <i class="bi bi-eye"></i>
+                      <i class="bi bi-eye-slash"></i>
                     </button>
                   </div>
                   <div class="form-text small mt-1">需含大寫、小寫、數字及符號，至少10碼</div>
@@ -429,12 +429,13 @@
                   <label class="form-label">密碼</label>
                   <div class="input-group password-group">
                     <input type="password" name="password" id="registerPassword" class="form-control"
-                      placeholder="請設定密碼" required>
+                      placeholder="10碼以上，含大小寫、數字、符號" required>
 
                     <button class="btn btn-outline-secondary btn-toggle-password" type="button" id="toggleRegisterBtn">
-                      <i class="bi bi-eye"></i>
+                      <i class="bi bi-eye-slash"></i>
                     </button>
                   </div>
+                  <div class="form-text small mt-1">需含大寫、小寫、數字及符號，至少10碼</div>
                 </div>
 
                 <div class="row">
@@ -617,41 +618,47 @@
       transform: translateY(-50%) translateX(0);
     }
 
-    /* --- 密碼輸入框專用樣式 (仿商業網站風格) --- */
+    /* --- 密碼輸入框專用樣式 (無縫融合版) --- */
+    .password-group {
+      position: relative;
+      /* 定位基準 */
+      display: flex;
+      flex-wrap: nowrap;
+      align-items: stretch;
+    }
+
     .password-group .form-control {
       border-right: none;
-      /* 去掉右邊框 */
+      /* 去掉右框線 */
+      z-index: 1;
+      /* 輸入框層級較低 */
     }
 
     .password-group .form-control:focus {
       border-color: #ced4da;
-      /* 點擊時邊框顏色不變 */
       box-shadow: none;
-      /* 去掉藍色光暈，避免破壞一體感 */
+      /* 去掉藍色光暈 */
       border-right: none;
     }
 
     .password-group .btn-toggle-password {
       border-left: none;
-      /* 去掉左邊框 */
+      /* 去掉左框線 */
       background-color: white;
       color: #6c757d;
-      /* 淺灰色眼睛 */
+      /* 淺灰色 */
       border-color: #ced4da;
-      z-index: 4;
+      z-index: 10;
+      /* ⭐ 關鍵：層級調高，確保可以被點擊 */
+      cursor: pointer;
     }
 
-    .password-group .btn-toggle-password:hover,
-    .password-group .btn-toggle-password:focus {
+    .password-group .btn-toggle-password:hover {
       background-color: white;
       color: #495057;
-      /* 懸停時稍微變深 */
-      border-color: #ced4da;
-      box-shadow: none;
-      /* 去掉按鈕光暈 */
     }
 
-    /* 讓整個群組在 focus 時外框變色 (模擬一體成型) */
+    /* 點擊輸入框時，讓整個群組看起來像一起變色 */
     .password-group:focus-within {
       box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25);
       border-radius: 0.375rem;
@@ -660,7 +667,6 @@
     .password-group:focus-within .form-control,
     .password-group:focus-within .btn-toggle-password {
       border-color: #86b7fe;
-      /* 整個框框一起變藍 */
     }
   </style>
 
@@ -704,44 +710,39 @@
   <script>
     document.addEventListener('DOMContentLoaded', function () {
 
-      // 定義一個通用的切換函式
       function setupPasswordToggle(inputId, buttonId) {
         const input = document.getElementById(inputId);
         const button = document.getElementById(buttonId);
 
-        // 確保兩個元件都存在才執行
         if (input && button) {
           const icon = button.querySelector('i');
 
-          button.addEventListener('click', function () {
-            // 1. 取得目前狀態
+          button.addEventListener('click', function (e) {
+            e.preventDefault(); // 防止意外觸發表單提交
+
             const currentType = input.getAttribute('type');
 
-            // 2. 切換邏輯
             if (currentType === 'password') {
-              // 變成明碼
+              // 動作：打開眼睛，顯示密碼
               input.setAttribute('type', 'text');
-              // 換圖示：變成「閉眼/斜線眼」
-              icon.classList.remove('bi-eye');
-              icon.classList.add('bi-eye-slash');
+              icon.classList.remove('bi-eye-slash'); // 移除閉眼
+              icon.classList.add('bi-eye');       // 加上睜眼
             } else {
-              // 變成密碼
+              // 動作：閉上眼睛，隱藏密碼
               input.setAttribute('type', 'password');
-              // 換圖示：變成「睜眼」
-              icon.classList.remove('bi-eye-slash');
-              icon.classList.add('bi-eye');
+              icon.classList.remove('bi-eye');    // 移除睜眼
+              icon.classList.add('bi-eye-slash'); // 加上閉眼
             }
           });
         } else {
-          console.warn(`找不到 ID: ${inputId} 或 ${buttonId}，請檢查 HTML`);
+          console.warn(`找不到元件: ${inputId} 或 ${buttonId}`);
         }
       }
 
-      // --- 啟用功能 ---
-      // 1. 設定「登入頁」的眼睛
+      // 初始化登入頁面
       setupPasswordToggle('loginPassword', 'toggleLoginBtn');
 
-      // 2. 設定「註冊頁」的眼睛
+      // 初始化註冊頁面
       setupPasswordToggle('registerPassword', 'toggleRegisterBtn');
     });
   </script>
