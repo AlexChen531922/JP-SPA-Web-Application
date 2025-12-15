@@ -23,9 +23,37 @@
       <div class="mt-2">
         <strong>總金額: NT$ {{ '{:,.0f}'.format(order.total_amount) }}</strong>
       </div>
+      <div class="card bg-primary bg-opacity-10 border-primary border-opacity-25 mt-4">
+        <div class="card-body">
+          <h5 class="fw-bold text-primary mb-3">
+            <i class="bi bi-credit-card-2-front"></i> 匯款帳號資訊
+          </h5>
 
+          <div class="text-start px-3">
+            <div class="row mb-2">
+              <div class="col-4 text-muted">銀行代碼</div>
+              <div class="col-8 fw-bold">812 (台新銀行)</div>
+            </div>
+            <div class="row mb-2">
+              <div class="col-4 text-muted">銀行帳號</div>
+              <div class="col-8 fw-bold fs-5 text-dark user-select-all">20050100016489</div>
+            </div>
+            <div class="row mb-2">
+              <div class="col-4 text-muted">戶名</div>
+              <div class="col-8 fw-bold">晶品企業社</div>
+            </div>
+          </div>
+
+          <hr class="border-primary border-opacity-25">
+
+          <p class="small text-dark mb-0">
+            <i class="bi bi-exclamation-circle-fill text-warning"></i>
+            若您以匯款方式付款並已完成匯款，請透過 LINE 告知帳號末五碼以利對帳。
+          </p>
+        </div>
+      </div>
       <div class="mt-4">
-        <p>預約資訊已寄到您的LINE及Email。</p>
+        <p>預約資訊已同步寄到您的LINE及Email。</p>
         <a href="{{ url_for('main.home') }}" class="btn btn-primary mt-2">回到首頁</a>
       </div>
   </div>

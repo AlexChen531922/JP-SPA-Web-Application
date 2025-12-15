@@ -374,6 +374,8 @@
                   <label class="form-label">密碼</label>
                   <input type="password" name="password" class="form-control" required placeholder="10碼以上，含大小寫、數字、符號"
                     pattern="(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W]).{10,}" title="密碼需至少10碼，且包含大小寫字母、數字及特殊符號">
+                  <button class="btn btn-outline-secondary" type="button" id="togglePasswordBtn">
+                    <i class="bi bi-eye"></i> </button>
                   <div class="form-text small">需含大寫、小寫、數字及符號，至少10碼</div>
                 </div>
 
@@ -639,6 +641,27 @@
           }
         }
       }
+    });
+
+  </script>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const passwordInput = document.getElementById('passwordInput');
+      const toggleBtn = document.getElementById('togglePasswordBtn');
+      const icon = toggleBtn.querySelector('i');
+
+      toggleBtn.addEventListener('click', function () {
+        // 1. 檢查目前的 type 是 password 還是 text
+        const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+
+        // 2. 切換屬性
+        passwordInput.setAttribute('type', type);
+
+        // 3. 切換圖示 (睜眼/閉眼)
+        icon.classList.toggle('bi-eye');
+        icon.classList.toggle('bi-eye-slash');
+      });
     });
   </script>
   {% endblock %}
