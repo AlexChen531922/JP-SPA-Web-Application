@@ -116,7 +116,7 @@ def products():
     where_sql = " AND ".join(where_clauses)
 
     sql = f"""
-        SELECT p.id, p.name, p.price, p.image, p.description,
+        SELECT p.id, p.name, p.price, p.image, p.description, p.stock_quantity,
                pc.name as category_name
         FROM products p
         LEFT JOIN product_categories pc ON p.category_id = pc.id

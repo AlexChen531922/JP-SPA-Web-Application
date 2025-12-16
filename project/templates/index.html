@@ -31,13 +31,7 @@
             <div class="card-body">
               <h6 class="fw-bold text-truncate">{{ product.name }}</h6>
 
-              <p class="text-primary fw-bold mb-1">
-                {% if product.price > 0 %}
-                NT$ {{ '{:,.0f}'.format(product.price) }}
-                {% else %}
-
-                {% endif %}
-              </p>
+              <p class="price text-primary fw-bold">請洽詢</p>
 
               <div>
                 {% if product.category_name %}
