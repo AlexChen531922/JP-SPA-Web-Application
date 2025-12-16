@@ -862,37 +862,39 @@
 
   <script>
     document.addEventListener('DOMContentLoaded', function () {
-      function initPasswordToggle(inputId, btnId) {
-        var input = document.getElementById(inputId);
-        var btn = document.getElementById(btnId);
+      // 使用事件委派 (Event Delegation) 綁定點擊事件
+      // 這樣就算按鈕是在 Modal 裡，或者後來才出現，都一定能點擊
+      document.body.addEventListener('click', function (e) {
 
-        if (input && btn) {
-          // Clone and replace to remove old listeners
-          var newBtn = btn.cloneNode(true);
-          btn.parentNode.replaceChild(newBtn, btn);
-          btn = newBtn;
+        // 檢查點擊的目標是否為 "眼睛按鈕" 或是 "眼睛按鈕裡的圖示"
+        const btn = e.target.closest('.password-toggle-btn');
 
-          btn.addEventListener('click', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
+        // 如果不是點擊眼睛按鈕，就忽略
+        if (!btn) return;
 
-            var icon = btn.querySelector('i');
-            var currentType = input.getAttribute('type');
+        // 阻止預設行為 (避免表單提交)
+        e.preventDefault();
+        e.stopPropagation();
 
-            if (currentType === 'password') {
-              input.setAttribute('type', 'text');
-              icon.classList.remove('bi-eye-slash');
-              icon.classList.add('bi-eye');
-            } else {
-              input.setAttribute('type', 'password');
-              icon.classList.remove('bi-eye');
-              icon.classList.add('bi-eye-slash');
-            }
-          });
+        // 找到同一個輸入群組內的 input 欄位
+        const inputGroup = btn.closest('.input-group');
+        const input = inputGroup.querySelector('input.password-input');
+        const icon = btn.querySelector('i');
+
+        if (input) {
+          if (input.getAttribute('type') === 'password') {
+            // 切換為顯示 (明碼)
+            input.setAttribute('type', 'text');
+            icon.classList.remove('bi-eye-slash'); // 閉眼圖示
+            icon.classList.add('bi-eye');          // 睜眼圖示
+          } else {
+            // 切換為隱藏 (密碼)
+            input.setAttribute('type', 'password');
+            icon.classList.remove('bi-eye');       // 睜眼圖示
+            icon.classList.add('bi-eye-slash');    // 閉眼圖示
+          }
         }
-      }
-      initPasswordToggle('loginPassword', 'toggleLoginBtn');
-      initPasswordToggle('registerPassword', 'toggleRegisterBtn');
+      });
     });
   </script>
 </body>
