@@ -157,19 +157,17 @@
     .header-hero-text {
       font-family: 'Noto Serif TC', serif;
       font-style: italic;
-      position: absolute;
-      left: 50%;
-      top: 60%;
-      transform: translate(-50%, -50%);
+      margin: 0 auto;
       white-space: nowrap;
       font-size: 1.05rem;
       color: #6c6c6c;
       letter-spacing: 1px;
-      margin: 0;
       opacity: 0;
       animation: fadeInOpacity 1.5s ease-in-out forwards;
-      pointer-events: none;
-      /* 防止遮擋點擊 */
+
+      /* 增加左右內距，確保縮小到極限時也不會貼太近 */
+      padding: 0 20px;
+
     }
 
     @keyframes fadeInOpacity {
