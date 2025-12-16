@@ -13,7 +13,7 @@
 
     <div class="row g-4">
       {% for product in products %}
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md-4 col-lg-3">
         <div class="card h-100 shadow-sm hover-zoom">
 
           <div data-bs-toggle="modal" data-bs-target="#productModal{{ product.id }}" style="cursor:pointer;">
@@ -35,7 +35,8 @@
                 {% if product.price > 0 %}
                 NT$ {{ '{:,.0f}'.format(product.price) }}
                 {% else %}
-                &nbsp; {% endif %}
+
+                {% endif %}
               </p>
 
               <div>
@@ -118,7 +119,7 @@
 
     <div class="row g-4">
       {% for course in courses %}
-      <div class="col-6 col-md-3">
+      <div class="col-6 col-md-4 col-lg-3">
         <div class="card h-100 shadow-sm hover-zoom d-flex flex-column">
 
           <div data-bs-toggle="modal" data-bs-target="#courseModal{{ course.id }}"
@@ -150,7 +151,7 @@
                     {% if course.regular_price > 0 %}
                     NT$ {{ '{:,.0f}'.format(course.regular_price) }}
                     {% else %}
-                    &nbsp;
+
                     {% endif %}
                   </p>
                 </div>
@@ -360,7 +361,7 @@
         <p class="mb-2"><i class="bi bi-p-square-fill text-primary"></i> 遠東好停幸福站停車場</p>
       </div>
 
-      <div class="flex-grow-1">
+      <div class="flex-grow-1" style="min-height: 300px;">
         <iframe
           src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d903.6300122500033!2d121.46053552850924!3d25.05035699860708!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a862815f21fd%3A0xcaaa930671c6c827!2z5pm25ZOB6Iqz55mC!5e0!3m2!1szh-TW!2sau!4v1763110421398!5m2!1szh-TW!2sau"
           class="w-100 h-100 rounded-4 shadow" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
