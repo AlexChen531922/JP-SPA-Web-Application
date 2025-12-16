@@ -12,6 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
 
   {% block head %}{% endblock %}
+
   <style>
     /* =========================================
        1. 整合 index.css (響應式修正版)
@@ -43,33 +44,48 @@
       border-radius: 9999px;
     }
 
-    /* 確保表格在手機上可以捲動，不會撐破版面 */
-    .table-responsive {
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-
     @media (min-width: 1200px) {
       .dz-minh {
         min-height: 420px;
       }
     }
 
-    /* 圖片與卡片樣式 */
     .dz-wrap {
       border-radius: 1rem;
       overflow: hidden;
     }
 
     .dz-wrap .dz-border {
-      border: 1px solid var(--bs-border-color, #dee2e6);
-      transition: all 0.2s ease;
+      transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
       border-radius: inherit;
       overflow: hidden;
+      border: 1px solid var(--bs-border-color, #dee2e6);
     }
 
-    .dz-wrap:hover .dz-border {
+    .dz-wrap:has(input[type="file"]:valid) .dz-ready {
+      display: block !important;
+    }
+
+    .dz-wrap:has(input[type="file"]:valid) .dz-border {
+      border-color: #198754 !important;
+    }
+
+    .dz-wrap:hover .dz-border,
+    .dz-wrap:focus-within .dz-border {
       background: #f8f9fa;
+    }
+
+    .dz-wrap:active .dz-border {
+      transform: translateY(0);
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.06);
+    }
+
+    .dz-wrap .dz-border svg {
+      transition: opacity 0.2s ease, color 0.2s ease;
+    }
+
+    .dz-wrap:hover .dz-border svg {
+      opacity: 0.85;
     }
 
     .hover-zoom {
@@ -97,24 +113,67 @@
       filter: brightness(0.95);
     }
 
-    /* 分頁與徽章 */
     .pagination .page-item.active .page-link {
       background-color: #000;
       border-color: #000;
       color: #fff;
     }
 
-    .pagination .page-link {
+    .pagination .page-link:hover,
+    .pagination .page-link:focus {
       color: #000;
     }
 
-    /* 搜尋框清除按鈕隱藏 */
-    input[type="search"]::-webkit-search-cancel-button {
+    .badge-link {
+      background-color: rgba(0, 0, 0, 0.9);
+      color: #fff;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      cursor: pointer;
+      transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.08s ease;
+      text-decoration: none;
+    }
+
+    .badge-link:hover,
+    .badge-link:focus {
+      background-color: rgba(0, 0, 0, 0.7);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      text-decoration: none;
+    }
+
+    .badge-link:active {
+      transform: translateY(1px);
+    }
+
+    .badge-link.disabled {
+      cursor: default;
+      opacity: 0.85;
+      pointer-events: none;
+    }
+
+    .badge-event {
+      color: #000;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      font-weight: 550;
+    }
+
+    .badge-category {
+      background: #e9ecef;
+      color: #6c757d;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      font-weight: 500;
+    }
+
+    input[type="search"]::-webkit-search-cancel-button,
+    input[type="search"]::-ms-clear,
+    input[type="search"]::-moz-search-clear {
       display: none;
+      appearance: none;
+      width: 0;
+      height: 0;
     }
 
     /* =========================================
-       2. 密碼眼睛與輸入框樣式
+       2. 密碼眼睛修復樣式 (強制生效版)
        ========================================= */
     .input-group>.form-control.password-input {
       border-right: 0 !important;
@@ -135,25 +194,110 @@
       cursor: pointer !important;
     }
 
+    .input-group>.btn.password-toggle-btn:hover {
+      color: #333 !important;
+      background-color: white !important;
+    }
+
     .input-group:focus-within {
       box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
       border-radius: 0.375rem !important;
       border-color: #86b7fe !important;
+      z-index: 5;
     }
 
     .input-group:focus-within .form-control,
     .input-group:focus-within .btn {
       border-color: #86b7fe !important;
     }
+  </style>
+</head>
 
-    /* =========================================
-       3. 響應式導覽列與 Hero 修正 (關鍵修改)
-       ========================================= */
+<body>
+  <header class="sticky-top border-bottom bg-white py-2 shadow-sm">
+    <nav class="navbar navbar-expand-lg container-fluid">
+      <a href="{{ url_for('main.home') }}" class="navbar-brand d-flex align-items-center">
+        <img src="{{ url_for('static', filename='img/logo.JPG') }}" alt="LOGO" style="height:110px;width:auto;"
+          class="me-3">
+      </a>
+
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse justify-content-end" id="navbarMain">
+        <ul class="navbar-nav mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.home') }}">首頁</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.about') }}">關於晶品</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.products') }}">產品介紹</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.courses') }}">課程介紹</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.blog') }}">美麗知識</a></li>
+        </ul>
+
+        <section class="header-hero-text">
+          <p class="lead text-muted mb-4">專業精進不止，感恩之心常存；健康與美麗內外相映</p>
+        </section>
+
+        <div class="d-flex align-items-center gap-2 user-menu-container ms-lg-2">
+          <a href="{{ url_for('main.courses') }}" class="btn btn-spa fw-bold px-4 text-nowrap">
+            <i class="bi bi-calendar-check"></i> 預約課程
+          </a>
+
+          {% if session.get('logged_in') %}
+          {% set role = session.get('user', {}).get('role') %}
+          {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
+
+          {% if role in ['staff', 'admin'] %}
+          <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm text-nowrap">
+            <i class="bi bi-speedometer2"></i> 後台
+          </a>
+          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative text-nowrap">
+            <i class="bi bi-cart3"></i> 購物車
+          </a>
+          {% elif role == 'customer' %}
+          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative text-nowrap">
+            <i class="bi bi-cart3"></i> 購物車
+          </a>
+          <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-sm text-nowrap">
+            <i class="bi bi-person"></i> 會員
+          </a>
+          {% endif %}
+
+          <div class="dropdown">
+            <button class="btn btn-dark btn-sm dropdown-toggle text-nowrap" type="button" data-bs-toggle="dropdown">
+              {{ username }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              {% if role == 'customer' %}
+              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i
+                    class="bi bi-person-circle"></i> 會員中心</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('customer.bookings') }}"><i
+                    class="bi bi-calendar-check"></i> 我的預約</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('customer.orders') }}"><i class="bi bi-bag-check"></i>
+                  我的訂單</a></li>
+              <li>
+                <hr class="dropdown-divider">
+              </li>
+              {% endif %}
+              <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i
+                    class="bi bi-box-arrow-right"></i> 登出</a></li>
+            </ul>
+          </div>
+          {% else %}
+          <button class="btn btn-spa fw-bold px-4 text-nowrap" data-bs-toggle="modal" data-bs-target="#loginModal">
+            <i class="bi bi-person-circle"></i> 會員登入
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <style>
     .navbar {
       position: relative;
     }
 
-    /* 預設桌機版 Hero 文字 */
     .header-hero-text {
       font-family: 'Noto Serif TC', serif;
       font-style: italic;
@@ -164,10 +308,7 @@
       letter-spacing: 1px;
       opacity: 0;
       animation: fadeInOpacity 1.5s ease-in-out forwards;
-
-      /* 增加左右內距，確保縮小到極限時也不會貼太近 */
       padding: 0 20px;
-
     }
 
     @keyframes fadeInOpacity {
@@ -210,38 +351,88 @@
       transform: translateY(-2px);
       background-color: #F7D9E3;
       color: #2F1B24 !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     }
 
-    /* 手機版響應式調整 (Mobile Responsive) */
-    @media (max-width: 991.98px) {
+    .d-flex .btn {
+      border-radius: 50px;
+      font-size: 1.05rem;
+      padding: 0.55rem 1.8rem;
+      transition: 0.3s;
+    }
 
-      /* 縮小 Logo */
+    .d-flex .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .d-flex .btn-outline-primary:hover,
+    .d-flex .btn-outline-secondary:hover {
+      background-color: #F7D9E3;
+      color: #2F1B24 !important;
+    }
+
+    .d-flex .btn-dark.dropdown-toggle {
+      background-color: #F7D9E3;
+      color: #4B2E39;
+    }
+
+    .d-flex .btn-dark.dropdown-toggle:hover {
+      background-color: #E3B9CD;
+      color: #2F1B24;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    button[data-bs-target="#loginModal"] {
+      background-color: #FFB6C1;
+      color: #4B2E39;
+      border-radius: 50px;
+      transition: all 0.3s;
+      padding: 0.4rem 1.2rem;
+    }
+
+    button[data-bs-target="#loginModal"]:hover {
+      background-color: #FF8DAA;
+      color: #2F1B24;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .dropdown-menu .dropdown-item:hover {
+      background-color: #F7D9E3;
+      color: #2F1B24;
+    }
+
+    @media (max-width: 1300px) {
+      .header-hero-text {
+        font-size: 0.9rem;
+        white-space: normal;
+        text-align: center;
+      }
+    }
+
+    @media (max-width: 991.98px) {
       .navbar-brand img {
         height: 50px !important;
         width: auto !important;
       }
 
-      /* Hero 文字改為靜態流動，避免重疊 */
       .header-hero-text {
-        position: static !important;
-        transform: none !important;
-        text-align: center;
-        margin: 1rem 0 !important;
-        white-space: normal !important;
-        /* 允許換行 */
-        font-size: 0.9rem !important;
+        margin: 1rem 0;
+        white-space: normal;
+        font-size: 0.9rem;
         display: block;
         padding-bottom: 10px;
+        text-align: center;
       }
 
-      /* 選單置中與間距 */
       .navbar-nav .nav-link {
         text-align: center;
         margin-right: 0;
         margin-bottom: 0.5rem;
       }
 
-      /* 按鈕全寬堆疊 */
       .btn-spa {
         width: 100%;
         margin-right: 0;
@@ -249,7 +440,6 @@
         text-align: center;
       }
 
-      /* 使用者選單垂直排列 */
       .user-menu-container {
         flex-direction: column;
         width: 100%;
@@ -269,86 +459,6 @@
       }
     }
   </style>
-</head>
-
-<body>
-  <header class="sticky-top border-bottom bg-white py-2 shadow-sm">
-    <nav class="navbar navbar-expand-lg container-fluid">
-      <a href="{{ url_for('main.home') }}" class="navbar-brand d-flex align-items-center">
-        <img src="{{ url_for('static', filename='img/logo.JPG') }}" alt="LOGO" style="height:110px;width:auto;"
-          class="me-3">
-      </a>
-
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-
-      <div class="collapse navbar-collapse justify-content-end" id="navbarMain">
-        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.home') }}">首頁</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.about') }}">關於晶品</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.products') }}">產品介紹</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.courses') }}">課程介紹</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.blog') }}">美麗知識</a></li>
-        </ul>
-
-        <section class="header-hero-text">
-          <p class="lead text-muted mb-0">專業精進不止，感恩之心常存；健康與美麗內外相映</p>
-        </section>
-
-        <a href="{{ url_for('main.courses') }}" class="btn btn-spa fw-bold px-4"><i class="bi bi-calendar-check"></i>
-          預約課程</a>
-
-        <div class="d-flex gap-2 align-items-center user-menu-container ms-lg-2">
-          {% if session.get('logged_in') %}
-          {% set role = session.get('user', {}).get('role') %}
-          {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
-
-          {% if role in ['staff', 'admin'] %}
-          <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-md">
-            <i class="bi bi-speedometer2"></i> 後台
-          </a>
-          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-md position-relative">
-            <i class="bi bi-cart3"></i> 購物車
-          </a>
-          {% elif role == 'customer' %}
-          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-md position-relative">
-            <i class="bi bi-cart3"></i> 購物車
-          </a>
-          <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-md">
-            <i class="bi bi-person"></i> 會員
-          </a>
-          {% endif %}
-
-          <div class="dropdown">
-            <button class="btn btn-spa btn-md dropdown-toggle w-100" type="button" data-bs-toggle="dropdown">
-              {{ username }}
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end">
-              {% if role == 'customer' %}
-              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i
-                    class="bi bi-person-circle"></i> 會員中心</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('customer.bookings') }}"><i
-                    class="bi bi-calendar-check"></i> 我的預約</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('customer.orders') }}"><i class="bi bi-bag-check"></i>
-                  我的訂單</a></li>
-              <li>
-                <hr class="dropdown-divider">
-              </li>
-              {% endif %}
-              <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i
-                    class="bi bi-box-arrow-right"></i> 登出</a></li>
-            </ul>
-          </div>
-          {% else %}
-          <button class="btn btn-spa fw-bold px-4" data-bs-toggle="modal" data-bs-target="#loginModal">
-            <i class="bi bi-person-circle"></i> 會員登入
-          </button>
-          {% endif %}
-        </div>
-      </div>
-    </nav>
-  </header>
 
   {% with messages = get_flashed_messages(with_categories=True) %}
   {% if messages %}
@@ -510,42 +620,27 @@
     </div>
   </div>
 
-  <a href="#" class="social-icon back-to-top">
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-up-circle"
-      viewBox="0 0 16 16">
-      <path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z" />
-      <path fill-rule="evenodd"
-        d="M8 12a.5.5 0 0 0 .5-.5V5.707l1.146 1.147a.5.5 0 0 0 .708-.708l-2-2-.007-.007a.498.498 0 0 0-.7 0l-2 2a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z" />
-    </svg>
-    <span class="icon-label">回到頂端</span>
-  </a>
-
-  <a href="https://line.me/ti/p/~@lhn1950m" target="_blank" class="social-icon line">
-    <i class="bi bi-line"></i>
-    <span class="icon-label">LINE</span>
-  </a>
-
-  <a href="https://facebook.com/j.pin9" target="_blank" class="social-icon facebook">
-    <i class="bi bi-facebook"></i>
-    <span class="icon-label">Facebook</span>
-  </a>
-
-  <a href="https://instagram.com/jpinspa" target="_blank" class="social-icon instagram">
-    <i class="bi bi-instagram"></i>
-    <span class="icon-label">Instagram</span>
-  </a>
-
-  <a href="mailto:jpin20200322@gmail.com" class="social-icon email">
-    <i class="bi bi-envelope-fill"></i>
-    <span class="icon-label">Email</span>
-  </a>
-
-  <a href="https://www.tiktok.com/@j_pin_spa" target="_blank" class="social-icon tiktok">
-    <i class="bi bi-tiktok"></i>
-    <span class="icon-label">TikTok</span>
-  </a>
-  </div>
-  <a href="tel:0222777912" class="social-icon phone d-md-none"><i class="bi bi-telephone-fill"></i></a>
+  <div class="floating-social-icons">
+    <a href="#" class="social-icon back-to-top">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-up-circle"
+        viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z" />
+        <path fill-rule="evenodd"
+          d="M8 12a.5.5 0 0 0 .5-.5V5.707l1.146 1.147a.5.5 0 0 0 .708-.708l-2-2-.007-.007a.498.498 0 0 0-.7 0l-2 2a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z" />
+      </svg>
+      <span class="icon-label">Top</span>
+    </a>
+    <a href="https://line.me/ti/p/~@lhn1950m" target="_blank" class="social-icon line"><i class="bi bi-line"></i><span
+        class="icon-label">LINE</span></a>
+    <a href="https://facebook.com/j.pin9" target="_blank" class="social-icon facebook"><i
+        class="bi bi-facebook"></i><span class="icon-label">Facebook</span></a>
+    <a href="https://instagram.com/jpinspa" target="_blank" class="social-icon instagram"><i
+        class="bi bi-instagram"></i><span class="icon-label">Instagram</span></a>
+    <a href="mailto:jpin20200322@gmail.com" class="social-icon email"><i class="bi bi-envelope-fill"></i><span
+        class="icon-label">Email</span></a>
+    <a href="https://www.tiktok.com/@j_pin_spa" target="_blank" class="social-icon tiktok"><i
+        class="bi bi-tiktok"></i><span class="icon-label">TikTok</span></a>
+    <a href="tel:0222777912" class="social-icon phone d-md-none"><i class="bi bi-telephone-fill"></i></a>
   </div>
 
   <style>
@@ -602,8 +697,6 @@
       color: white;
     }
 
-    /* 手機版專用撥號按鈕 */
-
     .floating-social-icons .icon-label {
       position: absolute;
       right: 110%;
@@ -629,7 +722,6 @@
         display: none;
       }
 
-      /* 手機版不顯示浮動標籤 */
       .floating-social-icons .social-icon {
         width: 40px;
         height: 40px;
