@@ -11,7 +11,7 @@
   <link rel="icon" href="{{ url_for('static', filename='img/favicon.ico') }}">
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
 
-  {% block head %}
+  {% block head %}{% endblock %}
   <style>
     /* =========================================
        1. 整合 index.css (響應式修正版)
@@ -269,7 +269,6 @@
       }
     }
   </style>
-  {% endblock %}
 </head>
 
 <body>

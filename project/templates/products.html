@@ -85,9 +85,9 @@
           <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="quantity" value="1">
-            <button type="submit" class="btn btn-primary btn-sm w-100" {% if product.stock_quantity <=0 %}disabled{%
-              endif %}>
-              {% if product.stock_quantity > 0 %}
+            <button type="submit" class="btn btn-primary btn-sm w-100" {% if (product.stock_quantity | default(0)) <=0
+              %}disabled{% endif %}>
+              {% if (product.stock_quantity | default(0)) > 0 %}
               <i class="bi bi-cart-plus"></i> 加入購物車
               {% else %}
               <i class="bi bi-x-circle"></i> 暫時缺貨
@@ -156,7 +156,7 @@
 
                 <div class="alert alert-light border-start border-4 border-primary">
                   <p class="mb-0 small text-muted">庫存狀態：
-                    {% if product.stock_quantity > 0 %}
+                    {% if (product.stock_quantity | default(0)) > 0 %}
                     <span class="text-success fw-bold">現貨供應</span>
                     {% else %}
                     <span class="text-danger fw-bold">補貨中</span>
@@ -174,9 +174,9 @@
                 <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST"
                   class="d-grid gap-2">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button type="submit" class="btn btn-primary btn-lg" {% if product.stock_quantity<=0 %}disabled{%
-                    endif %}>
-                    {% if product.stock_quantity > 0 %}
+                  <button type="submit" class="btn btn-primary btn-lg" {% if (product.stock_quantity | default(0)) <=0
+                    %}disabled{% endif %}>
+                    {% if (product.stock_quantity | default(0)) > 0 %}
                     <i class="bi bi-cart-plus"></i> 加入購物車
                     {% else %}
                     <i class="bi bi-x-circle"></i> 暫時缺貨
@@ -235,7 +235,7 @@
           if (html.trim()) {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = html;
-            const newItems = tempDiv.querySelectorAll('.col-6'); // 確保抓取正確的 class
+            const newItems = tempDiv.querySelectorAll('.col-6');
 
             if (newItems.length > 0) {
               newItems.forEach(item => {
