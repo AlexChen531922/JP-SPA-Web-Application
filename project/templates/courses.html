@@ -26,21 +26,39 @@
             {% endfor %}
         </div>
 
-        <!-- Search Bar (右側) -->
-        <div style="min-width: 280px;">
-            <form method="GET" action="{{ url_for('main.courses') }}" class="input-group input-group-lg">
-                <input type="text" name="q" class="form-control" placeholder="搜尋課程名稱或關鍵字..."
-                    value="{{ search_query or '' }}" aria-label="搜尋課程">
-                <button class="btn btn-primary" type="submit">
-                    <i class="bi bi-search"></i> 搜尋
-                </button>
+        <div class="row g-3 align-items-center mb-4">
 
-                {% if search_query %}
-                <a href="{{ url_for('main.courses') }}" class="btn btn-outline-secondary">
-                    <i class="bi bi-x-circle"></i> 清除
-                </a>
-                {% endif %}
-            </form>
+            <div class="col-12 col-lg-auto me-auto">
+                <div class="d-flex flex-wrap gap-2">
+                    <a href="{{ url_for('main.courses') }}"
+                        class="btn btn-sm {% if not current_category %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                        全部
+                    </a>
+                    {% for category in course_categories %}
+                    <a href="{{ url_for('main.courses', category=category.id) }}"
+                        class="btn btn-sm {% if current_category == category.id %}btn-primary{% else %}btn-outline-primary{% endif %}">
+                        {{ category.name }}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="col-12 col-lg-4">
+                <form method="GET" action="{{ url_for('main.courses') }}" class="input-group">
+                    <input type="search" name="q" class="form-control" placeholder="搜尋課程名稱..."
+                        value="{{ search_query or '' }}" aria-label="搜尋課程">
+
+                    <button class="btn btn-primary" type="submit">
+                        <i class="bi bi-search"></i>
+                    </button>
+
+                    {% if search_query %}
+                    <a href="{{ url_for('main.courses') }}" class="btn btn-outline-secondary" title="清除搜尋">
+                        <i class="bi bi-x-lg"></i>
+                    </a>
+                    {% endif %}
+                </form>
+            </div>
         </div>
 
     </div>

@@ -124,15 +124,25 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var calendarEl = document.getElementById('calendar');
+        var initialView = window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth'; // 手機預設清單模式
+
         var calendar = new FullCalendar.Calendar(calendarEl, {
-            // ⭐ 關鍵設定：類似 Google 預約的視圖
-            initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
+            initialView: initialView, // 使用動態判斷的視圖
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
                 right: 'dayGridMonth,timeGridWeek,listWeek'
             },
+            // 加入視窗縮放監聽
+            windowResize: function (view) {
+                if (window.innerWidth < 768) {
+                    calendar.changeView('listWeek');
+                } else {
+                    calendar.changeView('dayGridMonth');
+                }
+            },
+            height: 'auto', // 高度自動適應
+            contentHeight: 'auto',
             locale: 'zh-tw',
             navLinks: true, // 可以點擊日期進入當天
             businessHours: { // 強調營業時間
