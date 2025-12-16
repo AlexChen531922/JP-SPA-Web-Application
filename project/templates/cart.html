@@ -1,87 +1,86 @@
 {% extends "base.html" %}
-{% block title %}購物車 - 晶品芳療{% endblock %}
+{% block title %}預訂清單 - 晶品芳療{% endblock %}
 
 {% block content %}
 <div class="container py-4">
 
-    <h2 class="fw-bold mb-4"><i class="bi bi-cart3"></i> 購物車</h2>
+    <div class="d-flex align-items-center mb-4">
+        <h2 class="fw-bold mb-0"><i class="bi bi-cart3"></i> 預訂清單</h2>
+        <span class="badge bg-light text-dark ms-3 border">{{ cart_items|length }} 項商品</span>
+    </div>
 
     {% if cart_items|length == 0 %}
-    <div class="text-center py-5">
+    <div class="text-center py-5 bg-light rounded-3">
         <div class="mb-3">
             <i class="bi bi-cart-x display-1 text-muted opacity-50"></i>
         </div>
-        <h4 class="text-muted mt-3">購物車是空的</h4>
+        <h4 class="text-muted mt-3">預訂清單是空的</h4>
         <p class="text-muted mb-4">快去選購喜歡的產品吧！</p>
         <a href="{{ url_for('main.products') }}" class="btn btn-primary px-4 py-2 rounded-pill">
             <i class="bi bi-bag"></i> 前往選購
         </a>
     </div>
     {% else %}
+
     <form action="{{ url_for('main.update_cart') }}" method="POST" id="cartForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         <div class="row g-4">
             <div class="col-lg-8">
-                <div class="card shadow-sm border-0">
+                <div class="card shadow-sm border-0 rounded-3">
                     <div class="card-body p-0">
                         {% for item in cart_items %}
-                        <div class="p-3 {% if not loop.last %}border-bottom{% endif %}">
+                        <div class="p-3 p-md-4 {% if not loop.last %}border-bottom{% endif %}">
                             <div class="row align-items-center gy-3">
 
                                 <div class="col-3 col-md-2">
                                     <a href="{{ url_for('main.product_detail', product_id=item.product_id) }}"
-                                        class="d-block ratio ratio-1x1">
+                                        class="d-block ratio ratio-1x1 bg-light rounded overflow-hidden">
                                         {% if item.image %}
-                                        <img src="{{ url_for('static', filename=item.image) }}"
-                                            class="rounded object-fit-cover" alt="{{ item.name }}">
+                                        <img src="{{ url_for('static', filename=item.image) }}" class="object-fit-cover"
+                                            alt="{{ item.name }}">
                                         {% else %}
-                                        <div
-                                            class="bg-light rounded d-flex align-items-center justify-content-center h-100">
+                                        <div class="d-flex align-items-center justify-content-center h-100">
                                             <i class="bi bi-image text-muted fs-4"></i>
                                         </div>
                                         {% endif %}
                                     </a>
                                 </div>
 
-                                <div class="col-9 col-md-4">
-                                    <h6 class="mb-1 text-truncate-2">
+                                <div class="col-9 col-md-6">
+                                    <h6 class="mb-2 text-truncate-2">
                                         <a href="{{ url_for('main.product_detail', product_id=item.product_id) }}"
-                                            class="text-decoration-none text-dark fw-bold">
+                                            class="text-decoration-none text-dark fw-bold fs-5">
                                             {{ item.name }}
                                         </a>
                                     </h6>
-                                    <p class="text-muted small mb-0 price-tag" data-price="{{ item.price }}">
-                                        NT$ {{ '{:,.0f}'.format(item.price) }}
-                                    </p>
+                                    <span class="badge bg-success bg-opacity-10 text-success rounded-pill">
+                                        預訂諮詢
+                                    </span>
                                 </div>
 
-                                <div class="col-6 col-md-3">
-                                    <div class="input-group input-group-sm">
-                                        <button class="btn btn-outline-secondary" type="button"
-                                            onclick="updateQuantity({{ item.id }}, -1)">
-                                            <i class="bi bi-dash"></i>
-                                        </button>
-                                        <input type="number" class="form-control text-center"
-                                            name="quantity_{{ item.id }}" id="qty_{{ item.id }}"
-                                            value="{{ item.quantity }}" min="1" onchange="calculateTotal()" readonly>
-                                        <button class="btn btn-outline-secondary" type="button"
-                                            onclick="updateQuantity({{ item.id }}, 1)">
-                                            <i class="bi bi-plus"></i>
+                                <div class="col-12 col-md-4">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="input-group input-group-sm" style="max-width: 120px;">
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                onclick="updateQuantity({{ item.id }}, -1)">
+                                                <i class="bi bi-dash"></i>
+                                            </button>
+                                            <input type="number" class="form-control text-center fw-bold bg-white"
+                                                name="quantity_{{ item.id }}" id="qty_{{ item.id }}"
+                                                value="{{ item.quantity }}" min="1" readonly>
+                                            <button class="btn btn-outline-secondary" type="button"
+                                                onclick="updateQuantity({{ item.id }}, 1)">
+                                                <i class="bi bi-plus"></i>
+                                            </button>
+                                        </div>
+
+                                        <button type="button"
+                                            class="btn btn-link text-danger text-decoration-none small"
+                                            onclick="if(confirm('確定要移除此商品嗎？')) document.getElementById('removeForm_{{ item.id }}').submit();">
+                                            <i class="bi bi-trash"></i> 移除
                                         </button>
                                     </div>
-                                </div>
-
-                                <div
-                                    class="col-6 col-md-3 text-end d-flex flex-column justify-content-center align-items-end">
-                                    <p class="fw-bold mb-1 text-primary" id="subtotal_{{ item.id }}">
-                                        NT$ {{ '{:,.0f}'.format(item.price * item.quantity) }}
-                                    </p>
-
-                                    <button type="submit" form="removeForm_{{ item.id }}"
-                                        class="btn btn-link text-danger p-0 text-decoration-none small">
-                                        <i class="bi bi-trash"></i> 移除
-                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -90,46 +89,58 @@
                 </div>
 
                 <div class="d-flex justify-content-between mt-3">
-                    <a href="{{ url_for('main.products') }}" class="btn btn-outline-secondary">
-                        <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">繼續購物</span>
+                    <a href="{{ url_for('main.products') }}" class="btn btn-outline-secondary rounded-pill">
+                        <i class="bi bi-arrow-left"></i> <span class="d-none d-sm-inline">繼續瀏覽產品</span>
                     </a>
-                    <button type="submit" form="cartForm" class="btn btn-secondary">
+                    <button type="submit" form="cartForm" class="btn btn-secondary rounded-pill">
                         <i class="bi bi-arrow-clockwise"></i> <span class="d-none d-sm-inline">更新數量</span>
                     </button>
                 </div>
             </div>
 
             <div class="col-lg-4">
-                <div class="card shadow-sm border-0 sticky-lg-top" style="top: 100px; z-index: 1;">
+                <div class="card shadow-sm border-0 sticky-lg-top rounded-4" style="top: 100px; z-index: 1;">
                     <div class="card-body p-4">
-                        <h5 class="fw-bold mb-4 border-bottom pb-2">訂單摘要</h5>
+                        <h5 class="fw-bold mb-4 border-bottom pb-3">
+                            <i class="bi bi-file-text me-2"></i>預訂摘要
+                        </h5>
 
-                        <div class="d-flex justify-content-between mb-2">
-                            <span class="text-muted">商品小計</span>
-                            <span class="fw-bold" id="subtotalAmount">NT$ {{ '{:,.0f}'.format(total) }}</span>
+                        <div class="mb-4">
+                            <ul class="list-group list-group-flush">
+                                {% for item in cart_items %}
+                                <li
+                                    class="list-group-item px-0 d-flex justify-content-between align-items-center border-bottom-0 py-1">
+                                    <span class="text-muted text-truncate me-2" style="max-width: 70%;">{{ item.name
+                                        }}</span>
+                                    <span class="fw-bold">x {{ item.quantity }}</span>
+                                </li>
+                                {% endfor %}
+                            </ul>
+                            <div class="border-top mt-2 pt-2 d-flex justify-content-between">
+                                <span class="fw-bold">總品項數</span>
+                                <span class="fw-bold text-primary">{{ cart_items|sum(attribute='quantity') }} 件</span>
+                            </div>
                         </div>
 
-                        <div class="d-flex justify-content-between mb-3">
-                            <span class="text-muted">運費</span>
-                            <span class="text-success fw-bold">免運費</span>
-                        </div>
-
-                        <div class="alert alert-light border small mb-3">
-                            <i class="bi bi-info-circle-fill text-info me-1"></i>
-                            訂單送出後將由專人確認庫存，確認無誤後通知付款。
-                        </div>
-
-                        <div class="d-flex justify-content-between align-items-center mb-4 pt-3 border-top">
-                            <h5 class="fw-bold mb-0">總計金额</h5>
-                            <h4 class="text-primary fw-bold mb-0" id="totalAmount">
-                                NT$ {{ '{:,.0f}'.format(total) }}
-                            </h4>
+                        <div class="alert alert-primary border-0 bg-primary bg-opacity-10 small mb-4 rounded-3">
+                            <div class="d-flex">
+                                <i class="bi bi-info-circle-fill text-primary me-2 mt-1"></i>
+                                <div class="text-dark">
+                                    <strong>預訂流程說明：</strong><br>
+                                    <ul class="mb-0 ps-3 mt-1">
+                                        <li>訂單送出後將由專人確認庫存。</li>
+                                        <li>我們將於 1~2 個工作天內聯繫您，確認無誤後通知付款。</li>
+                                        <li>本步驟無需立即付款。</li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
 
                         <form action="{{ url_for('main.checkout') }}" method="POST">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn btn-primary w-100 py-2 fw-bold shadow-sm">
-                                <i class="bi bi-check-circle-fill me-1"></i> 前往結帳
+                            <button type="submit"
+                                class="btn btn-primary w-100 py-3 fw-bold rounded-pill shadow-sm hover-scale">
+                                <i class="bi bi-send-check-fill me-2"></i> 送出預訂申請
                             </button>
                         </form>
                     </div>
@@ -140,7 +151,7 @@
 
     {% for item in cart_items %}
     <form action="{{ url_for('main.remove_from_cart', item_id=item.id) }}" method="POST" id="removeForm_{{ item.id }}"
-        style="display:none;" onsubmit="return confirm('確定要移除此商品嗎？');">
+        style="display:none;">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     </form>
     {% endfor %}
@@ -150,34 +161,39 @@
 </div>
 
 <style>
-    /* 手機版文字截斷 (最多顯示兩行) */
     .text-truncate-2 {
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
         overflow: hidden;
         text-overflow: ellipsis;
-        font-size: 0.95rem;
     }
 
-    /* 修正手機版圖片比例 */
     .object-fit-cover {
         object-fit: cover;
         width: 100%;
         height: 100%;
     }
 
-    /* Sticky Top 修正 (避免被 Navbar 擋住) */
     .sticky-lg-top {
         position: -webkit-sticky;
         position: sticky;
         top: 90px;
+    }
+
+    .hover-scale {
+        transition: transform 0.2s;
+    }
+
+    .hover-scale:hover {
+        transform: scale(1.02);
     }
 </style>
 {% endblock %}
 
 {% block scripts %}
 <script>
+    // 只保留更新數量的邏輯，移除所有價格計算
     function updateQuantity(itemId, change) {
         const input = document.getElementById(`qty_${itemId}`);
         if (!input) return;
@@ -186,40 +202,9 @@
         if (newValue < 1) newValue = 1;
 
         input.value = newValue;
-        calculateTotal();
+
+        // 選項：如果您希望改數量後自動更新摘要的件數，可以選擇性開啟自動提交
+        // document.getElementById('cartForm').submit(); 
     }
-
-    function calculateTotal() {
-        let total = 0;
-
-        document.querySelectorAll('[id^="qty_"]').forEach(input => {
-            const itemId = input.id.replace('qty_', '');
-            const quantity = parseInt(input.value);
-
-            // 從 data-price 屬性獲取純數字價格，比解析文字更安全
-            const priceTag = input.closest('.row').querySelector('.price-tag');
-            const price = parseFloat(priceTag.getAttribute('data-price'));
-
-            const subtotal = price * quantity;
-
-            // Update subtotal display
-            const subtotalEl = document.getElementById(`subtotal_${itemId}`);
-            if (subtotalEl) {
-                subtotalEl.textContent = `NT$ ${subtotal.toLocaleString('zh-TW')}`;
-            }
-
-            total += subtotal;
-        });
-
-        // Update totals
-        const subtotalEl = document.getElementById('subtotalAmount');
-        const totalEl = document.getElementById('totalAmount');
-
-        if (subtotalEl) subtotalEl.textContent = `NT$ ${total.toLocaleString('zh-TW')}`;
-        if (totalEl) totalEl.textContent = `NT$ ${total.toLocaleString('zh-TW')}`;
-    }
-
-    // Initialize on page load
-    document.addEventListener('DOMContentLoaded', calculateTotal);
 </script>
 {% endblock %}
