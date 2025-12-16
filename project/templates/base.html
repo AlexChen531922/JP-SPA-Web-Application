@@ -306,23 +306,23 @@
           {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
 
           {% if role in ['staff', 'admin'] %}
-          <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm">
+          <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-md">
             <i class="bi bi-speedometer2"></i> 後台
           </a>
-          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative">
+          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-md position-relative">
             <i class="bi bi-cart3"></i> 購物車
           </a>
           {% elif role == 'customer' %}
-          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative">
+          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-md position-relative">
             <i class="bi bi-cart3"></i> 購物車
           </a>
-          <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-sm">
+          <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-md">
             <i class="bi bi-person"></i> 會員
           </a>
           {% endif %}
 
           <div class="dropdown">
-            <button class="btn btn-dark btn-sm dropdown-toggle w-100" type="button" data-bs-toggle="dropdown">
+            <button class="btn btn-spa btn-md dropdown-toggle w-100" type="button" data-bs-toggle="dropdown">
               {{ username }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
