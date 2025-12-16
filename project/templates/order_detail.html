@@ -3,23 +3,23 @@
 
 {% block content %}
 <div class="container py-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h3>訂單 #{{ order.id }}</h3>
-        <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-3">
+        <h3 class="mb-0">訂單 #{{ order.id }}</h3>
+        <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary text-nowrap">
             <i class="bi bi-arrow-left"></i> 返回列表
         </a>
     </div>
 
     <div class="card shadow-sm mb-4">
         <div class="card-body">
-            <div class="row">
-                <div class="col-md-4">
+            <div class="row g-3">
+                <div class="col-12 col-md-4">
                     <p class="text-muted mb-1">下單日期</p>
-                    <p class="fw-bold">{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                    <p class="fw-bold mb-0">{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
                 </div>
-                <div class="col-md-4">
+                <div class="col-12 col-md-4">
                     <p class="text-muted mb-1">訂單狀態</p>
-                    <p>
+                    <p class="mb-0">
                         {% if order.status == 'pending' %}<span class="badge bg-warning text-dark">待確認</span>
                         {% elif order.status == 'confirmed' %}<span class="badge bg-primary">已確認</span>
                         {% elif order.status == 'completed' %}<span class="badge bg-success">已完成</span>
@@ -27,20 +27,20 @@
                         {% endif %}
                     </p>
                 </div>
-                <div class="col-md-4">
-                    <p class="text-muted mb-1">總金額</p>
-                    <h4 class="text-primary">NT$ {{ '{:,.0f}'.format(order.total_amount) }}</h4>
+                <div class="col-12 col-md-4 text-md-end">
+                    <p class="text-muted mb-1">訂單總額</p>
+                    <h4 class="fw-bold text-primary mb-0">NT$ {{ '{:,.0f}'.format(order.total_amount) }}</h4>
                 </div>
             </div>
         </div>
     </div>
 
     <div class="card shadow-sm">
-        <div class="card-header bg-white">
-            <h5 class="mb-0">購買項目</h5>
+        <div class="card-header bg-white py-3">
+            <h5 class="mb-0 fw-bold">購買項目</h5>
         </div>
         <div class="table-responsive">
-            <table class="table table-hover mb-0 align-middle">
+            <table class="table table-hover mb-0 align-middle text-nowrap">
                 <thead class="table-light">
                     <tr>
                         <th style="width: 80px;">圖片</th>
@@ -54,8 +54,10 @@
                     {% for item in items %}
                     <tr>
                         <td>
-                            <img src="{{ url_for('static', filename=item.image or 'img/placeholder.jpg') }}" width="50"
-                                class="rounded border">
+                            <div class="ratio ratio-1x1" style="width: 50px;">
+                                <img src="{{ url_for('static', filename=item.image or 'img/placeholder.jpg') }}"
+                                    class="rounded border object-fit-cover">
+                            </div>
                         </td>
                         <td>{{ item.name }}</td>
                         <td>NT$ {{ '{:,.0f}'.format(item.unit_price) }}</td>
