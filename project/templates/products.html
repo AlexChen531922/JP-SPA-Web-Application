@@ -4,12 +4,10 @@
 {% block content %}
 <div class="container py-4">
 
-  <!-- Page Header -->
   <div class="text-center mb-4">
     <p class="lead text-muted">選擇適合您的芳療產品，讓身心得到完整的放鬆與療癒</p>
   </div>
 
-  <!-- Search & Filter Section -->
   <div class="row g-3 align-items-center mb-4">
 
     <div class="col-12 col-lg-auto me-auto">
@@ -45,154 +43,154 @@
     </div>
   </div>
 
-</div>
+  <div id="product-list" class="row g-3 g-md-4">
+    {% for product in products %}
+    <div class="col-6 col-md-4 col-lg-3">
+      <div class="card h-100 hover-zoom shadow-sm d-flex flex-column">
 
-<!-- Product Grid -->
-<div id="product-list" class="row g-4">
-  {% for product in products %}
-  <div class="col-6 col-md-4 col-lg-3">
-    <div class="card h-100 hover-zoom shadow-sm">
+        <div data-bs-toggle="modal" data-bs-target="#productModal{{ product.id }}"
+          class="d-flex flex-column flex-grow-1" style="cursor:pointer;">
 
-      <!-- 卡片 body 觸發 modal -->
-      <div data-bs-toggle="modal" data-bs-target="#productModal{{ product.id }}" style="cursor:pointer;">
-        <div class="ratio ratio-1x1">
-          {% if product.image %}
-          <img src="{{ url_for('static', filename=product.image) }}" class="card-img-top object-fit-cover"
-            alt="{{ product.name }}" loading="lazy">
-          {% else %}
-          <div class="bg-light d-flex align-items-center justify-content-center">
-            <i class="bi bi-image fs-1 text-muted"></i>
+          <div class="ratio ratio-1x1">
+            {% if product.image %}
+            <img src="{{ url_for('static', filename=product.image) }}" class="card-img-top object-fit-cover"
+              alt="{{ product.name }}" loading="lazy"
+              onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+            {% else %}
+            <div class="bg-light d-flex align-items-center justify-content-center">
+              <i class="bi bi-image fs-1 text-muted opacity-25"></i>
+            </div>
+            {% endif %}
           </div>
+
+          <div class="card-body d-flex flex-column flex-grow-1 p-3">
+            <h6 class="card-title text-truncate fw-bold mb-1">{{ product.name }}</h6>
+
+            <div class="mt-auto">
+              <p class="mb-2 text-primary fw-bold small">
+                請洽詢
+              </p>
+
+              {% if product.category_name %}
+              <span class="badge bg-light text-dark fw-normal">{{ product.category_name }}</span>
+              {% else %}
+              <span class="badge" style="visibility: hidden;">&nbsp;</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="card-footer bg-white border-0 pt-0 pb-3 px-3">
+          {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
+          <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="quantity" value="1">
+            <button type="submit" class="btn btn-primary btn-sm w-100" {% if product.stock_quantity <=0 %}disabled{%
+              endif %}>
+              {% if product.stock_quantity > 0 %}
+              <i class="bi bi-cart-plus"></i> 加入購物車
+              {% else %}
+              <i class="bi bi-x-circle"></i> 暫時缺貨
+              {% endif %}
+            </button>
+          </form>
+          {% else %}
+          <button class="btn btn-secondary btn-sm w-100" disabled>請先登入</button>
           {% endif %}
         </div>
-        <div class="card-body">
-          <h6 class="card-title text-truncate mb-2">{{ product.name }}</h6>
 
-          <p class="text-primary fw-bold mb-2">
-            {% if product.price > 0 %}
-            NT$ {{ '{:,.0f}'.format(product.price) }}
-            {% else %}
-            &nbsp;
-            {% endif %}
-          </p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
 
-          <div>
-            {% if product.category_name %}
-            <span class="badge bg-light text-dark">{{ product.category_name }}</span>
-            {% else %}
-            <span class="badge" style="visibility: hidden;">&nbsp;</span>
-            {% endif %}
+  <div id="loading" class="text-center mt-4" style="display:none;">
+    <div class="spinner-border text-primary" role="status">
+      <span class="visually-hidden">載入中...</span>
+    </div>
+    <p class="text-muted mt-2">載入更多產品...</p>
+  </div>
+
+  <div id="no-more" class="text-center text-muted mt-4" style="display:none;">
+    <p>已顯示全部產品</p>
+  </div>
+
+  {% if products|length == 0 %}
+  <div class="text-center py-5">
+    <i class="bi bi-inbox fs-1 text-muted"></i>
+    <p class="text-muted mt-3">目前沒有產品</p>
+    <a href="{{ url_for('main.products') }}" class="btn btn-primary">瀏覽全部產品</a>
+  </div>
+  {% endif %}
+
+  {% for product in products %}
+  <div class="modal fade" id="productModal{{ product.id }}" tabindex="-1"
+    aria-labelledby="productModalLabel{{ product.id }}" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <div class="modal-content overflow-hidden border-0">
+        <div class="modal-header border-0 pb-0">
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body pt-0">
+          <div class="row g-4">
+            <div class="col-md-6">
+              <div class="ratio ratio-1x1 rounded-3 overflow-hidden shadow-sm">
+                {% if product.image %}
+                <img src="{{ url_for('static', filename=product.image) }}" class="object-fit-cover"
+                  alt="{{ product.name }}">
+                {% else %}
+                <div class="bg-light d-flex align-items-center justify-content-center h-100">
+                  <i class="bi bi-image display-1 text-muted opacity-25"></i>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="col-md-6 d-flex flex-column">
+              <div class="mb-auto">
+                <span class="badge bg-primary bg-opacity-10 text-primary mb-2">{{ product.category_name
+                  }}</span>
+                <h3 class="fw-bold mb-3">{{ product.name }}</h3>
+                <p class="text-secondary lh-lg mb-4" style="white-space: pre-line;">{{
+                  product.description }}</p>
+
+                <div class="alert alert-light border-start border-4 border-primary">
+                  <p class="mb-0 small text-muted">庫存狀態：
+                    {% if product.stock_quantity > 0 %}
+                    <span class="text-success fw-bold">現貨供應</span>
+                    {% else %}
+                    <span class="text-danger fw-bold">補貨中</span>
+                    {% endif %}
+                  </p>
+                </div>
+              </div>
+
+              <div class="mt-4 pt-3 border-top">
+                <div class="d-flex align-items-center justify-content-between mb-3">
+                  <span class="text-muted small">售價</span>
+                  <span class="fs-4 fw-bold text-primary">請洽詢</span>
+                </div>
+
+                <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST"
+                  class="d-grid gap-2">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-primary btn-lg" {% if product.stock_quantity<=0 %}disabled{%
+                    endif %}>
+                    {% if product.stock_quantity > 0 %}
+                    <i class="bi bi-cart-plus"></i> 加入購物車
+                    {% else %}
+                    <i class="bi bi-x-circle"></i> 暫時缺貨
+                    {% endif %}
+                  </button>
+                </form>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-
-      <!-- Footer 不觸發 modal -->
-      <div class="card-footer bg-white border-0 pt-0">
-        {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
-        <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="quantity" value="1">
-          <button type="submit" class="btn btn-primary btn-sm w-100">
-            <i class="bi bi-cart-plus"></i> 現在預訂
-          </button>
-        </form>
-        {% else %}
-        <button class="btn btn-secondary btn-sm w-100" disabled>請先登入</button>
-        {% endif %}
-      </div>
-
     </div>
   </div>
   {% endfor %}
-</div>
-
-<!-- Loading Indicator -->
-<div id="loading" class="text-center mt-4" style="display:none;">
-  <div class="spinner-border text-primary" role="status">
-    <span class="visually-hidden">載入中...</span>
-  </div>
-  <p class="text-muted mt-2">載入更多產品...</p>
-</div>
-
-<!-- No More Products -->
-<div id="no-more" class="text-center text-muted mt-4" style="display:none;">
-  <p>已顯示全部產品</p>
-</div>
-
-<!-- Empty State -->
-{% if products|length == 0 %}
-<div class="text-center py-5">
-  <i class="bi bi-inbox fs-1 text-muted"></i>
-  <p class="text-muted mt-3">目前沒有產品</p>
-  <a href="{{ url_for('main.products') }}" class="btn btn-primary">瀏覽全部產品</a>
-</div>
-{% endif %}
-
-<!-- Product Modals -->
-{% for product in products %}
-<div class="modal fade" id="productModal{{ product.id }}" tabindex="-1"
-  aria-labelledby="productModalLabel{{ product.id }}" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content">
-
-      <!-- Header -->
-      <div class="modal-header">
-        <h5 class="modal-title fw-bold" id="productModalLabel{{ product.id }}">
-          {{ product.name }}
-        </h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-      </div>
-
-      <!-- Body -->
-      <div class="modal-body">
-
-        <!-- Image -->
-        <div class="text-center mb-4">
-          {% if product.image %}
-          <img src="{{ url_for('static', filename=product.image) }}" class="img-fluid rounded shadow-sm"
-            alt="{{ product.name }}">
-          {% else %}
-          <div class="bg-light d-flex align-items-center justify-content-center rounded" style="height:300px;">
-            <i class="bi bi-image fs-1 text-muted"></i>
-          </div>
-          {% endif %}
-        </div>
-
-        <!-- Info Section -->
-        <div class="px-2">
-
-          <!-- Price -->
-          {% if product.price > 0 %}
-          <p class="text-primary fw-bold fs-4 mb-2">
-            NT$ {{ '{:,.0f}'.format(product.price | default(0)) }}
-          </p>
-          {% endif %}
-
-          <!-- Category -->
-          {% if product.category_name %}
-          <span class="badge bg-light text-dark mb-3">
-            {{ product.category_name }}
-          </span>
-          {% endif %}
-
-          <!-- Description -->
-          {% if product.description %}
-          <div class="mt-3">
-            <h6 class="fw-bold">產品介紹</h6>
-            <p class="text-muted mb-0" style="white-space: pre-line;">
-              {{ product.description }}
-            </p>
-          </div>
-          {% endif %}
-
-        </div>
-      </div>
-
-    </div>
-  </div>
-</div>
-{% endfor %}
-
 
 </div>
 {% endblock %}
@@ -237,7 +235,7 @@
           if (html.trim()) {
             const tempDiv = document.createElement('div');
             tempDiv.innerHTML = html;
-            const newItems = tempDiv.querySelectorAll('.col-6');
+            const newItems = tempDiv.querySelectorAll('.col-6'); // 確保抓取正確的 class
 
             if (newItems.length > 0) {
               newItems.forEach(item => {

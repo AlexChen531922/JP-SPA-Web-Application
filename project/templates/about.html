@@ -4,11 +4,11 @@
 {% block content %}
 
 <div class="about-hero position-relative d-flex align-items-center justify-content-center mb-5">
-    <div class="container text-center position-relative z-1">
-        <h1 class="display-4 fw-bold text-white mb-3 tracking-wide" style="font-family: 'Noto Serif TC', serif;">
+    <div class="container text-center position-relative z-1 px-3">
+        <h1 class="hero-title fw-bold text-white mb-3 tracking-wide" style="font-family: 'Noto Serif TC', serif;">
             關於晶品芳療
         </h1>
-        <p class="lead text-white-50 mb-0">專業．溫暖．療癒 — 找回身心靈的平衡之美</p>
+        <p class="hero-subtitle lead text-white-50 mb-0">專業．溫暖．療癒 — 找回身心靈的平衡之美</p>
     </div>
     <div class="overlay"></div>
 </div>
@@ -19,11 +19,11 @@
         <div class="row justify-content-center">
             <div class="col-lg-8 text-center animate-on-scroll">
                 <h3 class="brand-heading mb-4">品牌理念</h3>
-                <div class="quote-box p-5 shadow-sm rounded-4 position-relative">
+                <div class="quote-box p-4 p-md-5 shadow-sm rounded-4 position-relative">
                     <i class="bi bi-quote fs-1 text-brand-pink position-absolute top-0 start-0 m-3 opacity-50"></i>
                     <figure class="text-center mb-0">
                         <blockquote class="blockquote">
-                            <p class="fs-4 fst-italic text-brand-dark mb-4"
+                            <p class="fs-5 fs-md-4 fst-italic text-brand-dark mb-4"
                                 style="font-family: 'Noto Serif TC', serif; line-height: 1.8;">
                                 「專業精進不止，感恩之心常存；<br>健康與美麗內外相映」
                             </p>
@@ -36,7 +36,7 @@
                         style="transform: rotate(180deg);"></i>
                 </div>
 
-                <p class="mt-5 text-muted lh-lg fs-5">
+                <p class="mt-5 text-muted lh-lg fs-5 px-2">
                     我們相信真正的美麗源自身心兼具的平衡。<br>
                     晶品芳療不僅重視<span class="text-brand-dark fw-bold">專業技術</span>，更重視情感、溫度與療癒感受。<br>
                     在這裡，每位貴賓都值得被專業對待、被細心傾聽、被溫柔照顧。
@@ -51,13 +51,13 @@
             <div class="divider mx-auto my-3"></div>
         </div>
 
-        <div class="row align-items-center mb-5 g-5 animate-on-scroll">
-            <div class="col-md-6 order-md-1">
+        <div class="row align-items-center mb-5 g-4 g-lg-5 animate-on-scroll">
+            <div class="col-md-6 order-1 order-lg-1">
                 <img src="{{ url_for('static', filename='img/gallery_1.jpg') }}"
-                    class="img-fluid rounded-4 shadow-sm object-fit-cover w-100" style="height: 400px;" alt="晶品芳療起源"
+                    class="img-fluid rounded-4 shadow-sm object-fit-cover w-100 responsive-img" alt="晶品芳療起源"
                     onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
             </div>
-            <div class="col-md-6 order-md-2">
+            <div class="col-md-6 order-2 order-lg-2">
                 <div class="p-2">
                     <span class="badge bg-brand-pink text-dark mb-2 rounded-pill px-3 py-2">2019</span>
                     <h4 class="fw-bold mb-3 text-brand-dark">初心與孵化</h4>
@@ -74,15 +74,15 @@
             </div>
         </div>
 
-        <div class="row align-items-center mb-5 g-5 animate-on-scroll">
-            <div class="col-md-6 order-md-2">
+        <div class="row align-items-center mb-5 g-4 g-lg-5 animate-on-scroll">
+            <div class="col-md-6 order-1 order-lg-2">
                 <img src="{{ url_for('static', filename='img/20251127193341_pexels-a-darmel-8989971.jpg') }}"
-                    class="img-fluid rounded-4 shadow-sm object-fit-cover w-100" style="height: 400px;" alt="晶品二店"
+                    class="img-fluid rounded-4 shadow-sm object-fit-cover w-100 responsive-img" alt="晶品二店"
                     onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
             </div>
-            <div class="col-md-6 order-md-1">
-                <div class="p-2 text-md-end text-start">
-                    <span class="badge bg-brand-pink text-dark mb-2 rounded-pill px-3 py-2">2025</span>
+            <div class="col-md-6 order-2 order-lg-1">
+                <div class="p-2 text-md-end text-start"> <span
+                        class="badge bg-brand-pink text-dark mb-2 rounded-pill px-3 py-2">2025</span>
                     <h4 class="fw-bold mb-3 text-brand-dark">傳承與展望</h4>
                     <p class="text-muted lh-lg">
                         為了在下個六年持續提供更高品質的服務，
@@ -101,40 +101,40 @@
     <section class="py-5 animate-on-scroll">
         <div class="row g-4 text-center">
             <div class="col-md-4">
-                <div class="h-100 p-4 border-0 bg-white rounded-4 hover-lift">
+                <div class="h-100 p-4 border-0 bg-white rounded-4 hover-lift shadow-sm">
                     <div class="icon-box mb-3 mx-auto bg-brand-light rounded-circle d-flex align-items-center justify-content-center"
                         style="width: 80px; height: 80px;">
                         <i class="bi bi-flower1 fs-2 text-brand-dark"></i>
                     </div>
                     <h5 class="fw-bold text-brand-dark">天然純粹</h5>
-                    <p class="text-muted small">嚴選頂級植物精油，<br>堅持使用對身體無負擔的產品。</p>
+                    <p class="text-muted small mb-0">嚴選頂級植物精油，<br>堅持使用對身體無負擔的產品。</p>
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="h-100 p-4 border-0 bg-white rounded-4 hover-lift">
+                <div class="h-100 p-4 border-0 bg-white rounded-4 hover-lift shadow-sm">
                     <div class="icon-box mb-3 mx-auto bg-brand-light rounded-circle d-flex align-items-center justify-content-center"
                         style="width: 80px; height: 80px;">
                         <i class="bi bi-person-hearts fs-2 text-brand-dark"></i>
                     </div>
                     <h5 class="fw-bold text-brand-dark">專業手技</h5>
-                    <p class="text-muted small">芳療師皆經過嚴格培訓，<br>以有溫度的雙手撫平您的疲憊。</p>
+                    <p class="text-muted small mb-0">芳療師皆經過嚴格培訓，<br>以有溫度的雙手撫平您的疲憊。</p>
                 </div>
             </div>
             <div class="col-md-4">
-                <div class="h-100 p-4 border-0 bg-white rounded-4 hover-lift">
+                <div class="h-100 p-4 border-0 bg-white rounded-4 hover-lift shadow-sm">
                     <div class="icon-box mb-3 mx-auto bg-brand-light rounded-circle d-flex align-items-center justify-content-center"
                         style="width: 80px; height: 80px;">
                         <i class="bi bi-house-heart fs-2 text-brand-dark"></i>
                     </div>
                     <h5 class="fw-bold text-brand-dark">溫馨空間</h5>
-                    <p class="text-muted small">打造如家一般的舒適環境，<br>讓您徹底放鬆身心靈。</p>
+                    <p class="text-muted small mb-0">打造如家一般的舒適環境，<br>讓您徹底放鬆身心靈。</p>
                 </div>
             </div>
         </div>
     </section>
 
     <section class="py-5 text-center animate-on-scroll">
-        <div class="p-5 rounded-4 bg-brand-light position-relative overflow-hidden">
+        <div class="p-4 p-md-5 rounded-4 bg-brand-light position-relative overflow-hidden">
             <div class="position-absolute top-0 start-0 translate-middle rounded-circle bg-white opacity-25"
                 style="width: 200px; height: 200px;"></div>
             <div class="position-absolute bottom-0 end-0 translate-middle-inverse rounded-circle bg-white opacity-25"
@@ -157,7 +157,7 @@
 
 {% block scripts %}
 <style>
-    /* --- 自定義顏色變數 (參考 Base.html 風格) --- */
+    /* --- 自定義顏色變數 --- */
     :root {
         --brand-pink: #F7D9E3;
         --brand-pink-dark: #E3B9CD;
@@ -165,7 +165,7 @@
         --brand-text: #2F1B24;
     }
 
-    /* --- 文字樣式 --- */
+    /* --- 通用樣式 --- */
     .text-brand-dark {
         color: var(--brand-dark) !important;
     }
@@ -178,7 +178,6 @@
         background-color: #fff0f5;
     }
 
-    /* 極淡粉色背景 */
     .bg-brand-pink {
         background-color: var(--brand-pink);
     }
@@ -195,18 +194,22 @@
         letter-spacing: 0.1em;
     }
 
-    /* --- Hero Section --- */
+    /* --- Hero Section 響應式 --- */
     .about-hero {
-        /* 這裡使用線性漸層模擬圖片，建議更換為實際的 SPA 環境大圖 */
         background: linear-gradient(45deg, #4B2E39, #8E5E72);
         background-image: url("{{ url_for('static', filename='img/gallery_1.jpg') }}");
-        /* 預設背景圖 */
         background-size: cover;
         background-position: center;
         height: 400px;
+        /* 桌機高度 */
         margin-top: -1px;
-        /* 接合 Navbar */
     }
+
+    .about-hero .hero-title {
+        font-size: 3rem;
+    }
+
+    /* 桌機標題大小 */
 
     .about-hero .overlay {
         position: absolute;
@@ -215,10 +218,42 @@
         right: 0;
         bottom: 0;
         background: rgba(47, 27, 36, 0.6);
-        /* 深色遮罩增加文字對比 */
     }
 
-    /* --- 裝飾線條 --- */
+    /* --- 圖片響應式高度 --- */
+    .responsive-img {
+        height: 400px;
+    }
+
+    /* --- 手機版 (Mobile) 調整 --- */
+    @media (max-width: 768px) {
+        .about-hero {
+            height: 280px;
+        }
+
+        /* 手機版 Hero 變矮 */
+        .about-hero .hero-title {
+            font-size: 2rem;
+        }
+
+        /* 手機版標題變小 */
+        .hero-subtitle {
+            font-size: 1rem;
+        }
+
+        .responsive-img {
+            height: 250px;
+        }
+
+        /* 手機版圖片變矮，避免太長 */
+
+        /* 調整引言文字大小 */
+        .quote-box p {
+            font-size: 1.1rem !important;
+        }
+    }
+
+    /* --- 其他樣式 --- */
     .divider {
         height: 3px;
         width: 60px;
@@ -226,7 +261,6 @@
         border-radius: 2px;
     }
 
-    /* --- 引用區塊 --- */
     .quote-box {
         background-color: #fff;
         border: 1px solid rgba(0, 0, 0, 0.05);
@@ -238,7 +272,6 @@
         box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1) !important;
     }
 
-    /* --- 卡片效果 --- */
     .hover-lift {
         transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
@@ -253,7 +286,6 @@
         background-color: var(--brand-dark);
     }
 
-    /* --- 進入動畫 (Fade In Up) --- */
     .animate-on-scroll {
         opacity: 0;
         transform: translateY(30px);
@@ -267,25 +299,17 @@
 </style>
 
 <script>
-    // 簡單的 Intersection Observer 實作捲動淡入效果
     document.addEventListener("DOMContentLoaded", function () {
-        const observerOptions = {
-            root: null,
-            rootMargin: '0px',
-            threshold: 0.1
-        };
-
+        const observerOptions = { root: null, rootMargin: '0px', threshold: 0.1 };
         const observer = new IntersectionObserver((entries, observer) => {
             entries.forEach(entry => {
                 if (entry.isIntersecting) {
                     entry.target.classList.add('is-visible');
-                    observer.unobserve(entry.target); // 動畫只執行一次
+                    observer.unobserve(entry.target);
                 }
             });
         }, observerOptions);
-
-        const elements = document.querySelectorAll('.animate-on-scroll');
-        elements.forEach(el => observer.observe(el));
+        document.querySelectorAll('.animate-on-scroll').forEach(el => observer.observe(el));
     });
 </script>
 {% endblock %}
