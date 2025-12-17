@@ -12,28 +12,7 @@
         min-height: 500px;
     }
 
-    /* --- ⭐ 1. 解決上方日期換行問題 --- */
-    .fc-col-header-cell-cushion {
-        white-space: nowrap !important;
-        /* 強制不換行 */
-        font-size: 0.85rem !important;
-        /* 字體縮小一點以塞入格子 */
-        font-weight: bold;
-        padding-left: 2px !important;
-        padding-right: 2px !important;
-    }
 
-    /* --- ⭐ 2. 週檢視事件卡片優化 --- */
-    .fc-timegrid-event {
-        border: none !important;
-        border-radius: 4px !important;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-
-        /* 讓文字垂直水平置中 */
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-    }
 
     /* 強制修改 FullCalendar 事件樣式，讓它看起來像可點擊的按鈕 */
     .fc-event {
@@ -161,23 +140,26 @@
                 right: 'dayGridMonth,timeGridWeek,listWeek'
             },
 
-            // --- ⭐ 週檢視專屬設定 (達成細長橫條效果) ---
+            // --- 版面設定 ---
             allDaySlot: false,        // 移除上方全天欄位
-            slotEventOverlap: false,  // 禁止重疊 (避免階梯狀)
+            slotEventOverlap: false,  // 禁止重疊，確保事件乖乖排好
 
-            // 關鍵：強制所有事件視覺上只顯示 30 分鐘高度
-            // 這樣即便課程很長，格子也不會被填滿，會變成細長的橫條
+            // ⭐ 關鍵設定：強制顯示為 1 小時長度
+            // 這會讓所有事件在日曆上看起來都只有 1 小時，不會跨到下一格
             forceEventDuration: true,
-            defaultTimedEventDuration: '00:30',
-            // ----------------------------------------
+            defaultTimedEventDuration: '01:00',
 
-            // 加入視窗縮放監聽
-            windowResize: function (view) {
-                if (window.innerWidth < 768) {
-                    calendar.changeView('listWeek');
-                } else {
-                    calendar.changeView('dayGridMonth');
+            // ⭐ 資料轉換：攔截所有事件，強制修改結束時間
+            // 這樣無論資料庫的課程多長，日曆上永遠只顯示 1 小時
+            eventDataTransform: function (eventData) {
+                // 如果有開始時間，就強制設定結束時間為開始後 1 小時
+                // 這樣在 Month/List 檢視也會顯示正確的 1 小時區間，且不會影響實際預約邏輯
+                if (eventData.start) {
+                    let start = new Date(eventData.start);
+                    let end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
+                    eventData.end = end.toISOString();
                 }
+                return eventData;
             },
             height: 'auto', // 高度自動適應
             contentHeight: 'auto',
@@ -189,25 +171,17 @@
                 endTime: '21:00',
             },
 
+            // 加入視窗縮放監聽
+            windowResize: function (view) {
+                if (window.innerWidth < 768) {
+                    calendar.changeView('listWeek');
+                } else {
+                    calendar.changeView('dayGridMonth');
+                }
+            },
+
             // 資料來源
             events: '/api/course/{{ course.id }}/schedule',
-
-            // ⭐ 針對不同視圖自定義內容
-            eventContent: function (arg) {
-                // 如果是「週檢視」或「日檢視」，我們自定義顯示內容
-                if (arg.view.type === 'timeGridWeek' || arg.view.type === 'timeGridDay') {
-                    let isFull = arg.event.extendedProps.isFull;
-                    // 簡化文字：只顯示 "可預約" 或 "已額滿" (去掉數字)
-                    let text = isFull ? '已額滿' : '可預約';
-                    let icon = isFull ? '<i class="bi bi-x"></i>' : '<i class="bi bi-check"></i>';
-
-                    return {
-                        html: `<div class="fw-bold small text-center" style="line-height: 1;">${text}</div>`
-                    };
-                }
-                // 如果是「月檢視」或「清單」，回傳 null 使用預設樣式 (圓點/列表)
-                return null;
-            },
 
             // ⭐ 點擊事件 (修復無法點擊的問題)
             eventClick: function (info) {
