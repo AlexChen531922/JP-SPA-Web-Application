@@ -260,83 +260,90 @@ def get_course_schedule(course_id):
     API for FullCalendar
     Modified: 讀取全店共用時段 (shop_schedules)，限制預約時間
     """
-    start_str = request.args.get('start')
-    end_str = request.args.get('end')
+    import traceback  # 用來印出錯誤堆疊
 
     try:
-        # 設定「最早可預約時間」為後天 00:00
+        start_str = request.args.get('start')
+        end_str = request.args.get('end')
+
+        # 1. 設定時間基準 (台灣時間)
+        # 務必確保 timedelta 已在檔案開頭 import
         now = datetime.now() + timedelta(hours=8)
+
+        # 設定「最早可預約時間」為後天 00:00
         start_limit = (now + timedelta(days=2)).replace(hour=0,
                                                         minute=0, second=0, microsecond=0)
 
-        # 轉換日期 (處理可能帶有的時區 Z)
+        # 2. 解析前端傳來的日期 (增加防呆)
         if start_str:
+            # 移除 Z 以相容 Python 的 fromisoformat
             start_date = datetime.fromisoformat(start_str.replace('Z', ''))
         else:
-            # 預設查詢本月第一天
             start_date = datetime(now.year, now.month, 1)
 
         if end_str:
             end_date = datetime.fromisoformat(end_str.replace('Z', ''))
         else:
-            # 預設查詢下個月第一天 (即本月最後一天)
-            if now.month == 12:
-                end_date = datetime(now.year + 1, 1, 1)
-            else:
-                end_date = datetime(now.year, now.month + 1, 1)
+            # 預設抓 60 天，避免跨年邏輯錯誤
+            end_date = start_date + timedelta(days=60)
 
-        # 確保查詢範圍不早於 start_limit
-        if start_date < start_limit:
-            start_date = start_limit
+        # 3. 執行資料庫查詢
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute("SET time_zone = '+08:00'")
 
-    except ValueError:
-        return jsonify([])  # 日期格式錯誤回傳空陣列
+        # 查詢語句 (確保欄位名稱與 shop_schedules 表格一致)
+        cursor.execute("""
+            SELECT id, start_time, end_time, max_capacity, current_bookings
+            FROM shop_schedules
+            WHERE start_time BETWEEN %s AND %s
+              AND is_active = TRUE
+        """, (start_date, end_date))
 
-    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute("SET time_zone = '+08:00'")  # 強制設定時區
+        db_schedules = cursor.fetchall()
+        cursor.close()
 
-# ⭐ 關鍵查詢：讀取 shop_schedules
-    # 條件 1: 在日曆當前顯示的範圍內 (BETWEEN start_date AND end_date)
-    # 條件 2: 必須晚於「最早可預約時間」(start_time >= start_limit)
-    # 條件 3: 只顯示 19:00 以前的時段 (HOUR <= 19)
-    cursor.execute("""
-        SELECT id, start_time, end_time, max_capacity, current_bookings
-        FROM shop_schedules
-        WHERE start_time BETWEEN %s AND %s
-          AND start_time >= %s
-          AND HOUR(start_time) <= 19
-          AND is_active = TRUE
-    """, (start_date, end_date, start_limit))
+        events = []
 
-    db_schedules = cursor.fetchall()
-    cursor.close()
+        # 4. 轉換資料格式
+        for s in db_schedules:
+            # 過濾掉「早於後天」的時段 (在 Python 層過濾比較安全)
+            # 注意：這裡要處理 timezone aware vs naive 的問題，簡單起見直接比較 timestamp 或字串
+            if s['start_time'] < start_limit:
+                continue
 
-    events = []
+            # 過濾掉「晚上7點以後」的時段 (HOUR > 19)
+            if s['start_time'].hour > 19:
+                continue
 
-    for s in db_schedules:
-        is_full = s['current_bookings'] >= s['max_capacity']
-        remaining = s['max_capacity'] - s['current_bookings']
+            is_full = s['current_bookings'] >= s['max_capacity']
+            remaining = s['max_capacity'] - s['current_bookings']
 
-        # 排除已關閉的時段 (人數為0)
-        if s['max_capacity'] <= 0:
-            continue
+            # 若人數設為 0，視為休息
+            if s['max_capacity'] <= 0:
+                continue
 
-        events.append({
-            'id': str(s['id']),  # ID 轉字串
-            'title': f"{'額滿' if is_full else '可預約'} ({remaining})",
-            'start': s['start_time'].isoformat(),
-            'end': s['end_time'].isoformat(),
-            'backgroundColor': '#dc3545' if is_full else '#28a745',
-            'borderColor': '#dc3545' if is_full else '#28a745',
-            'textColor': '#fff',
-            'extendedProps': {
-                'isFull': is_full,
-                'scheduleId': s['id'],  # 這裡是 shop_schedules 的 ID
-                'dateStr': s['start_time'].strftime('%Y-%m-%d %H:%M')
-            }
-        })
+            events.append({
+                'id': str(s['id']),
+                'title': f"{'額滿' if is_full else '可預約'} ({remaining})",
+                'start': s['start_time'].isoformat(),
+                'end': s['end_time'].isoformat(),
+                'backgroundColor': '#dc3545' if is_full else '#28a745',
+                'borderColor': '#dc3545' if is_full else '#28a745',
+                'textColor': '#fff',
+                'extendedProps': {
+                    'isFull': is_full,
+                    'scheduleId': s['id'],
+                    'dateStr': s['start_time'].strftime('%Y-%m-%d %H:%M')
+                }
+            })
 
-    return jsonify(events)
+        return jsonify(events)
+
+    except Exception as e:
+        # ⭐ 關鍵：將錯誤印在伺服器 Log，並回傳空陣列避免前端崩潰
+        print(f"API Error in get_course_schedule: {e}")
+        traceback.print_exc()
+        return jsonify([]), 500
 
 
 # =====================================================
