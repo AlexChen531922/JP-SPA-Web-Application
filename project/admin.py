@@ -2,7 +2,7 @@
 Complete Admin Management System with Advanced Reporting
 Fixed all CRUD operations and inventory integration
 """
-from werkzeug.security import generate_password_hash  # 記得確認有沒有 import
+from werkzeug.security import generate_password_hash
 from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, current_app
 from functools import wraps
 from werkzeug.utils import secure_filename
@@ -12,7 +12,7 @@ from project.extensions import database
 from project.db import get_current_user_id, get_current_user_role
 import MySQLdb.cursors
 from decimal import Decimal
-from project.services import admin_update_order_with_inventory
+# from project.services import admin_update_order_with_inventory
 from project.db import get_current_user_id
 from project.audit import log_activity
 from project.decorators import admin_required, staff_required
@@ -44,17 +44,6 @@ def save_upload(file, upload_folder):
     return None
 
 
-def staff_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        role = get_current_user_role()
-        if role not in ['staff', 'admin']:
-            flash('您沒有權限訪問此頁面', 'error')
-            return redirect(url_for('main.home'))
-        return f(*args, **kwargs)
-    return decorated_function
-
-
 @admin_bp.route('/dashboard')
 @staff_required
 def dashboard():
@@ -82,13 +71,11 @@ def dashboard():
         "SELECT COUNT(*) as count FROM users WHERE role = 'customer'")
     customer_count = cursor.fetchone()['count']
 
-    # ⭐ 新增：文章總數
     cursor.execute(
         "SELECT COUNT(*) as count FROM blog_posts WHERE status = 'published'")
     post_count = cursor.fetchone()['count']
 
     # 2. 營收計算 (Revenue)
-    # 總營收
     cursor.execute("""
         SELECT 
             (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status != 'cancelled') +
@@ -121,7 +108,6 @@ def dashboard():
     course_cost = float(
         res['course_cost']) if res and res['course_cost'] else 0.0
 
-    # 計算淨利
     total_cost = order_cost + course_cost
     net_profit = total_revenue - total_cost
 
@@ -184,28 +170,19 @@ def dashboard():
     """)
     events = cursor.fetchall()
 
-    # Inventory (更新版：加入圖片、描述與類別名稱)
+    # Inventory
     cursor.execute("""
         SELECT 
-            p.id, 
-            p.name, 
-            p.stock_quantity, 
-            p.cost, 
-            p.price, 
-            p.last_purchase_date, 
-            p.last_sale_date, 
-            p.unit,
-            p.image,           -- 新增：圖片檔名
-            p.description,     -- 新增：產品描述
-            c.name as category_name  -- 新增：透過 JOIN 抓取類別名稱
+            p.id, p.name, p.stock_quantity, p.cost, p.price, 
+            p.last_purchase_date, p.last_sale_date, p.unit,
+            p.image, p.description, c.name as category_name
         FROM products p
         LEFT JOIN product_categories c ON p.category_id = c.id
         ORDER BY p.name
     """)
     inventory_products = cursor.fetchall()
 
-    # Customers dropdown
-    # ⭐ 修正：補上 username 欄位，解決前端模板報錯問題
+    # Customers dropdown - FIXED: Added username
     cursor.execute(
         "SELECT id, firstname, surname, username FROM users WHERE role = 'customer' ORDER BY firstname")
     customers = cursor.fetchall()
@@ -226,6 +203,14 @@ def dashboard():
         JOIN products p ON oi.product_id = p.id
     """)
     all_items = cursor.fetchall()
+
+    # ⭐ [關鍵修正]：將 Decimal 轉為 float，避免前端 tojson 報錯 500
+    for item in all_items:
+        if isinstance(item.get('unit_price'), Decimal):
+            item['unit_price'] = float(item['unit_price'])
+        if isinstance(item.get('subtotal'), Decimal):
+            item['subtotal'] = float(item['subtotal'])
+
     order_items_map = {}
     for item in all_items:
         oid = item['order_id']
@@ -233,17 +218,27 @@ def dashboard():
             order_items_map[oid] = []
         order_items_map[oid].append(item)
 
+    # ⭐ [關鍵修正]：將 Orders 的 Decimal 轉為 float
+    for order in orders:
+        if isinstance(order.get('total_amount'), Decimal):
+            order['total_amount'] = float(order['total_amount'])
+
     # Bookings full list
     cursor.execute("""
         SELECT b.*, u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
-               c.name as course_name, c.duration, cs.start_time, cs.end_time
+               c.name as course_name, c.duration, s.start_time, s.end_time
         FROM bookings b
         LEFT JOIN users u ON b.customer_id = u.id
         LEFT JOIN courses c ON b.course_id = c.id
-        LEFT JOIN course_schedules cs ON b.schedule_id = cs.id
+        LEFT JOIN shop_schedules s ON b.global_schedule_id = s.id
         ORDER BY b.created_at DESC
     """)
     bookings = cursor.fetchall()
+
+    # ⭐ [關鍵修正]：將 Bookings 的 Decimal 轉為 float
+    for booking in bookings:
+        if isinstance(booking.get('total_amount'), Decimal):
+            booking['total_amount'] = float(booking['total_amount'])
 
     # Customer list
     cursor.execute("""
@@ -273,7 +268,7 @@ def dashboard():
     """)
     posts = cursor.fetchall()
 
-    # Audit Logs (Admin Only)
+    # Audit Logs
     audit_logs = []
     if get_current_user_role() == 'admin':
         cursor.execute("""
@@ -293,7 +288,6 @@ def dashboard():
 
     now_str = datetime.now().strftime('%Y-%m-%dT%H:%M')
 
-    # ⭐ 更新：傳遞更多數據給前端
     stats = {
         'products': product_count,
         'courses': course_count,
@@ -328,9 +322,7 @@ def dashboard():
         now_str=now_str
     )
 
-# =====================================================
-# PRODUCT MANAGEMENT - WITH AUDIT LOG
-# =====================================================
+# ... (Rest of admin.py content for products, courses, etc. - ensure you keep them)
 
 
 @admin_bp.route('/product/add', methods=['POST'])
@@ -580,47 +572,14 @@ def add_course_modal():
         """, (name, category_id, regular_price, experience_price, service_fee, product_fee, duration, sessions, description, image_url))
 
         course_id = cursor.lastrowid
-        if duration and duration > 0:
-            schedules_data = []
-            today = datetime.now().date()
-
-            # 設定每天的開場時間 (整點)
-            open_hours = list(range(9, 21))
-
-            # 迴圈產生 365 天
-            for i in range(365):
-                current_date = today + timedelta(days=i)
-
-                # (進階：如果想跳過週日，可以加這行)
-                # if current_date.weekday() == 6: continue
-
-                for hour in open_hours:
-                    # 1. 組合開始時間 (日期 + 小時)
-                    # datetime.min.time() 是 00:00:00，replace(hour=hour) 變 09:00:00
-                    start_dt = datetime.combine(
-                        current_date, datetime.min.time().replace(hour=hour))
-
-                    # 2. 計算結束時間 (開始 + 課程時長)
-                    end_dt = start_dt + timedelta(minutes=duration)
-
-                    # 3. 加入列表 (course_id, start, end, capacity=1, booked=0, active=True)
-                    schedules_data.append(
-                        (course_id, start_dt, end_dt, 1, 0, True))
-
-            # 4. 批量寫入資料庫 (使用 executemany 效能極佳)
-            if schedules_data:
-                cursor.executemany("""
-                    INSERT INTO course_schedules 
-                    (course_id, start_time, end_time, max_capacity, current_bookings, is_active)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, schedules_data)
+        # Removed auto-scheduling for individual courses as per new requirement
         database.connection.commit()
         cursor.close()
 
         # ⭐ LOG ACTIVITY
         log_activity('create', 'course', course_id, {
                      'name': name, 'price': regular_price})
-        flash('課程已新增，並已自動生成未來一年的時段', 'success')
+        flash('課程已新增', 'success')
 
     except Exception as e:
         database.connection.rollback()
@@ -1224,12 +1183,12 @@ def update_booking_status(booking_id):
 
         # 1. ⭐ 獲取預約詳細資訊 (包含課程名稱、時間、客戶資料)
         cursor.execute("""
-            SELECT b.status, c.name as course_name, cs.start_time, 
+            SELECT b.status, c.name as course_name, s.start_time, 
                    u.email, u.firstname, u.line_id
             FROM bookings b
             JOIN users u ON b.customer_id = u.id
             JOIN courses c ON b.course_id = c.id
-            LEFT JOIN course_schedules cs ON b.schedule_id = cs.id
+            LEFT JOIN shop_schedules s ON b.global_schedule_id = s.id
             WHERE b.id = %s
         """, (booking_id,))
         booking_info = cursor.fetchone()
@@ -1276,65 +1235,37 @@ def update_booking_status(booking_id):
 @admin_bp.route('/course/<int:course_id>/update-capacity', methods=['POST'])
 @staff_required
 def update_course_capacity(course_id):
-    """批次更新該課程未來時段的可預約人數"""
-    try:
-        new_capacity = request.form.get('max_capacity', type=int)
-
-        if not new_capacity or new_capacity < 1:
-            flash('請輸入有效的人數', 'error')
-            return redirect(url_for('admin.dashboard', tab='courses'))
-
-        cursor = database.connection.cursor()
-
-        # 只更新「未來」且「還沒額滿」的時段
-        # 這樣不會影響到已經被預約滿的歷史紀錄
-        cursor.execute("""
-            UPDATE course_schedules
-            SET max_capacity = %s
-            WHERE course_id = %s 
-              AND start_time > NOW()
-        """, (new_capacity, course_id))
-
-        affected_rows = cursor.rowcount
-        database.connection.commit()
-        cursor.close()
-
-        log_activity('update', 'course_schedule', course_id, {
-                     'action': 'bulk_capacity_update', 'new_capacity': new_capacity})
-
-        flash(f'已更新未來 {affected_rows} 個時段的人數上限為 {new_capacity} 人', 'success')
-
-    except Exception as e:
-        database.connection.rollback()
-        flash(f'更新失敗: {str(e)}', 'error')
-
+    """(已棄用) 批次更新該課程未來時段的可預約人數"""
+    # 由於改用全店時段，此功能可能不再適用，或需修改邏輯
     return redirect(url_for('admin.dashboard', tab='courses'))
 
 # --------------------------------------------------------
 # SCHEDULE MANAGEMENT API (PER SLOT)
 # --------------------------------------------------------
 
+# --------------------------------------------------------
+# GLOBAL SCHEDULE MANAGEMENT (全店共用時段)
+# --------------------------------------------------------
 
-@admin_bp.route('/api/course/<int:course_id>/schedules')
+
+@admin_bp.route('/api/shop/schedules')
 @staff_required
-def get_course_schedules_api(course_id):
-    """取得該課程未來的時段列表 (供前端 Modal 使用)"""
+def get_shop_schedules_api():
+    """取得全店共用時段列表"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("SET time_zone = '+08:00'")
 
-    # 只撈取未來 30 天內的時段，避免資料過多
+    # 撈取未來 60 天
     cursor.execute("""
         SELECT id, start_time, end_time, max_capacity, current_bookings
-        FROM course_schedules
-        WHERE course_id = %s 
-          AND start_time > NOW()
-          AND start_time < DATE_ADD(NOW(), INTERVAL 30 DAY)
+        FROM shop_schedules
+        WHERE start_time >= CURDATE()
+          AND start_time < DATE_ADD(CURDATE(), INTERVAL 60 DAY)
         ORDER BY start_time ASC
-    """, (course_id,))
-
+    """)
     schedules = cursor.fetchall()
     cursor.close()
 
-    # 轉換時間格式為字串
     data = []
     for s in schedules:
         data.append({
@@ -1344,42 +1275,93 @@ def get_course_schedules_api(course_id):
             'max_capacity': s['max_capacity'],
             'current_bookings': s['current_bookings']
         })
-
     return jsonify(data)
+
+
+@admin_bp.route('/shop/schedule/bulk-update', methods=['POST'])
+@staff_required
+def bulk_update_schedule():
+    """批次更新/建立 全店時段 (日期範圍 + 時間範圍)"""
+    try:
+        start_date_str = request.form.get('start_date')
+        end_date_str = request.form.get('end_date')
+        start_hour = int(request.form.get('start_hour'))  # e.g., 9
+        end_hour = int(request.form.get('end_hour'))     # e.g., 21
+        capacity = int(request.form.get('capacity'))
+
+        # 解析日期
+        s_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        e_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+
+        cursor = database.connection.cursor()
+        cursor.execute("SET time_zone = '+08:00'")
+
+        # 迴圈每一天
+        delta = timedelta(days=1)
+        curr = s_date
+        updated_count = 0
+
+        while curr <= e_date:
+            # 迴圈每一小時 (從 start_hour 到 end_hour-1)
+            for h in range(start_hour, end_hour):
+                # 建立每個小時的 start_time 和 end_time
+                slot_start = datetime.combine(
+                    curr, datetime.min.time().replace(hour=h))
+                slot_end = slot_start + timedelta(hours=1)  # 預設每個時段1小時
+
+                # 使用 INSERT ... ON DUPLICATE KEY UPDATE
+                # 如果該時段已存在，就更新容量；不存在則新增
+                cursor.execute("""
+                    INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
+                    VALUES (%s, %s, %s, 0, 1)
+                    ON DUPLICATE KEY UPDATE max_capacity = %s
+                """, (slot_start, slot_end, capacity, capacity))
+
+                updated_count += 1
+
+            curr += delta
+
+        database.connection.commit()
+        cursor.close()
+
+        flash(f'已批次更新 {updated_count} 個時段設定！', 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'更新失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='bookings'))
 
 
 @admin_bp.route('/schedule/<int:schedule_id>/update-capacity', methods=['POST'])
 @staff_required
 def update_single_schedule_capacity(schedule_id):
-    """更新單一時段的人數上限"""
+    """更新單一時段的人數上限 (For Shop Schedules)"""
     try:
         data = request.get_json()
         new_capacity = int(data.get('max_capacity'))
 
-        if new_capacity < 1:
-            return jsonify({'success': False, 'message': '人數必須大於 0'}), 400
+        if new_capacity < 0:
+            return jsonify({'success': False, 'message': '人數不能為負數'}), 400
 
         cursor = database.connection.cursor()
 
         # 檢查是否小於目前已預約人數 (防止超賣)
         cursor.execute(
-            "SELECT current_bookings FROM course_schedules WHERE id = %s", (schedule_id,))
+            "SELECT current_bookings FROM shop_schedules WHERE id = %s", (schedule_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'success': False, 'message': '時段不存在'}), 404
 
         # 更新
         cursor.execute("""
-            UPDATE course_schedules 
+            UPDATE shop_schedules 
             SET max_capacity = %s 
             WHERE id = %s
         """, (new_capacity, schedule_id))
 
         database.connection.commit()
         cursor.close()
-
-        # 記錄 Log (可選，避免洗版可註解掉)
-        # log_activity('update', 'schedule', schedule_id, {'capacity': new_capacity})
 
         return jsonify({'success': True})
 
@@ -1742,7 +1724,7 @@ def add_order_manual():
         product = cursor.fetchone()
 
         # 2. 計算金額
-        unit_price = product['price']
+        unit_price = float(product['price'])  # Ensure float
         subtotal = unit_price * quantity
         total_amount = subtotal  # 目前簡易版，單一商品
 
@@ -1753,8 +1735,6 @@ def add_order_manual():
             created_at = datetime.now()
 
         # 4. 寫入訂單 (狀態直接為 confirmed)
-        # 補登或管理員代訂，視為已確認 (confirmed) 甚至已完成 (completed)
-        # 這裡預設 confirmed，讓庫存扣除邏輯一致
         status = 'confirmed'
 
         cursor.execute("""
@@ -1769,7 +1749,7 @@ def add_order_manual():
             VALUES (%s, %s, %s, %s, %s)
         """, (order_id, product_id, quantity, unit_price, subtotal))
 
-        # 6. 扣除庫存 (即便是補登，理論上也要扣庫存，保持數據一致)
+        # 6. 扣除庫存
         cursor.execute("""
             UPDATE products SET stock_quantity = stock_quantity - %s WHERE id = %s
         """, (quantity, product_id))
@@ -1780,7 +1760,7 @@ def add_order_manual():
             VALUES (%s, %s, 'sale', %s, 'Admin Manual Order', %s)
         """, (product_id, -quantity, order_id, get_current_user_id()))
 
-        # 8. 取得客戶資料 (為了通知)
+        # 8. 取得客戶資料
         cursor.execute(
             "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
         user = cursor.fetchone()
@@ -1788,7 +1768,7 @@ def add_order_manual():
         database.connection.commit()
         cursor.close()
 
-        # 9. 發送通知 (根據開關)
+        # 9. 發送通知
         if send_notification and user:
             try:
                 customer_data = {
@@ -1796,7 +1776,6 @@ def add_order_manual():
                     'firstname': user['firstname'],
                     'line_id': user['line_id']
                 }
-                # 直接發送確認信
                 notify_order_confirmed(order_id, customer_data, total_amount)
                 flash('訂單已建立並發送通知', 'success')
             except Exception as e:
@@ -1805,7 +1784,6 @@ def add_order_manual():
         else:
             flash('訂單已補登 (未發送通知)', 'success')
 
-        # Log Activity
         log_activity('create', 'order', order_id, {
                      'type': 'manual_admin', 'backdate': created_at_str})
 
@@ -1840,41 +1818,41 @@ def add_booking_manual():
         course = cursor.fetchone()
 
         # 2. 計算價格
-        price = course['experience_price'] if is_first_time and course['experience_price'] else course['regular_price']
+        price = float(course['experience_price']) if is_first_time and course['experience_price'] else float(
+            course['regular_price'])
         total_amount = price * sessions
 
         # 3. 處理時間
         appt_time = datetime.strptime(appt_time_str, '%Y-%m-%dT%H:%M')
 
         # 4. 寫入預約 (手動建立通常不綁定 Schedule ID，設為 NULL)
-        # 狀態直接 confirmed
         cursor.execute("""
             INSERT INTO bookings 
             (customer_id, course_id, schedule_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at)
             VALUES (%s, %s, NULL, %s, %s, %s, %s, 'confirmed', %s)
-        """, (customer_id, course_id, total_amount, is_first_time, sessions, sessions, appt_time))  # 這裡用 appt_time 當作 created_at 或是預約時間?
-        # 通常 created_at 是下單時間。如果是補登，我們假設下單時間就是預約發生的時間。
+        """, (customer_id, course_id, total_amount, is_first_time, sessions, sessions, appt_time))
 
         booking_id = cursor.lastrowid
 
-        # 為了讓列表顯示時間，我們需要一個機制。
-        # 您的 bookings 表是關聯 course_schedules 顯示時間的。
-        # 如果手動預約沒有 schedule_id，列表可能會顯示「無」。
-        # *解決方案*：我們可以創建一個 "虛擬" 或 "單次" 的 schedule，或者修改 SQL 查詢讓它能讀取 bookings 自己的時間欄位。
-        # 鑑於不改動資料庫結構，我們這裡做一個變通：
-        # 如果系統強烈依賴 schedule_id，我們應該在這裡也插入一個 course_schedules 紀錄 (is_active=0, capacity=1, booked=1)
+        # 4.1 自動建立一個專屬時段 (全店共用模式下，應該寫入 shop_schedules)
+        # 不過為了相容性，這裡我們還是寫入 shop_schedules，並設為已佔用
+        end_time = appt_time + timedelta(minutes=60)
 
-        # 4.1 自動建立一個專屬時段 (為了讓時間顯示正常)
-        end_time = appt_time + timedelta(minutes=60)  # 預設1小時，或查課程長度
+        # 嘗試寫入全店時段，如果該時段已存在，則更新人數
         cursor.execute("""
-            INSERT INTO course_schedules (course_id, start_time, end_time, max_capacity, current_bookings, is_active)
-            VALUES (%s, %s, %s, 1, 1, 0)
-        """, (course_id, appt_time, end_time))
-        fake_schedule_id = cursor.lastrowid
+            INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
+            VALUES (%s, %s, 1, 1, 1)
+            ON DUPLICATE KEY UPDATE current_bookings = current_bookings + 1
+        """, (appt_time, end_time))
 
-        # 更新 booking 的 schedule_id
-        cursor.execute("UPDATE bookings SET schedule_id = %s WHERE id = %s",
-                       (fake_schedule_id, booking_id))
+        # 取得剛插入或更新的 schedule id
+        cursor.execute(
+            "SELECT id FROM shop_schedules WHERE start_time = %s", (appt_time,))
+        schedule_id = cursor.fetchone()['id']
+
+        # 更新 booking 的 global_schedule_id
+        cursor.execute("UPDATE bookings SET global_schedule_id = %s WHERE id = %s",
+                       (schedule_id, booking_id))
 
         # 5. 取得客戶資料
         cursor.execute(
@@ -1893,7 +1871,6 @@ def add_booking_manual():
                     'line_id': user['line_id']
                 }
                 time_str = appt_time.strftime('%Y-%m-%d %H:%M')
-                # 直接發送確認信
                 notify_booking_confirmed(
                     booking_id, customer_data, course['name'], time_str)
                 flash('預約已建立並發送通知', 'success')
