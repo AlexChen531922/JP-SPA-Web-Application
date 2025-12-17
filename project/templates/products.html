@@ -187,62 +187,61 @@
 {% endif %}
 
 {% for product in products %}
-<div class="modal fade" id="productModal{{ product.id }}" tabindex="-1"
-  aria-labelledby="productModalLabel{{ product.id }}" aria-hidden="true">
+<div class="modal fade" id="productModal{{ product.id }}" tabindex="-1" aria-hidden="true" style="z-index: 1055;">
   <div class="modal-dialog modal-dialog-centered modal-lg">
-    <div class="modal-content overflow-hidden border-0">
-      <div class="modal-header border-0 pb-0">
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+    <div class="modal-content border-0 shadow" style="border-radius: 20px; overflow: hidden;">
+
+      <div class="modal-header border-0 pb-0 position-relative">
+        <button type="button" class="btn-close position-absolute top-0 end-0 m-3" data-bs-dismiss="modal"
+          aria-label="Close" style="z-index: 1060;"></button>
       </div>
-      <div class="modal-body pt-0">
+
+      <div class="modal-body p-4 pt-0">
         <div class="row g-4">
-          <div class="col-md-6">
-            <div class="ratio ratio-1x1 rounded-3 overflow-hidden shadow-sm">
+          <div class="col-md-5">
+            <div class="ratio ratio-1x1 rounded-4 overflow-hidden bg-light shadow-sm">
               {% if product.image %}
               <img src="{{ url_for('static', filename=product.image) }}" class="object-fit-cover"
                 alt="{{ product.name }}">
               {% else %}
-              <div class="bg-light d-flex align-items-center justify-content-center h-100">
-                <i class="bi bi-image display-1 text-muted opacity-25"></i>
-              </div>
+              <div class="d-flex align-items-center justify-content-center h-100"><i
+                  class="bi bi-image fs-1 text-muted"></i></div>
               {% endif %}
             </div>
           </div>
 
-          <div class="col-md-6 d-flex flex-column">
-            <div class="mb-auto">
-              <span class="badge bg-primary bg-opacity-10 text-primary mb-2">{{ product.category_name
+          <div class="col-md-7 d-flex flex-column">
+            <div>
+              <span class="badge bg-success bg-opacity-10 text-success mb-2 rounded-pill">{{ product.category_name
                 }}</span>
-              <h3 class="fw-bold mb-3">{{ product.name }}</h3>
-              <p class="text-secondary lh-lg mb-4" style="white-space: pre-line;">{{
-                product.description }}</p>
+              <h4 class="fw-bold mb-3 pe-4">{{ product.name }}</h4>
+              <p class="text-secondary small lh-lg" style="white-space: pre-line;">{{ product.description }}</p>
 
-              <div class="alert alert-light border-start border-4 border-primary">
-                <p class="mb-0 small text-muted">庫存狀態：
-                  {% if (product.stock_quantity | default(0)) > 0 %}
-                  <span class="text-success fw-bold">現貨供應</span>
-                  {% else %}
-                  <span class="text-danger fw-bold">補貨中</span>
-                  {% endif %}
-                </p>
+              <div class="d-flex align-items-center mt-3">
+                <span class="small text-muted me-2">庫存狀態：</span>
+                {% if (product.stock_quantity | default(0)) > 0 %}
+                <span class="text-success fw-bold small"><i class="bi bi-check-circle-fill"></i> 現貨供應 ({{
+                  product.stock_quantity }})</span>
+                {% else %}
+                <span class="text-danger fw-bold small"><i class="bi bi-x-circle-fill"></i> 目前缺貨</span>
+                {% endif %}
               </div>
             </div>
 
-            <div class="mt-4 pt-3 border-top">
-              <div class="d-flex align-items-center justify-content-between mb-3">
+            <div class="mt-auto pt-4 border-top mt-4">
+              <div class="d-flex justify-content-between align-items-center mb-3">
                 <span class="text-muted small">售價</span>
-                <span class="fs-4 fw-bold text-primary">請洽詢</span>
+                <span class="fs-4 fw-bold text-success">請洽詢</span>
               </div>
 
-              <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST"
-                class="d-grid gap-2">
+              <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-primary btn-lg" {% if (product.stock_quantity | default(0)) <=0
-                  %}disabled{% endif %}>
+                <button type="submit" class="btn btn-success w-100 rounded-pill py-2 fw-bold shadow-sm" {% if
+                  (product.stock_quantity | default(0)) <=0 %}disabled{% endif %}>
                   {% if (product.stock_quantity | default(0)) > 0 %}
-                  <i class="bi bi-cart-plus"></i> 加入購物車
+                  送出預訂
                   {% else %}
-                  <i class="bi bi-x-circle"></i> 暫時缺貨
+                  暫時缺貨
                   {% endif %}
                 </button>
               </form>
