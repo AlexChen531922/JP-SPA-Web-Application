@@ -9,54 +9,65 @@
         padding: 15px;
         border-radius: 10px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
-        min-height: 600px;
+        min-height: 500px;
     }
 
-    /* --- 針對「週檢視 (TimeGrid)」的樣式優化 --- */
-
-    /* 讓事件變成細長的橫條，文字不換行 */
+    /* --- ⭐ 針對「週檢視 (TimeGrid)」的樣式優化 --- */
     .fc-timegrid-event {
-        border-radius: 4px !important;
-        padding: 2px 4px !important;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        border: none !important;
-        /* 關鍵：強制文字水平排列，不換行 */
+        /* 強制變成橫向排列，解決文字直排問題 */
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
+
+        /* 讓文字不換行 */
         white-space: nowrap !important;
         overflow: hidden !important;
+
+        /* 美化 */
+        border: none !important;
+        border-radius: 4px !important;
+        padding: 1px 4px !important;
+        /* 縮小內距 */
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        font-size: 0.85rem !important;
+        /* 字體稍微縮小 */
     }
 
-    /* 調整時間文字與標題的間距 */
-    .fc-event-time {
-        font-size: 0.85em;
-        margin-right: 5px;
-        font-weight: normal;
+    /* 強制修改 FullCalendar 事件樣式，讓它看起來像可點擊的按鈕 */
+    .fc-event {
+        cursor: pointer !important;
+        border: none !important;
+        padding: 5px !important;
+        margin-bottom: 2px !important;
+        text-align: center;
+        border-radius: 4px !important;
+        transition: transform 0.1s, box-shadow 0.1s;
     }
 
-    .fc-event-title {
-        font-weight: bold;
-        font-size: 0.9em;
-    }
-
-    /* 讓週檢視的時間格子稍微高一點，視覺比較不擁擠 */
-    .fc-timegrid-slot {
-        height: 3.5em !important;
-    }
-
-    /* --- 滑鼠互動效果 --- */
     .fc-event:hover {
-        opacity: 0.9;
-        cursor: pointer;
-        transform: scale(1.01);
-        /* 微微放大就好，不要太誇張 */
-        transition: all 0.2s;
+        transform: scale(1.02);
+        box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    /* 可預約狀態 (綠色) */
+    .status-available {
+        background-color: #28a745 !important;
+        /* Green */
+        color: white !important;
+    }
+
+    /* 已額滿狀態 (紅色) */
+    .status-full {
+        background-color: #dc3545 !important;
+        /* Red */
+        color: white !important;
+        opacity: 0.7;
+        cursor: not-allowed !important;
     }
 
     /* 今天的背景色 */
     .fc-day-today {
-        background-color: rgba(255, 240, 245, 0.3) !important;
+        background-color: rgba(255, 240, 245, 0.5) !important;
     }
 </style>
 {% endblock %}
@@ -96,11 +107,7 @@
         </div>
 
         <div class="col-lg-8">
-            <div class="card border-0 shadow-sm h-100">
-                <div class="card-body p-0">
-                    <div id='calendar'></div>
-                </div>
-            </div>
+            <div id='calendar'></div>
         </div>
     </div>
 </div>
@@ -138,38 +145,43 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var initialView = window.innerWidth < 768 ? 'listWeek' : 'timeGridWeek';
-
+        var initialView = window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth'; // 手機預設清單模式
         var calendarEl = document.getElementById('calendar');
         if (!calendarEl) {
             console.error("找不到 id='calendar' 的 HTML 元素");
             return;
         }
-
         var calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: initialView,
+            initialView: initialView, // 使用動態判斷的視圖
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
                 right: 'dayGridMonth,timeGridWeek,listWeek'
             },
 
-            // --- 樣式設定 ---
-            allDaySlot: false,        // 移除全天欄位
-            slotEventOverlap: false,  // 禁止重疊
+            // --- ⭐ 週檢視專屬設定 (達成細長橫條效果) ---
+            allDaySlot: false,        // 移除上方全天欄位
+            slotEventOverlap: false,  // 禁止重疊 (避免階梯狀)
 
-            // ⭐ 關鍵設定：強制視覺上只顯示 30 分鐘的高度
-            // 這樣即便課程是 90 分鐘，在日曆上也只會顯示一個細細的橫條，不會填滿格子
+            // 關鍵：強制所有事件視覺上只顯示 30 分鐘高度
+            // 這樣即便課程很長，格子也不會被填滿，會變成細長的橫條
             forceEventDuration: true,
             defaultTimedEventDuration: '00:30',
+            // ----------------------------------------
 
-            displayEventTime: false,  // 隱藏預設的時間 (例如 9:00a)，讓畫面更乾淨
-
-            height: 'auto',
+            // 加入視窗縮放監聽
+            windowResize: function (view) {
+                if (window.innerWidth < 768) {
+                    calendar.changeView('listWeek');
+                } else {
+                    calendar.changeView('dayGridMonth');
+                }
+            },
+            height: 'auto', // 高度自動適應
             contentHeight: 'auto',
             locale: 'zh-tw',
-            navLinks: true,
-            businessHours: {
+            navLinks: true, // 可以點擊日期進入當天
+            businessHours: { // 強調營業時間
                 daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
                 startTime: '09:00',
                 endTime: '21:00',
@@ -178,15 +190,15 @@
             // 資料來源
             events: '/api/course/{{ course.id }}/schedule',
 
-            // ⭐ 這裡移除了 eventContent，這樣「月檢視」和「清單檢視」就會變回原本的圓點/列表樣式
-
-            // 點擊事件
+            // ⭐ 點擊事件 (修復無法點擊的問題)
             eventClick: function (info) {
-                // 檢查是否額滿 (從 API 回傳的 extendedProps 判斷)
+                // 1. 額滿檢查
                 if (info.event.extendedProps.isFull) {
                     alert('抱歉，該時段已額滿，請選擇其他時段。');
                     return;
                 }
+
+                // 2. 填入 Modal 並顯示
                 document.getElementById('modalTimeStr').textContent = info.event.extendedProps.dateStr;
                 document.getElementById('modalScheduleId').value = info.event.extendedProps.scheduleId;
 
@@ -194,12 +206,14 @@
                 modal.show();
             },
 
-            windowResize: function (view) {
-                if (window.innerWidth < 768) {
-                    calendar.changeView('listWeek');
-                } else {
-                    calendar.changeView('timeGridWeek');
-                }
+            // 滑鼠懸停效果
+            eventMouseEnter: function (info) {
+                info.el.style.cursor = 'pointer';
+                info.el.style.transform = 'scale(1.05)';
+                info.el.style.transition = '0.2s';
+            },
+            eventMouseLeave: function (info) {
+                info.el.style.transform = 'scale(1)';
             }
         });
         calendar.render();
