@@ -12,25 +12,27 @@
         min-height: 500px;
     }
 
-    /* --- ⭐ 針對「週檢視 (TimeGrid)」的樣式優化 --- */
-    .fc-timegrid-event {
-        /* 強制變成橫向排列，解決文字直排問題 */
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-
-        /* 讓文字不換行 */
+    /* --- ⭐ 1. 解決上方日期換行問題 --- */
+    .fc-col-header-cell-cushion {
         white-space: nowrap !important;
-        overflow: hidden !important;
+        /* 強制不換行 */
+        font-size: 0.85rem !important;
+        /* 字體縮小一點以塞入格子 */
+        font-weight: bold;
+        padding-left: 2px !important;
+        padding-right: 2px !important;
+    }
 
-        /* 美化 */
+    /* --- ⭐ 2. 週檢視事件卡片優化 --- */
+    .fc-timegrid-event {
         border: none !important;
         border-radius: 4px !important;
-        padding: 1px 4px !important;
-        /* 縮小內距 */
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        font-size: 0.85rem !important;
-        /* 字體稍微縮小 */
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+
+        /* 讓文字垂直水平置中 */
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
     }
 
     /* 強制修改 FullCalendar 事件樣式，讓它看起來像可點擊的按鈕 */
@@ -189,6 +191,23 @@
 
             // 資料來源
             events: '/api/course/{{ course.id }}/schedule',
+
+            // ⭐ 針對不同視圖自定義內容
+            eventContent: function (arg) {
+                // 如果是「週檢視」或「日檢視」，我們自定義顯示內容
+                if (arg.view.type === 'timeGridWeek' || arg.view.type === 'timeGridDay') {
+                    let isFull = arg.event.extendedProps.isFull;
+                    // 簡化文字：只顯示 "可預約" 或 "已額滿" (去掉數字)
+                    let text = isFull ? '已額滿' : '可預約';
+                    let icon = isFull ? '<i class="bi bi-x"></i>' : '<i class="bi bi-check"></i>';
+
+                    return {
+                        html: `<div class="fw-bold small text-center" style="line-height: 1;">${text}</div>`
+                    };
+                }
+                // 如果是「月檢視」或「清單」，回傳 null 使用預設樣式 (圓點/列表)
+                return null;
+            },
 
             // ⭐ 點擊事件 (修復無法點擊的問題)
             eventClick: function (info) {
