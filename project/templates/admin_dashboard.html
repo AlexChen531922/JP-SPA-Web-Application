@@ -283,7 +283,8 @@
                       class="rounded"></td>
                   <td>{{ product.name }}</td>
                   <td><span class="badge bg-light text-dark">{{ product.category_name or '未分類' }}</span></td>
-                  {% if session.get('user', {}).get('role') == 'admin' %}<td>{{ '{:,.0f}'.format(product.cost) }}</td>{%
+                  {% if session.get('user', {}).get('role') == 'admin' %}<td>{{ '{:,.0f}'.format(product.cost or 0) }}
+                  </td>{%
                   endif %}
                   <td>{{ '{:,.0f}'.format(product.price) }}</td>
                   <td>{{ product.stock_quantity }}</td>

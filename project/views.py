@@ -5,7 +5,7 @@ from .db import get_current_user_id, get_current_user_role, is_logged_in
 # 引入新的通知函式
 from .notifications import notify_contact_message, notify_new_order_created, notify_new_booking_created
 import MySQLdb.cursors
-from datetime import datetime
+from datetime import datetime, timedelta
 
 main_bp = Blueprint('main', __name__)
 
@@ -265,7 +265,7 @@ def get_course_schedule(course_id):
 
     try:
         # 設定「最早可預約時間」為後天 00:00
-        now = datetime.now()
+        now = datetime.now() + timedelta(hours=8)
         start_limit = (now + timedelta(days=2)).replace(hour=0,
                                                         minute=0, second=0, microsecond=0)
 
@@ -316,6 +316,10 @@ def get_course_schedule(course_id):
     for s in db_schedules:
         is_full = s['current_bookings'] >= s['max_capacity']
         remaining = s['max_capacity'] - s['current_bookings']
+
+        # 排除已關閉的時段 (人數為0)
+        if s['max_capacity'] <= 0:
+            continue
 
         events.append({
             'id': str(s['id']),  # ID 轉字串
