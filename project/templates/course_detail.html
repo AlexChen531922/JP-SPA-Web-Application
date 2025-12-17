@@ -12,15 +12,22 @@
         min-height: 500px;
     }
 
-    /* 強制修改 FullCalendar 事件樣式，讓它看起來像可點擊的按鈕 */
+    /* 修改原有的 .fc-event 樣式 */
     .fc-event {
         cursor: pointer !important;
         border: none !important;
-        padding: 5px !important;
-        margin-bottom: 2px !important;
-        text-align: center;
-        border-radius: 4px !important;
-        transition: transform 0.1s, box-shadow 0.1s;
+        margin: 1px !important;
+        /* 留一點縫隙 */
+        border-radius: 6px !important;
+        /* 圓角 */
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        overflow: hidden;
+        /* 防止內容溢出 */
+    }
+
+    /* 讓週視圖的時間格子稍微高一點，才不會太擠 */
+    .fc-timegrid-slot {
+        height: 3em !important;
     }
 
     .fc-event:hover {
@@ -124,32 +131,45 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var initialView = window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth'; // 手機預設清單模式
+        var initialView = window.innerWidth < 768 ? 'listWeek' : 'timeGridWeek'; // 電腦版改預設週視圖比較清楚
+
         var calendarEl = document.getElementById('calendar');
         if (!calendarEl) {
             console.error("找不到 id='calendar' 的 HTML 元素");
             return;
         }
+
         var calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: initialView, // 使用動態判斷的視圖
+            initialView: initialView,
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
                 right: 'dayGridMonth,timeGridWeek,listWeek'
             },
+
+            // --- ⭐ 版面優化設定開始 ---
+            allDaySlot: false,        // 1. 移除上方全天欄位 (增加垂直空間)
+            slotEventOverlap: false,  // 2. 禁止事件重疊 (解決階梯狀堆疊問題)
+            slotDuration: '00:30:00', // 設定時間格線間隔
+            slotLabelInterval: '01:00', // 設定時間標籤間隔
+            expandRows: true,         // 讓行高自動延展填滿高度
+            displayEventTime: false,  // 3. 隱藏預設的時間文字 (減少雜訊)
+            height: 'auto',
+            contentHeight: 'auto',
+            // --- 版面優化設定結束 ---
+
             // 加入視窗縮放監聽
             windowResize: function (view) {
                 if (window.innerWidth < 768) {
                     calendar.changeView('listWeek');
                 } else {
-                    calendar.changeView('dayGridMonth');
+                    calendar.changeView('timeGridWeek');
                 }
             },
-            height: 'auto', // 高度自動適應
-            contentHeight: 'auto',
+
             locale: 'zh-tw',
-            navLinks: true, // 可以點擊日期進入當天
-            businessHours: { // 強調營業時間
+            navLinks: true,
+            businessHours: {
                 daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
                 startTime: '09:00',
                 endTime: '21:00',
@@ -158,15 +178,34 @@
             // 資料來源
             events: '/api/course/{{ course.id }}/schedule',
 
-            // ⭐ 點擊事件 (修復無法點擊的問題)
+            // ⭐ 4. 自定義事件顯示內容 (讓卡片變整齊的關鍵)
+            eventContent: function (arg) {
+                let isFull = arg.event.extendedProps.isFull;
+                let title = arg.event.title;
+                // 嘗試從 title 取出剩餘人數 (假設格式為 "可預約 (5)")
+                let remaining = title.match(/\((\d+)\)/);
+                let count = remaining ? remaining[1] : '?';
+
+                let icon = isFull ? '<i class="bi bi-x-circle"></i>' : '<i class="bi bi-check-circle"></i>';
+                let text = isFull ? '已額滿' : `剩 ${count} 位`;
+
+                // 回傳自定義的 HTML 結構
+                return {
+                    html: `
+                        <div class="d-flex flex-column align-items-center justify-content-center h-100 w-100">
+                            <div class="fw-bold" style="font-size: 0.9rem;">${icon} ${isFull ? '額滿' : '預約'}</div>
+                            <div class="small opacity-75">${isFull ? '' : '名額:' + count}</div>
+                        </div>
+                    `
+                };
+            },
+
+            // 點擊事件
             eventClick: function (info) {
-                // 1. 額滿檢查
                 if (info.event.extendedProps.isFull) {
                     alert('抱歉，該時段已額滿，請選擇其他時段。');
                     return;
                 }
-
-                // 2. 填入 Modal 並顯示
                 document.getElementById('modalTimeStr').textContent = info.event.extendedProps.dateStr;
                 document.getElementById('modalScheduleId').value = info.event.extendedProps.scheduleId;
 
@@ -177,11 +216,10 @@
             // 滑鼠懸停效果
             eventMouseEnter: function (info) {
                 info.el.style.cursor = 'pointer';
-                info.el.style.transform = 'scale(1.05)';
-                info.el.style.transition = '0.2s';
+                info.el.style.opacity = '0.9';
             },
             eventMouseLeave: function (info) {
-                info.el.style.transform = 'scale(1)';
+                info.el.style.opacity = '1';
             }
         });
         calendar.render();
