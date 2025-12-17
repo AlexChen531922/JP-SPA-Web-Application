@@ -295,12 +295,10 @@ def get_course_schedule(course_id):
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SET time_zone = '+08:00'")  # 強制設定時區
 
-    # 查詢時段 - 改為查詢 shop_schedules (全店共用)
-    # 條件：
-    # 1. 時間範圍內
-    # 2. start_time 必須大於 start_limit (後天)
-    # 3. 只顯示 19:00 (含) 以前開始的時段
-    # 4. is_active 為真
+# ⭐ 關鍵查詢：讀取 shop_schedules
+    # 條件 1: 在日曆當前顯示的範圍內 (BETWEEN start_date AND end_date)
+    # 條件 2: 必須晚於「最早可預約時間」(start_time >= start_limit)
+    # 條件 3: 只顯示 19:00 以前的時段 (HOUR <= 19)
     cursor.execute("""
         SELECT id, start_time, end_time, max_capacity, current_bookings
         FROM shop_schedules
