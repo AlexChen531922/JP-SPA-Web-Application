@@ -46,6 +46,9 @@ def create_app():
         MYSQL_DB=os.environ.get("MYSQL_DB", "ecommerce_booking_system"),
         MYSQL_CURSORCLASS="DictCursor",
 
+        # 時區台灣時間
+        MYSQL_INIT_COMMAND="SET time_zone = '+08:00'",
+
         # Email configuration
         MAIL_SERVER="smtp.gmail.com",
         MAIL_PORT=587,

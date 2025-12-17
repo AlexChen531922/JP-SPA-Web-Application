@@ -385,8 +385,7 @@
                       onclick="fetchCourseData({{ course.id }})">
                       <i class="bi bi-pencil"></i>
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-warning"
-                      onclick="openCapacityModal({{ course.id }}, '{{ course.name }}')">
+                    <button type="button" class="btn btn-sm btn-outline-warning" onclick="openCapacityModal()">
                       <i class="bi bi-people"></i>
                     </button>
                     {% if session.get('user', {}).get('role') == 'admin' %}
@@ -1084,38 +1083,83 @@
 </div>
 
 <div class="modal fade" id="capacityModal" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">管理時段人數：<span id="cap_course_name" class="fw-bold text-primary"></span></h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-calendar-range"></i> 全店時段排班管理</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
-      <div class="modal-body p-0">
-        <div class="alert alert-light border-bottom mb-0 rounded-0">
-          <i class="bi bi-info-circle"></i> 僅顯示未來 30 天內的時段。修改後點擊「儲存」即可生效。
-        </div>
 
-        <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
-          <table class="table table-hover table-striped mb-0 align-middle">
-            <thead class="table-light sticky-top">
-              <tr>
-                <th class="ps-4">日期</th>
-                <th>時段</th>
-                <th class="text-center">目前預約</th>
-                <th style="width: 150px;">人數上限</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody id="scheduleListBody">
-              <tr>
-                <td colspan="5" class="text-center py-4">載入中...</td>
-              </tr>
-            </tbody>
-          </table>
+      <div class="modal-body">
+        <div class="row g-4">
+          <div class="col-lg-4 border-end">
+            <h6 class="fw-bold mb-3 text-primary">批次設定工具</h6>
+            <form action="{{ url_for('admin.bulk_update_schedule') }}" method="POST" class="p-3 bg-light rounded-3">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+              <div class="mb-3">
+                <label class="form-label small fw-bold">日期範圍</label>
+                <div class="input-group input-group-sm">
+                  <input type="date" name="start_date" class="form-control" required>
+                  <span class="input-group-text">至</span>
+                  <input type="date" name="end_date" class="form-control" required>
+                </div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label small fw-bold">時間範圍 (小時)</label>
+                <div class="input-group input-group-sm">
+                  <select name="start_hour" class="form-select">
+                    {% for i in range(9, 20) %} <option value="{{ i }}">{{ i }}:00</option>
+                    {% endfor %}
+                  </select>
+                  <span class="input-group-text">至</span>
+                  <select name="end_hour" class="form-select">
+                    {% for i in range(10, 21) %}
+                    <option value="{{ i }}" {% if i==20 %}selected{% endif %}>{{ i }}:00</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="form-text small">例如 9:00 至 20:00 將會包含最後一個時段 19:00-20:00</div>
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label small fw-bold">設定可預約人數 (Capacity)</label>
+                <input type="number" name="capacity" class="form-control" value="2" min="0" required>
+                <div class="form-text small text-danger">設為 0 代表該時段休息/額滿</div>
+              </div>
+
+              <button type="submit" class="btn btn-primary w-100 btn-sm">
+                <i class="bi bi-lightning-charge"></i> 執行批次更新
+              </button>
+            </form>
+          </div>
+
+          <div class="col-lg-8">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="fw-bold mb-0">目前時段設定 (未來 60 天)</h6>
+              <button class="btn btn-sm btn-outline-secondary" onclick="loadShopSchedules()">
+                <i class="bi bi-arrow-clockwise"></i> 重新整理
+              </button>
+            </div>
+
+            <div class="table-responsive border rounded" style="height: 500px; overflow-y: auto;">
+              <table class="table table-hover table-striped mb-0 small align-middle">
+                <thead class="table-light sticky-top">
+                  <tr>
+                    <th class="ps-3">日期</th>
+                    <th>時段</th>
+                    <th class="text-center">已預約</th>
+                    <th style="width: 100px;">上限</th>
+                    <th>狀態</th>
+                  </tr>
+                </thead>
+                <tbody id="scheduleListBody">
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
       </div>
     </div>
   </div>
@@ -1742,53 +1786,46 @@
 
   // ================= Schedule Manager (AJAX) =================
 
-  // 1. 開啟 Modal 並載入時段列表
-  function openCapacityModal(courseId, courseName) {
-    document.getElementById('cap_course_name').textContent = courseName;
+  // 修改原本的 openCapacityModal，不再需要 courseId
+  function openCapacityModal() { // 參數移除
+    new bootstrap.Modal(document.getElementById('capacityModal')).show();
+    loadShopSchedules();
+  }
+
+  function loadShopSchedules() {
     const tbody = document.getElementById('scheduleListBody');
     tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4"><div class="spinner-border text-primary"></div></td></tr>';
 
-    new bootstrap.Modal(document.getElementById('capacityModal')).show();
-
-    // 呼叫後端 API 獲取時段
-    fetch(`/admin/api/course/${courseId}/schedules`)
+    fetch('/admin/api/shop/schedules')
       .then(res => res.json())
       .then(data => {
-        tbody.innerHTML = ''; // 清空 Loading
-
+        tbody.innerHTML = '';
         if (data.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">未來 30 天無排程時段</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">尚未建立排班表，請使用左側工具建立。</td></tr>';
           return;
         }
 
         data.forEach(slot => {
-          // 判斷是否額滿樣式
-          let badgeClass = slot.current_bookings >= slot.max_capacity ? 'bg-danger' : 'bg-success';
+          let isFull = slot.current_bookings >= slot.max_capacity;
+          let statusBadge = slot.max_capacity == 0
+            ? '<span class="badge bg-secondary">休息</span>'
+            : (isFull ? '<span class="badge bg-danger">額滿</span>' : '<span class="badge bg-success">可預約</span>');
 
           let row = `
-                <tr>
-                    <td class="ps-4 fw-bold">${slot.date}</td>
-                    <td>${slot.time}</td>
-                    <td class="text-center">
-                        <span class="badge ${badgeClass}">${slot.current_bookings}</span>
-                    </td>
-                    <td>
-                        <input type="number" class="form-control form-control-sm text-center" 
-                               id="cap_input_${slot.id}" value="${slot.max_capacity}" min="1">
-                    </td>
-                    <td>
-                        <button class="btn btn-sm btn-outline-primary" onclick="saveSlotCapacity(${slot.id})">
-                            <i class="bi bi-save"></i> 儲存
-                        </button>
-                    </td>
-                </tr>
-            `;
+            <tr>
+                <td class="ps-3 fw-bold">${slot.date}</td>
+                <td>${slot.time}</td>
+                <td class="text-center fw-bold">${slot.current_bookings}</td>
+                <td>${slot.max_capacity}</td>
+                <td>${statusBadge}</td>
+            </tr>
+        `;
           tbody.insertAdjacentHTML('beforeend', row);
         });
       })
       .catch(err => {
         console.error(err);
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">載入失敗，請重試</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="text-center text-danger">載入失敗</td></tr>';
       });
   }
 

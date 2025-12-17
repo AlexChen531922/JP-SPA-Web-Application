@@ -421,3 +421,37 @@ CREATE TABLE IF NOT EXISTS campaigns (
 
 -- 7. 補上訂單與活動的關聯 
 ALTER TABLE orders ADD COLUMN campaign_id INT;
+
+
+-- =====================================================
+-- 1. 建立全店共用時段表 (Shop Schedules)
+-- 用途：管理全店每個時段的總床位/美容師數量 (Max Capacity)
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS shop_schedules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME NOT NULL,
+    max_capacity INT DEFAULT 1 COMMENT '全店該時段最大可接客數',
+    current_bookings INT DEFAULT 0 COMMENT '目前已預約人數',
+    is_active BOOLEAN DEFAULT TRUE,
+    
+    -- 確保同一個時間點只有一筆設定，避免重複
+    UNIQUE KEY unique_start_time (start_time)
+);
+
+-- =====================================================
+-- 2. 修改 bookings 表
+-- 用途：讓訂單可以關聯到新的 shop_schedules 表
+-- =====================================================
+
+-- 新增欄位 global_schedule_id
+ALTER TABLE bookings ADD COLUMN global_schedule_id INT;
+
+-- 建立外鍵關聯 (當 shop_schedules 刪除時，將此欄位設為 NULL，保留預約紀錄)
+ALTER TABLE bookings 
+ADD CONSTRAINT fk_bookings_shop_schedule 
+FOREIGN KEY (global_schedule_id) REFERENCES shop_schedules(id) ON DELETE SET NULL;
+
+-- 建議：為了查詢效能，給新欄位加個索引
+CREATE INDEX idx_booking_global_schedule ON bookings(global_schedule_id);

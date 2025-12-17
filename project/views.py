@@ -258,42 +258,57 @@ def course_detail(course_id):
 def get_course_schedule(course_id):
     """
     API for FullCalendar
+    Modified: 讀取全店共用時段 (shop_schedules)，限制預約時間
     """
     start_str = request.args.get('start')
     end_str = request.args.get('end')
 
     try:
+        # 設定「最早可預約時間」為後天 00:00
+        now = datetime.now()
+        start_limit = (now + timedelta(days=2)).replace(hour=0,
+                                                        minute=0, second=0, microsecond=0)
+
         # 轉換日期 (處理可能帶有的時區 Z)
         if start_str:
             start_date = datetime.fromisoformat(start_str.replace('Z', ''))
         else:
             # 預設查詢本月第一天
-            now = datetime.now()
             start_date = datetime(now.year, now.month, 1)
 
         if end_str:
             end_date = datetime.fromisoformat(end_str.replace('Z', ''))
         else:
             # 預設查詢下個月第一天 (即本月最後一天)
-            now = datetime.now()
             if now.month == 12:
                 end_date = datetime(now.year + 1, 1, 1)
             else:
                 end_date = datetime(now.year, now.month + 1, 1)
+
+        # 確保查詢範圍不早於 start_limit
+        if start_date < start_limit:
+            start_date = start_limit
+
     except ValueError:
         return jsonify([])  # 日期格式錯誤回傳空陣列
 
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("SET time_zone = '+08:00'")  # 強制設定時區
 
-    # 查詢時段 - 加入 start_time > NOW() 過濾過去的時段
+    # 查詢時段 - 改為查詢 shop_schedules (全店共用)
+    # 條件：
+    # 1. 時間範圍內
+    # 2. start_time 必須大於 start_limit (後天)
+    # 3. 只顯示 19:00 (含) 以前開始的時段
+    # 4. is_active 為真
     cursor.execute("""
         SELECT id, start_time, end_time, max_capacity, current_bookings
-        FROM course_schedules
-        WHERE course_id = %s
-          AND start_time BETWEEN %s AND %s
-          AND start_time > NOW()
+        FROM shop_schedules
+        WHERE start_time BETWEEN %s AND %s
+          AND start_time >= %s
+          AND HOUR(start_time) <= 19
           AND is_active = TRUE
-    """, (course_id, start_date, end_date))
+    """, (start_date, end_date, start_limit))
 
     db_schedules = cursor.fetchall()
     cursor.close()
@@ -314,7 +329,7 @@ def get_course_schedule(course_id):
             'textColor': '#fff',
             'extendedProps': {
                 'isFull': is_full,
-                'scheduleId': s['id'],
+                'scheduleId': s['id'],  # 這裡是 shop_schedules 的 ID
                 'dateStr': s['start_time'].strftime('%Y-%m-%d %H:%M')
             }
         })
