@@ -205,8 +205,9 @@ def dashboard():
     inventory_products = cursor.fetchall()
 
     # Customers dropdown
+    # ⭐ 修正：補上 username 欄位，解決前端模板報錯問題
     cursor.execute(
-        "SELECT id, firstname, surname FROM users WHERE role = 'customer' ORDER BY firstname")
+        "SELECT id, firstname, surname, username FROM users WHERE role = 'customer' ORDER BY firstname")
     customers = cursor.fetchall()
 
     # Orders full list
