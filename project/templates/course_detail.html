@@ -125,7 +125,11 @@
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         var initialView = window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth'; // 手機預設清單模式
-
+        var calendarEl = document.getElementById('calendar');
+        if (!calendarEl) {
+            console.error("找不到 id='calendar' 的 HTML 元素");
+            return;
+        }
         var calendar = new FullCalendar.Calendar(calendarEl, {
             initialView: initialView, // 使用動態判斷的視圖
             headerToolbar: {
