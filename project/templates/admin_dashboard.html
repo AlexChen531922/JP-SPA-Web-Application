@@ -1368,10 +1368,10 @@
         </div>
         <div class="modal-body">
           <div class="row g-3">
-            <div class="col-md-6"><label class="form-label">帳號 *</label><input name="username" class="form-control"
-                required></div>
-            <div class="col-md-6"><label class="form-label">密碼 *</label><input name="password" type="password"
-                class="form-control" required></div>
+            <div class="col-md-6"><label class="form-label">帳號 </label><input name="username" class="form-control">
+            </div>
+            <div class="col-md-6"><label class="form-label">密碼 </label><input name="password" type="password"
+                class="form-control"></div>
             <div class="col-md-6"><label class="form-label">姓氏 *</label><input name="surname" class="form-control"
                 required></div>
             <div class="col-md-6"><label class="form-label">名字 *</label><input name="firstname" class="form-control"
@@ -1493,16 +1493,26 @@
               <div class="form-text text-muted">若為補登歷史資料，請選擇過去日期。</div>
             </div>
 
-            <div class="col-md-8">
+            <div class="col-12">
               <label class="form-label fw-bold">產品</label>
-              <select name="product_id" class="form-select" required>
+              <select name="product_id" id="orderProductSelect" class="form-select" required>
                 <option value="">請選擇產品...</option>
                 {% for p in inventory_products %}
-                <option value="{{ p.id }}" data-price="{{ p.price }}">
-                  {{ p.name }} (庫存: {{ p.stock_quantity }}) - ${{ '{:,.0f}'.format(p.price) }}
+                <option value="{{ p.id }}" data-price="{{ p.price }}" data-cost="{{ p.cost or 0 }}">
+                  {{ p.name }} (庫存: {{ p.stock_quantity }})
                 </option>
                 {% endfor %}
               </select>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label fw-bold">單價 (可修改)</label>
+              <input type="number" name="custom_unit_price" id="orderCustomPrice" class="form-control" required>
+            </div>
+
+            <div class="col-md-4">
+              <label class="form-label text-muted">參考成本 (選填)</label>
+              <input type="number" name="custom_cost" id="orderCustomCost" class="form-control" placeholder="選填">
             </div>
 
             <div class="col-md-4">
@@ -1559,10 +1569,13 @@
 
             <div class="col-md-6">
               <label class="form-label fw-bold">課程</label>
-              <select name="course_id" class="form-select" required>
+              <select name="course_id" id="bookingCourseSelect" class="form-select" required>
                 <option value="">請選擇課程...</option>
                 {% for c in courses %}
-                <option value="{{ c.id }}">{{ c.name }} ({{ c.duration }}分)</option>
+                <option value="{{ c.id }}" data-price="{{ c.regular_price }}"
+                  data-exp-price="{{ c.experience_price or c.regular_price }}">
+                  {{ c.name }} ({{ c.duration }}分)
+                </option>
                 {% endfor %}
               </select>
             </div>
@@ -1576,6 +1589,11 @@
             <div class="col-md-6">
               <label class="form-label fw-bold">扣除/購買堂數</label>
               <input type="number" name="sessions" class="form-control" value="1" min="1" required>
+            </div>
+
+            <div class="col-md-6">
+              <label class="form-label fw-bold">總金額 (可手動修改)</label>
+              <input type="number" name="custom_total_amount" id="bookingTotalAmount" class="form-control" required>
             </div>
 
             <div class="col-12">
@@ -1962,6 +1980,50 @@
     modal.show();
     var select = document.querySelector('#restockModal select[name="product_id"]');
     if (select) select.value = pid;
+  }
+
+  // --- 訂單價格連動 ---
+  const orderProductSelect = document.getElementById('orderProductSelect');
+  if (orderProductSelect) {
+    orderProductSelect.addEventListener('change', function () {
+      const option = this.options[this.selectedIndex];
+      const price = option.getAttribute('data-price');
+      const cost = option.getAttribute('data-cost');
+
+      // 自動帶入價格與成本
+      if (price) document.getElementById('orderCustomPrice').value = Math.floor(price);
+      if (cost) document.getElementById('orderCustomCost').value = Math.floor(cost);
+    });
+  }
+
+  // --- 預約價格連動 ---
+  const bookingCourse = document.getElementById('bookingCourseSelect');
+  const bookingSessions = document.getElementById('bookingSessions');
+  const isFirstTime = document.getElementById('isFirstTime');
+  const totalAmountInput = document.getElementById('bookingTotalAmount');
+
+  function updateBookingPrice() {
+    if (!bookingCourse || !totalAmountInput) return;
+
+    const option = bookingCourse.options[bookingCourse.selectedIndex];
+    if (!option.value) return;
+
+    const regPrice = parseFloat(option.getAttribute('data-price')) || 0;
+    const expPrice = parseFloat(option.getAttribute('data-exp-price')) || regPrice;
+    const sessions = parseInt(bookingSessions.value) || 1;
+
+    // 判斷單價 (若勾選首次體驗且為第一堂，用體驗價，否則用原價)
+    // 這裡簡化邏輯：若勾選首次，則總金額 = 體驗價 * 堂數 (通常體驗價只適用一堂，這裡讓人工最後確認)
+    let unitPrice = isFirstTime.checked ? expPrice : regPrice;
+
+    // 自動填入計算結果，但允許使用者修改
+    totalAmountInput.value = Math.floor(unitPrice * sessions);
+  }
+
+  if (bookingCourse) {
+    bookingCourse.addEventListener('change', updateBookingPrice);
+    bookingSessions.addEventListener('input', updateBookingPrice);
+    isFirstTime.addEventListener('change', updateBookingPrice);
   }
 
 </script>

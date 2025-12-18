@@ -22,6 +22,7 @@ from project.notifications import (
     notify_order_status_update,
     notify_booking_status_update
 )
+from project.customer import validate_password_strength
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -1381,70 +1382,101 @@ def update_single_schedule_capacity(schedule_id):
 @staff_required
 def add_customer():
     try:
-        # 1. 抓取資料
-        username = request.form.get('username')
-        password = request.form.get('password')
+        # 1. 抓取資料 (使用 .strip() 去除前後空白，避免誤判)
+        username = request.form.get('username', '').strip()
+        raw_password = request.form.get('password', '').strip()  # 原始輸入密碼
+
         firstname = request.form.get('firstname')
         surname = request.form.get('surname')
         email = request.form.get('email')
-        phone = request.form.get('phone')
+        phone = request.form.get('phone', '').strip()
 
         # 其他欄位
         line_id = request.form.get('line_id')
         gender = request.form.get('gender', 'other')
-        birth_date = request.form.get('birth_date')
+        # 簡化空值處理寫法
+        birth_date = request.form.get('birth_date') or None
         occupation = request.form.get('occupation')
         address = request.form.get('address')
-        source_id = request.form.get('source_id')
-
-        # ⭐ 新增：備註欄位
+        source_id = request.form.get('source_id') or None
         notes = request.form.get('notes')
 
-        # 空值處理
-        if not birth_date:
-            birth_date = None
-        if not source_id:
-            source_id = None
+        # 變數：紀錄密碼是否為自動生成 (用來決定要不要驗證強度)
+        is_auto_generated_password = False
 
+        # --- 1. 帳號自動生成邏輯 ---
+        if not username:
+            if phone:
+                username = phone  # 規則：有手機，帳號 = 手機
+            else:
+                # 規則：沒手機，帳號 = Email 前綴
+                # 防呆：如果 email 格式怪怪的沒有 @，就直接用整個 email
+                username = email.split('@')[0] if '@' in email else email
+
+        # --- 2. 密碼自動生成邏輯 ---
+        final_password = raw_password
+
+        if not final_password:
+            # 若未填寫 -> 標記為自動生成，並套用預設規則
+            is_auto_generated_password = True
+            if phone:
+                final_password = phone  # 規則：有手機，密碼 = 手機
+            else:
+                final_password = "123456"  # 規則：沒手機，密碼 = 123456 (預設)
+
+        # --- 3. 強度驗證邏輯 ---
+        # 只有在「管理者手動輸入」的情況下，才強制檢查複雜度
+        # 自動生成的密碼 (如手機號碼) 通常不符合強度規則，所以要跳過檢查
+        if not is_auto_generated_password:
+            if not validate_password_strength(final_password):
+                flash('手動設定的密碼強度不足！需含大小寫英數字及符號，且至少10碼。若不想設定請留空(使用預設值)。', 'error')
+                return redirect(url_for('admin.dashboard', tab='customers'))
+
+        # --- 4. 檢查帳號重複 ---
         from project.db import check_username_exists
-
         if check_username_exists(username):
-            flash('帳號已存在', 'error')
-        else:
-            cursor = database.connection.cursor()
-            hashed_pw = generate_password_hash(password)
+            flash(f'帳號「{username}」已存在。若為自動生成(手機/Email前綴)重複，請手動輸入不同帳號。', 'error')
+            return redirect(url_for('admin.dashboard', tab='customers'))
 
-            # ⭐ SQL 插入語句加入 notes
-            sql = """
-                INSERT INTO users (
-                    username, email, password_hash, 
-                    firstname, surname, phone, 
-                    line_id, gender, birth_date, 
-                    occupation, address, source_id, notes,
-                    role, created_at
-                ) VALUES (
-                    %s, %s, %s, 
-                    %s, %s, %s, 
-                    %s, %s, %s, 
-                    %s, %s, %s, %s,
-                    'customer', NOW()
-                )
-            """
-            cursor.execute(sql, (
-                username, email, hashed_pw,
-                firstname, surname, phone,
-                line_id, gender, birth_date,
-                occupation, address, source_id, notes
-            ))
+        # --- 5. 寫入資料庫 ---
+        cursor = database.connection.cursor()
+        hashed_pw = generate_password_hash(final_password)
 
-            database.connection.commit()
-            cursor.close()
+        sql = """
+            INSERT INTO users (
+                username, email, password_hash, 
+                firstname, surname, phone, 
+                line_id, gender, birth_date, 
+                occupation, address, source_id, notes,
+                role, created_at
+            ) VALUES (
+                %s, %s, %s, 
+                %s, %s, %s, 
+                %s, %s, %s, 
+                %s, %s, %s, %s,
+                'customer', NOW()
+            )
+        """
+        cursor.execute(sql, (
+            username, email, hashed_pw,
+            firstname, surname, phone,
+            line_id, gender, birth_date,
+            occupation, address, source_id, notes
+        ))
 
-            flash('客戶新增成功', 'success')
+        database.connection.commit()
+        cursor.close()
+
+        # 提示訊息 (包含自動生成的資訊，方便管理者告知客戶)
+        msg = f'客戶新增成功！帳號: {username}'
+        if is_auto_generated_password:
+            msg += f' / 預設密碼: {final_password}'
+
+        flash(msg, 'success')
 
     except Exception as e:
         if "Duplicate entry" in str(e):
-            flash('新增失敗：帳號或 Email 已被使用', 'error')
+            flash('新增失敗：Email 已被使用', 'error')
         else:
             flash(f'新增失敗: {str(e)}', 'error')
 
@@ -1711,6 +1743,8 @@ def add_order_manual():
         quantity = int(request.form.get('quantity', 1))
         created_at_str = request.form.get('created_at')  # 格式: YYYY-MM-DDTHH:MM
         send_notification = request.form.get('send_notification') == 'on'
+        custom_unit_price = request.form.get('custom_unit_price', type=float)
+        custom_cost = request.form.get('custom_cost', type=float)
 
         if not customer_id or not product_id:
             flash('請選擇客戶與產品', 'error')
@@ -1724,7 +1758,8 @@ def add_order_manual():
         product = cursor.fetchone()
 
         # 2. 計算金額
-        unit_price = float(product['price'])  # Ensure float
+        unit_price = custom_unit_price if custom_unit_price is not None else float(
+            product['price'])
         subtotal = unit_price * quantity
         total_amount = subtotal  # 目前簡易版，單一商品
 
@@ -1755,16 +1790,19 @@ def add_order_manual():
         """, (quantity, product_id))
 
         # 7. 寫入庫存 Log
+        log_note = 'Admin Manual Order'
+        if custom_cost is not None:
+            log_note += f" (Ref Cost: {custom_cost})"
+
         cursor.execute("""
             INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by)
-            VALUES (%s, %s, 'sale', %s, 'Admin Manual Order', %s)
-        """, (product_id, -quantity, order_id, get_current_user_id()))
+            VALUES (%s, %s, 'sale', %s, %s, %s)
+        """, (product_id, -quantity, order_id, log_note, get_current_user_id()))
 
         # 8. 取得客戶資料
         cursor.execute(
             "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
         user = cursor.fetchone()
-
         database.connection.commit()
         cursor.close()
 
@@ -1772,10 +1810,7 @@ def add_order_manual():
         if send_notification and user:
             try:
                 customer_data = {
-                    'email': user['email'],
-                    'firstname': user['firstname'],
-                    'line_id': user['line_id']
-                }
+                    'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
                 notify_order_confirmed(order_id, customer_data, total_amount)
                 flash('訂單已建立並發送通知', 'success')
             except Exception as e:
@@ -1785,7 +1820,7 @@ def add_order_manual():
             flash('訂單已補登 (未發送通知)', 'success')
 
         log_activity('create', 'order', order_id, {
-                     'type': 'manual_admin', 'backdate': created_at_str})
+                     'type': 'manual_admin', 'price': unit_price})
 
     except Exception as e:
         database.connection.rollback()
@@ -1805,6 +1840,8 @@ def add_booking_manual():
         sessions = int(request.form.get('sessions', 1))
         is_first_time = request.form.get('is_first_time') == 'on'
         send_notification = request.form.get('send_notification') == 'on'
+        custom_total_amount = request.form.get(
+            'custom_total_amount', type=float)
 
         if not customer_id or not course_id or not appt_time_str:
             flash('資料不完整', 'error')
@@ -1818,9 +1855,12 @@ def add_booking_manual():
         course = cursor.fetchone()
 
         # 2. 計算價格
-        price = float(course['experience_price']) if is_first_time and course['experience_price'] else float(
-            course['regular_price'])
-        total_amount = price * sessions
+        if custom_total_amount is not None:
+            total_amount = custom_total_amount
+        else:
+            price = float(course['experience_price']) if is_first_time and course['experience_price'] else float(
+                course['regular_price'])
+            total_amount = price * sessions
 
         # 3. 處理時間
         appt_time = datetime.strptime(appt_time_str, '%Y-%m-%dT%H:%M')
