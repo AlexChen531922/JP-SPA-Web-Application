@@ -179,6 +179,7 @@ def forgot_password():
         try:
             # ⭐ 關鍵修正：延遲引用
             from project.db import get_user_by_email
+            from project.notifications import send_password_reset_email
 
             email = form.email.data
             user = get_user_by_email(email)

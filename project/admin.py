@@ -17,12 +17,6 @@ from decimal import Decimal
 from project.db import get_current_user_id
 from project.audit import log_activity
 from project.decorators import admin_required, staff_required
-from project.notifications import (
-    notify_order_confirmed,
-    notify_booking_confirmed,
-    notify_order_status_update,
-    notify_booking_status_update
-)
 
 
 admin_bp = Blueprint('admin', __name__)
@@ -1151,17 +1145,21 @@ def update_order_status(order_id):
             'line_id': order_info['line_id']
         }
 
-        if new_status == 'confirmed' and old_status != 'confirmed':
-            notify_order_confirmed(
-                order_id, customer_data, order_info['total_amount'])
-        elif new_status != old_status:
-            notify_order_status_update(
-                order_id, customer_data['firstname'], customer_data['email'], new_status)
+        try:
+            # ⭐ 延遲引用
+            from project.notifications import notify_order_confirmed, notify_order_status_update
+            if new_status == 'confirmed' and old_status != 'confirmed':
+                notify_order_confirmed(
+                    order_id, customer_data, order_info['total_amount'])
+            elif new_status != old_status:
+                notify_order_status_update(
+                    order_id, customer_data['firstname'], customer_data['email'], new_status)
+        except Exception as e:
+            print(f"Notification Error: {e}")
 
         log_activity('update', 'order', order_id, {
                      'old': old_status, 'new': new_status})
-        flash(f'訂單狀態已更新 ({old_status} -> {new_status}) 並已發送通知', 'success')
-
+        flash(f'狀態已更新 ({new_status})', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
@@ -1204,29 +1202,24 @@ def update_booking_status(booking_id):
         # 3. ⭐ 發送通知
         if booking_info:
             customer_data = {
-                'email': booking_info['email'],
-                'firstname': booking_info['firstname'],
-                'line_id': booking_info['line_id']
-            }
+                'email': booking_info['email'], 'firstname': booking_info['firstname'], 'line_id': booking_info['line_id']}
+            time_str = booking_info['start_time'].strftime(
+                '%Y-%m-%d %H:%M') if booking_info['start_time'] else "未定"
 
-            # 格式化時間
-            time_str = "未定"
-            if booking_info['start_time']:
-                time_str = booking_info['start_time'].strftime(
-                    '%Y-%m-%d %H:%M')
-
-            if status == 'confirmed':
-                # 變成已確認 -> 發送確認信 (Email + LINE)
-                notify_booking_confirmed(
-                    booking_id, customer_data, booking_info['course_name'], time_str)
-            else:
-                # 其他狀態 -> 一般通知
-                notify_booking_status_update(
-                    booking_id, customer_data['firstname'], customer_data['email'], booking_info['course_name'], status)
+            try:
+                # ⭐ 延遲引用
+                from project.notifications import notify_booking_confirmed, notify_booking_status_update
+                if status == 'confirmed':
+                    notify_booking_confirmed(
+                        booking_id, customer_data, booking_info['course_name'], time_str)
+                else:
+                    notify_booking_status_update(
+                        booking_id, customer_data['firstname'], customer_data['email'], booking_info['course_name'], status)
+            except Exception:
+                pass
 
         log_activity('update', 'booking', booking_id, {'status': status})
-
-        flash('預約狀態已更新並發送通知', 'success')
+        flash('狀態已更新', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
@@ -1821,6 +1814,7 @@ def add_order_manual():
         # 9. 發送通知
         if send_notification and user:
             try:
+                from project.notifications import notify_order_confirmed
                 customer_data = {
                     'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
                 notify_order_confirmed(order_id, customer_data, total_amount)
@@ -1829,7 +1823,7 @@ def add_order_manual():
                 print(f"Notification Error: {e}")
                 flash('訂單建立成功，但通知發送失敗', 'warning')
         else:
-            flash('訂單已補登 (未發送通知)', 'success')
+            flash('訂單已補登', 'success')
 
         log_activity('create', 'order', order_id, {
                      'type': 'manual_admin', 'price': unit_price})
@@ -1917,11 +1911,9 @@ def add_booking_manual():
         # 6. 發送通知
         if send_notification and user:
             try:
+                from project.notifications import notify_booking_confirmed
                 customer_data = {
-                    'email': user['email'],
-                    'firstname': user['firstname'],
-                    'line_id': user['line_id']
-                }
+                    'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
                 time_str = appt_time.strftime('%Y-%m-%d %H:%M')
                 notify_booking_confirmed(
                     booking_id, customer_data, course['name'], time_str)
