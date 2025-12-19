@@ -13,7 +13,6 @@ import MySQLdb.cursors
 
 from project.extensions import database
 from project.forms import LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm
-from project.db import check_username_exists, check_email_exists, get_user_by_email
 from project.notifications import send_password_reset_email
 
 auth_bp = Blueprint('auth', __name__)
@@ -104,37 +103,33 @@ def logout():
 
 @auth_bp.route('/register', methods=['POST'])
 def register():
-    """Handle Registration with LINE Binding logic"""
     form = RegisterForm(request.form)
-
     if form.validate_on_submit():
-        # 1. 基本檢查
-        if check_username_exists(form.username.data):
-            flash('此帳號已被使用', 'error')
-            return redirect(url_for('main.home', open_register='true'))
-
-        if check_email_exists(form.email.data):
-            flash('此 Email 已被註冊', 'error')
-            return redirect(url_for('main.home', open_register='true'))
-
-        is_valid, msg = validate_password_strength(form.password.data)
-        if not is_valid:
-            flash(msg, 'error')
-            return redirect(url_for('main.home', open_register='true'))
-
-        # 2. 決定 LINE ID (關鍵邏輯)
-        # 優先順序：Session 自動綁定 > 使用者手動輸入
-        line_id_to_save = session.get('binding_line_id') or form.line_id.data
-
-        # 如果是空字串，轉成 None
-        if not line_id_to_save:
-            line_id_to_save = None
-
         try:
-            # 3. 執行註冊 (直接在此執行 SQL 以確保所有欄位正確寫入)
+            # ⭐ 關鍵修正：延遲引用，確保專案啟動時不會因為 db 依賴而崩潰
+            from project.db import check_username_exists, check_email_exists
+
+            # 檢查邏輯放入 try 區塊
+            if check_username_exists(form.username.data):
+                flash('此帳號已被使用', 'error')
+                return redirect(url_for('main.home', open_register='true'))
+
+            if check_email_exists(form.email.data):
+                flash('此 Email 已被註冊', 'error')
+                return redirect(url_for('main.home', open_register='true'))
+
+            is_valid, msg = validate_password_strength(form.password.data)
+            if not is_valid:
+                flash(msg, 'error')
+                return redirect(url_for('main.home', open_register='true'))
+
+            line_id_to_save = session.get(
+                'binding_line_id') or form.line_id.data or None
+
             cursor = database.connection.cursor()
             hashed_password = generate_password_hash(form.password.data)
 
+            # 注意：這裡不寫入 phone，因為註冊表單目前沒有 phone 欄位
             cursor.execute("""
                 INSERT INTO users (username, email, password_hash, firstname, surname, role, line_id, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
@@ -151,18 +146,20 @@ def register():
             database.connection.commit()
             cursor.close()
 
-            # 4. 清除 Session 中的綁定暫存
             session.pop('binding_line_id', None)
             session.pop('binding_line_name', None)
 
             flash('註冊成功！請登入。', 'success')
-            return redirect(url_for('main.home'))
+            return redirect(url_for('main.home', open_login='true'))
 
         except Exception as e:
-            database.connection.rollback()
+            try:
+                database.connection.rollback()
+            except:
+                pass
+            print(f"Registration Error: {e}")
             flash(f'註冊失敗: {str(e)}', 'error')
             return redirect(url_for('main.home', open_register='true'))
-
     else:
         for field, errors in form.errors.items():
             for error in errors:
@@ -177,29 +174,26 @@ def register():
 
 @auth_bp.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
-    """處理忘記密碼請求"""
     form = ForgotPasswordForm(request.form)
-
     if request.method == 'POST' and form.validate():
-        email = form.email.data
-        user = get_user_by_email(email)
+        try:
+            # ⭐ 關鍵修正：延遲引用
+            from project.db import get_user_by_email
 
-        if user:
-            # ⭐⭐⭐ 補回這兩行：產生 Token ⭐⭐⭐
-            s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
-            token = s.dumps(email, salt='password-reset-salt')
-
-            # 發送 Email (現在 token 有定義了，不會報錯)
-            send_password_reset_email(email, token)
-
-            flash('重設密碼連結已發送至您的 Email，請查收。', 'success')
-            # 明確指定 code=302，確保瀏覽器轉為 GET 請求
-            return redirect(url_for('auth.login'), code=302)
-        else:
-            # 為了資安，找不到 Email 也顯示發送成功
-            flash('如果此 Email 存在於系統中，我們將會發送重設連結。', 'info')
-            return redirect(url_for('auth.login'), code=302)
-
+            email = form.email.data
+            user = get_user_by_email(email)
+            if user:
+                s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+                token = s.dumps(email, salt='password-reset-salt')
+                send_password_reset_email(email, token)
+                flash('重設密碼連結已發送。', 'success')
+                return redirect(url_for('auth.login'))
+            else:
+                flash('如果 Email 存在，我們將發送重設連結。', 'info')
+                return redirect(url_for('auth.login'))
+        except Exception as e:
+            flash(f'系統錯誤: {str(e)}', 'error')
+            return redirect(url_for('auth.login'))
     return render_template('forgotpassword.html', form=form)
 
 

@@ -8,6 +8,7 @@ from functools import wraps
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import os
+import re
 from project.extensions import database
 from project.db import get_current_user_id, get_current_user_role
 import MySQLdb.cursors
@@ -22,7 +23,7 @@ from project.notifications import (
     notify_order_status_update,
     notify_booking_status_update
 )
-from project.customer import validate_password_strength
+
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -320,7 +321,7 @@ def dashboard():
         posts=posts,
         order_items_map=order_items_map,
         audit_logs=audit_logs,
-        now_str=now_str
+        now_str=now_str.strftime('%Y-%m-%d')
     )
 
 # ... (Rest of admin.py content for products, courses, etc. - ensure you keep them)
@@ -1374,7 +1375,28 @@ def update_single_schedule_capacity(schedule_id):
 # CUSTOMER MANAGEMENT
 # =====================================================
 
-# ... (在 update_customer 函式上方，插入這一段) ...
+
+def validate_password_strength(password):
+    """
+    驗證密碼強度：
+    1. 至少 10 碼
+    2. 包含大寫英文
+    3. 包含小寫英文
+    4. 包含數字
+    5. 包含符號
+    """
+    if len(password) < 10:
+        return False
+    if not re.search(r"[A-Z]", password):
+        return False
+    if not re.search(r"[a-z]", password):
+        return False
+    if not re.search(r"\d", password):
+        return False
+    # 檢查特殊符號 (非英數字)
+    if not re.search(r"[\W_]", password):
+        return False
+    return True
 
 
 # 找到原本的 add_customer，替換成下面這樣
@@ -1382,63 +1404,55 @@ def update_single_schedule_capacity(schedule_id):
 @staff_required
 def add_customer():
     try:
-        # 1. 抓取資料 (使用 .strip() 去除前後空白，避免誤判)
+        # 1. 抓取資料
         username = request.form.get('username', '').strip()
-        raw_password = request.form.get('password', '').strip()  # 原始輸入密碼
+        raw_password = request.form.get('password', '').strip()
 
         firstname = request.form.get('firstname')
         surname = request.form.get('surname')
         email = request.form.get('email')
         phone = request.form.get('phone', '').strip()
 
-        # 其他欄位
         line_id = request.form.get('line_id')
         gender = request.form.get('gender', 'other')
-        # 簡化空值處理寫法
         birth_date = request.form.get('birth_date') or None
         occupation = request.form.get('occupation')
         address = request.form.get('address')
         source_id = request.form.get('source_id') or None
         notes = request.form.get('notes')
 
-        # 變數：紀錄密碼是否為自動生成 (用來決定要不要驗證強度)
-        is_auto_generated_password = False
+        is_auto_generated = False
 
-        # --- 1. 帳號自動生成邏輯 ---
+        # 2. 自動生成邏輯 (統一標準)
+        # 帳號：優先手機，其次 Email 前綴
         if not username:
             if phone:
-                username = phone  # 規則：有手機，帳號 = 手機
+                username = phone
             else:
-                # 規則：沒手機，帳號 = Email 前綴
-                # 防呆：如果 email 格式怪怪的沒有 @，就直接用整個 email
                 username = email.split('@')[0] if '@' in email else email
 
-        # --- 2. 密碼自動生成邏輯 ---
+        # 密碼：優先手機，其次 123456
         final_password = raw_password
-
         if not final_password:
-            # 若未填寫 -> 標記為自動生成，並套用預設規則
-            is_auto_generated_password = True
+            is_auto_generated = True
             if phone:
-                final_password = phone  # 規則：有手機，密碼 = 手機
+                final_password = phone
             else:
-                final_password = "123456"  # 規則：沒手機，密碼 = 123456 (預設)
+                final_password = "123456"
 
-        # --- 3. 強度驗證邏輯 ---
-        # 只有在「管理者手動輸入」的情況下，才強制檢查複雜度
-        # 自動生成的密碼 (如手機號碼) 通常不符合強度規則，所以要跳過檢查
-        if not is_auto_generated_password:
+        # 3. 強度驗證 (僅在「手動輸入」時檢查)
+        if not is_auto_generated:
             if not validate_password_strength(final_password):
                 flash('手動設定的密碼強度不足！需含大小寫英數字及符號，且至少10碼。若不想設定請留空(使用預設值)。', 'error')
                 return redirect(url_for('admin.dashboard', tab='customers'))
 
-        # --- 4. 檢查帳號重複 ---
+        # 4. 檢查帳號重複 (延遲引用，避免循環)
         from project.db import check_username_exists
         if check_username_exists(username):
-            flash(f'帳號「{username}」已存在。若為自動生成(手機/Email前綴)重複，請手動輸入不同帳號。', 'error')
+            flash(f'帳號「{username}」已存在。請手動輸入不同帳號。', 'error')
             return redirect(url_for('admin.dashboard', tab='customers'))
 
-        # --- 5. 寫入資料庫 ---
+        # 5. 寫入資料庫
         cursor = database.connection.cursor()
         hashed_pw = generate_password_hash(final_password)
 
@@ -1467,9 +1481,8 @@ def add_customer():
         database.connection.commit()
         cursor.close()
 
-        # 提示訊息 (包含自動生成的資訊，方便管理者告知客戶)
         msg = f'客戶新增成功！帳號: {username}'
-        if is_auto_generated_password:
+        if is_auto_generated:
             msg += f' / 預設密碼: {final_password}'
 
         flash(msg, 'success')
