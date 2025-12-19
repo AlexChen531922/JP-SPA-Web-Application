@@ -13,7 +13,7 @@ import MySQLdb.cursors
 
 from project.extensions import database
 from project.forms import LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm
-# ⭐ 移除頂部的 project.db 引用，改到函式內部以避免循環引用
+from project.db import check_username_exists, check_email_exists, get_user_by_email
 from project.notifications import send_password_reset_email
 
 auth_bp = Blueprint('auth', __name__)
@@ -42,8 +42,7 @@ def validate_password_strength(password):
         return False, "密碼需包含至少一個大寫字母"
     if not re.search(r"\d", password):
         return False, "密碼需包含至少一個數字"
-    # 檢查特殊符號
-    if not re.search(r"[\W_]", password):
+    if not re.search(r"[ !@#$%^&*()_+\-=\[\]{};':\"\\|,.<>/?]", password):
         return False, "密碼需包含至少一個特殊符號"
     return True, ""
 
@@ -60,33 +59,27 @@ def login():
         username = form.username.data
         password = form.password.data
 
-        try:
-            cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-            cursor.execute(
-                "SELECT * FROM users WHERE username = %s", (username,))
-            user = cursor.fetchone()
-            cursor.close()
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute("SELECT * FROM users WHERE username = %s", (username,))
+        user = cursor.fetchone()
+        cursor.close()
 
-            # 驗證帳號與密碼
-            if user and check_password_hash(user['password_hash'], password):
-                session.permanent = True
-                session['logged_in'] = True
-                session['user'] = user  # 存入完整 user 字典
+        # 驗證帳號與密碼
+        if user and check_password_hash(user['password_hash'], password):
+            session.permanent = True
+            session['logged_in'] = True
+            session['user'] = user  # 存入完整 user 字典
 
-                flash('登入成功！', 'success')
+            flash('登入成功！', 'success')
 
-                # 根據角色導向
-                if user['role'] in ['admin', 'staff']:
-                    return redirect(url_for('admin.dashboard'))
-                else:
-                    return redirect(url_for('main.home'))
+            # 根據角色導向
+            if user['role'] in ['admin', 'staff']:
+                return redirect(url_for('admin.dashboard'))
             else:
-                flash('帳號或密碼錯誤', 'error')
-                return redirect(url_for('main.home', open_login='true'))
-
-        except Exception as e:
-            flash(f'登入發生錯誤: {str(e)}', 'error')
-            return redirect(url_for('main.home', open_login='true'))
+                return redirect(url_for('main.home'))
+        else:
+            flash('帳號或密碼錯誤', 'error')
+            return redirect(url_for('main.home'))
 
     # 表單驗證失敗
     for field, errors in form.errors.items():
@@ -115,39 +108,33 @@ def register():
     form = RegisterForm(request.form)
 
     if form.validate_on_submit():
-        # ⭐ 將所有邏輯包入 Try-Except，捕捉可能的 500 錯誤
+        # 1. 基本檢查
+        if check_username_exists(form.username.data):
+            flash('此帳號已被使用', 'error')
+            return redirect(url_for('main.home', open_register='true'))
+
+        if check_email_exists(form.email.data):
+            flash('此 Email 已被註冊', 'error')
+            return redirect(url_for('main.home', open_register='true'))
+
+        is_valid, msg = validate_password_strength(form.password.data)
+        if not is_valid:
+            flash(msg, 'error')
+            return redirect(url_for('main.home', open_register='true'))
+
+        # 2. 決定 LINE ID (關鍵邏輯)
+        # 優先順序：Session 自動綁定 > 使用者手動輸入
+        line_id_to_save = session.get('binding_line_id') or form.line_id.data
+
+        # 如果是空字串，轉成 None
+        if not line_id_to_save:
+            line_id_to_save = None
+
         try:
-            # ⭐ 延遲引用，避免循環引用問題
-            from project.db import check_username_exists, check_email_exists
-
-            # 1. 基本檢查
-            if check_username_exists(form.username.data):
-                flash('此帳號已被使用', 'error')
-                return redirect(url_for('main.home', open_register='true'))
-
-            if check_email_exists(form.email.data):
-                flash('此 Email 已被註冊', 'error')
-                return redirect(url_for('main.home', open_register='true'))
-
-            is_valid, msg = validate_password_strength(form.password.data)
-            if not is_valid:
-                flash(msg, 'error')
-                return redirect(url_for('main.home', open_register='true'))
-
-            # 2. 決定 LINE ID (關鍵邏輯)
-            # 優先順序：Session 自動綁定 > 使用者手動輸入
-            line_id_to_save = session.get(
-                'binding_line_id') or form.line_id.data
-
-            # 如果是空字串，轉成 None
-            if not line_id_to_save:
-                line_id_to_save = None
-
-            # 3. 執行註冊
+            # 3. 執行註冊 (直接在此執行 SQL 以確保所有欄位正確寫入)
             cursor = database.connection.cursor()
             hashed_password = generate_password_hash(form.password.data)
 
-            # 注意：這裡不寫入 notes，因為 notes 不是必填，讓它預設為 NULL
             cursor.execute("""
                 INSERT INTO users (username, email, password_hash, firstname, surname, role, line_id, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
@@ -169,18 +156,11 @@ def register():
             session.pop('binding_line_name', None)
 
             flash('註冊成功！請登入。', 'success')
-            return redirect(url_for('main.home', open_login='true'))
+            return redirect(url_for('main.home'))
 
         except Exception as e:
-            # 捕捉所有錯誤並印出，避免 500 頁面
-            print(f"Registration Error: {e}")
-            # 如果資料庫連線有問題，嘗試 rollback
-            try:
-                database.connection.rollback()
-            except:
-                pass
-
-            flash(f'註冊失敗，請稍後再試: {str(e)}', 'error')
+            database.connection.rollback()
+            flash(f'註冊失敗: {str(e)}', 'error')
             return redirect(url_for('main.home', open_register='true'))
 
     else:
@@ -201,29 +181,23 @@ def forgot_password():
     form = ForgotPasswordForm(request.form)
 
     if request.method == 'POST' and form.validate():
-        try:
-            # ⭐ 延遲引用
-            from project.db import get_user_by_email
+        email = form.email.data
+        user = get_user_by_email(email)
 
-            email = form.email.data
-            user = get_user_by_email(email)
+        if user:
+            # ⭐⭐⭐ 補回這兩行：產生 Token ⭐⭐⭐
+            s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
+            token = s.dumps(email, salt='password-reset-salt')
 
-            if user:
-                # 產生 Token
-                s = URLSafeTimedSerializer(current_app.config['SECRET_KEY'])
-                token = s.dumps(email, salt='password-reset-salt')
+            # 發送 Email (現在 token 有定義了，不會報錯)
+            send_password_reset_email(email, token)
 
-                # 發送 Email
-                send_password_reset_email(email, token)
-
-                flash('重設密碼連結已發送至您的 Email，請查收。', 'success')
-                return redirect(url_for('auth.login'), code=302)
-            else:
-                # 為了資安，找不到 Email 也顯示發送成功
-                flash('如果此 Email 存在於系統中，我們將會發送重設連結。', 'info')
-                return redirect(url_for('auth.login'), code=302)
-        except Exception as e:
-            flash(f'系統錯誤: {str(e)}', 'error')
+            flash('重設密碼連結已發送至您的 Email，請查收。', 'success')
+            # 明確指定 code=302，確保瀏覽器轉為 GET 請求
+            return redirect(url_for('auth.login'), code=302)
+        else:
+            # 為了資安，找不到 Email 也顯示發送成功
+            flash('如果此 Email 存在於系統中，我們將會發送重設連結。', 'info')
             return redirect(url_for('auth.login'), code=302)
 
     return render_template('forgotpassword.html', form=form)
