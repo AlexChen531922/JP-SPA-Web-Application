@@ -56,8 +56,15 @@
 
                         {% if post and post.image %}
                         <div class="mt-3">
-                            <img src="{{ url_for('static', filename=post.image) }}" alt="Current image"
-                                class="img-thumbnail" style="max-width: 200px;">
+                            {% if post.image and post.image.startswith('http') %}
+                            <img src="{{ post.image }}" alt="Current image" class="img-thumbnail object-fit-cover"
+                                style="max-width: 200px;"
+                                onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+                            {% elif post.image %}
+                            <img src="{{ url_for('static', filename='img/' + post.image) }}" alt="Current image"
+                                class="img-thumbnail object-fit-cover" style="max-width: 200px;"
+                                onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+                            {% endif %}
                         </div>
                         {% endif %}
 

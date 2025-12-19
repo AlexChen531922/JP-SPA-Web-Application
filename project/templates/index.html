@@ -18,235 +18,247 @@
 
           <div data-bs-toggle="modal" data-bs-target="#productModal{{ product.id }}" style="cursor:pointer;">
             <div class="ratio ratio-1x1">
-              {% if product.image %}
-              <img src="{{ url_for('static', filename=product.image) }}" class="card-img-top object-fit-cover"
-                alt="{{ product.name }}"
+              {% if product.image and product.image.startswith('http') %}
+              <img src="{{ product.image }}" class="card-img-top object-fit-cover h-100" alt="{{ product.name }}"
+                onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+              {% elif product.image %}
+              <img src="{{ url_for('static', filename='img/' + product.image) }}"
+                class="card-img-top object-fit-cover h-100" alt="{{ product.name }}"
                 onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
               {% else %}
-              <div class="bg-light d-flex align-items-center justify-content-center">
+              <div class="bg-light d-flex align-items-center justify-content-center h-100">
                 <i class="bi bi-image fs-1 text-muted"></i>
               </div>
               {% endif %}
-            </div>
-            <div class="card-body">
-              <h6 class="fw-bold text-truncate">{{ product.name }}</h6>
-
-              <p class="price text-primary fw-bold">請洽詢</p>
-
-              <div>
-                {% if product.category_name %}
-                <span class="badge bg-light text-dark">{{ product.category_name }}</span>
-                {% else %}
-                <span class="badge" style="visibility: hidden;">&nbsp;</span>
-                {% endif %}
-              </div>
             </div>
           </div>
+          <div class="card-body">
+            <h6 class="fw-bold text-truncate">{{ product.name }}</h6>
 
-        </div>
-      </div>
-      {% else %}
-      <div class="col-12 text-center text-muted">目前沒有精選產品</div>
-      {% endfor %}
-    </div>
-  </section>
+            <p class="price text-primary fw-bold">請洽詢</p>
 
-  {% for product in products %}
-  <div class="modal fade" id="productModal{{ product.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title fw-bold">{{ product.name }}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="row">
-            <div class="col-md-6 mb-3 mb-md-0 text-center">
-              {% if product.image %}
-              <img src="{{ url_for('static', filename=product.image) }}" class="img-fluid rounded"
-                alt="{{ product.name }}"
-                onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
-              {% else %}
-              <div class="bg-light d-flex align-items-center justify-content-center h-100" style="min-height:200px;">
-                <i class="bi bi-image fs-1 text-muted"></i>
-              </div>
-              {% endif %}
-            </div>
-            <div class="col-md-6">
-              {% if product.price > 0 %}
-              <h4 class="text-primary fw-bold mb-3">請洽詢</h4>
-              {% endif %}
+            <div>
               {% if product.category_name %}
-              <span class="badge bg-secondary mb-3">{{ product.category_name }}</span>
-              {% endif %}
-              <div class="mb-4">
-                <h6 class="fw-bold">產品介紹</h6>
-                <p class="text-muted" style="white-space: pre-line;">{{ product.description or '暫無介紹' }}</p>
-              </div>
-
-              {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
-              <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="quantity" value="1">
-                <button type="submit" class="btn btn-primary w-100">
-                  <i class="bi bi-cart-plus"></i> 現在預訂
-                </button>
-              </form>
+              <span class="badge bg-light text-dark">{{ product.category_name }}</span>
               {% else %}
-              <button class="btn btn-secondary w-100" disabled>請先登入</button>
+              <span class="badge" style="visibility: hidden;">&nbsp;</span>
               {% endif %}
             </div>
           </div>
         </div>
+
       </div>
     </div>
-  </div>
-  {% endfor %}
+    {% else %}
+    <div class="col-12 text-center text-muted">目前沒有精選產品</div>
+    {% endfor %}
+</div>
+</section>
 
-
-  <section class="mb-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h3 class="fw-bold mb-0">熱門課程</h3>
-      <a href="{{ url_for('main.courses') }}" class="btn btn-sm btn-outline-secondary">查看全部 <i
-          class="bi bi-arrow-right"></i></a>
-    </div>
-
-    <div class="row g-4">
-      {% for course in courses %}
-      <div class="col-6 col-md-4 col-lg-3">
-        <div class="card h-100 shadow-sm hover-zoom d-flex flex-column">
-
-          <div data-bs-toggle="modal" data-bs-target="#courseModal{{ course.id }}"
-            class="d-flex flex-column flex-grow-1" style="cursor:pointer;">
-
-            <div class="ratio ratio-16x9">
-              {% if course.image %}
-              <img src="{{ url_for('static', filename=course.image) }}" class="card-img-top object-fit-cover"
-                alt="{{ course.name }}" onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
-              {% else %}
-              <div class="bg-light d-flex align-items-center justify-content-center">
-                <i class="bi bi-calendar-check fs-1 text-muted"></i>
-              </div>
-              {% endif %}
-            </div>
-
-            <div class="card-body d-flex flex-column flex-grow-1">
-              <h5 class="card-title text-truncate">{{ course.name }}</h5>
-
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                  {% if course.experience_price %}
-                  <span class="badge bg-success">首次體驗</span>
-                  <span class="text-success fw-bold">NT$ {{ '{:,.0f}'.format(course.experience_price) }}</span>
-                  {% endif %}
-
-                  <p
-                    class="mb-0 {% if course.experience_price %}text-muted text-decoration-line-through small{% else %}text-primary fw-bold{% endif %}">
-                    {% if course.regular_price > 0 %}
-                    NT$ {{ '{:,.0f}'.format(course.regular_price) }}
-                    {% else %}
-
-                    {% endif %}
-                  </p>
-                </div>
-
-                {% if course.duration %}
-                <span class="text-muted small"><i class="bi bi-clock"></i> {{ course.duration }} 分鐘</span>
-                {% else %}
-                <span class="text-muted small" style="visibility: hidden;">&nbsp;</span>
-                {% endif %}
-              </div>
-
-              <div class="mt-auto">
-                {% if course.category_name %}
-                <span class="badge bg-light text-dark">{{ course.category_name }}</span>
-                {% else %}
-                <span class="badge" style="visibility: hidden;">&nbsp;</span>
-                {% endif %}
-              </div>
-            </div>
-
-          </div>
-        </div>
+{% for product in products %}
+<div class="modal fade" id="productModal{{ product.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">{{ product.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      {% else %}
-      <div class="col-12 text-center text-muted">目前沒有熱門課程</div>
-      {% endfor %}
-    </div>
-  </section>
-
-  {% for course in courses %}
-  <div class="modal fade" id="courseModal{{ course.id }}" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-lg">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h5 class="modal-title fw-bold">{{ course.name }}</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-        </div>
-        <div class="modal-body">
-          <div class="mb-3">
-            {% if course.image %}
-            <img src="{{ url_for('static', filename=course.image) }}" class="img-fluid rounded w-100 object-fit-cover"
-              style="max-height: 300px;" alt="{{ course.name }}"
-              onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
-            {% endif %}
-          </div>
-
-          <p><strong>類別：</strong> {{ course.category_name or '無' }}</p>
-          <p><strong>時長：</strong> {{ course.duration or '未知' }} 分鐘</p>
-          <div class="mb-3">
-            <strong>價格：</strong>
-            {% if course.experience_price %}
-            <span class="text-success fw-bold fs-5">首次體驗 NT$ {{ '{:,.0f}'.format(course.experience_price) }}</span>
-            {% if course.regular_price > 0 %}
-            <span class="text-decoration-line-through text-muted ms-2">NT$ {{ '{:,.0f}'.format(course.regular_price)
-              }}</span>
-            {% endif %}
+      <div class="modal-body">
+        <div class="row">
+          <div class="col-md-6 mb-3 mb-md-0 text-center">
+            {% if product.image and product.image.startswith('http') %}
+            <img src="{{ product.image }}" class="img-fluid rounded" alt="{{ product.name }}"
+              onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+            {% elif product.image %}
+            <img src="{{ url_for('static', filename='img/' + product.image) }}" class="img-fluid rounded"
+              alt="{{ product.name }}" onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
             {% else %}
-            {% if course.regular_price > 0 %}
-            <span class="text-primary fw-bold fs-5">NT$ {{ '{:,.0f}'.format(course.regular_price) }}</span>
-            {% endif %}
+            <div class="bg-light d-flex align-items-center justify-content-center h-100" style="min-height:200px;">
+              <i class="bi bi-image fs-1 text-muted"></i>
+            </div>
             {% endif %}
           </div>
+          <div class="col-md-6">
+            {% if product.price > 0 %}
+            <h4 class="text-primary fw-bold mb-3">請洽詢</h4>
+            {% endif %}
+            {% if product.category_name %}
+            <span class="badge bg-secondary mb-3">{{ product.category_name }}</span>
+            {% endif %}
+            <div class="mb-4">
+              <h6 class="fw-bold">產品介紹</h6>
+              <p class="text-muted" style="white-space: pre-line;">{{ product.description or '暫無介紹' }}</p>
+            </div>
 
-          {% if course.description %}
-          <hr>
-          <div class="mb-3">
-            <h6>課程說明：</h6>
-            <p class="text-muted" style="white-space: pre-line;">{{ course.description }}</p>
+            {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
+            <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="quantity" value="1">
+              <button type="submit" class="btn btn-primary w-100">
+                <i class="bi bi-cart-plus"></i> 現在預訂
+              </button>
+            </form>
+            {% else %}
+            <button class="btn btn-secondary w-100" disabled>請先登入</button>
+            {% endif %}
           </div>
-          {% endif %}
-        </div>
-        <div class="modal-footer">
-          {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
-          <a href="{{ url_for('main.course_detail', course_id=course.id) }}" class="btn btn-success w-100">
-            <i class="bi bi-calendar-week"></i> 前往選擇時段
-          </a>
-          {% else %}
-          <button class="btn btn-secondary w-100" disabled>請先登入</button>
-          {% endif %}
         </div>
       </div>
     </div>
   </div>
-  {% endfor %}
+</div>
+{% endfor %}
 
 
-  {% if posts %}
-  <section class="mb-5 mt-5">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h3 class="fw-bold mb-0">美麗知識</h3>
-      <a href="{{ url_for('main.blog') }}" class="btn btn-outline-secondary rounded-pill btn-sm">
-        查看全部 <i class="bi bi-arrow-right ms-1"></i>
-      </a>
+<section class="mb-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="fw-bold mb-0">熱門課程</h3>
+    <a href="{{ url_for('main.courses') }}" class="btn btn-sm btn-outline-secondary">查看全部 <i
+        class="bi bi-arrow-right"></i></a>
+  </div>
+
+  <div class="row g-4">
+    {% for course in courses %}
+    <div class="col-6 col-md-4 col-lg-3">
+      <div class="card h-100 shadow-sm hover-zoom d-flex flex-column">
+
+        <div data-bs-toggle="modal" data-bs-target="#courseModal{{ course.id }}" class="d-flex flex-column flex-grow-1"
+          style="cursor:pointer;">
+
+          <div class="ratio ratio-16x9">
+            {% if course.image and course.image.startswith('http') %}
+            <img src="{{ course.image }}" class="card-img-top object-fit-cover" alt="{{ course.name }}"
+              onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+            {% elif course.image %}
+            <img src="{{ url_for('static', filename='img/' + course.image) }}" class="card-img-top object-fit-cover"
+              alt="{{ course.name }}" onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+            {% else %}
+            <div class="bg-light d-flex align-items-center justify-content-center">
+              <i class="bi bi-calendar-check fs-1 text-muted"></i>
+            </div>
+            {% endif %}
+          </div>
+
+          <div class="card-body d-flex flex-column flex-grow-1">
+            <h5 class="card-title text-truncate">{{ course.name }}</h5>
+
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div>
+                {% if course.experience_price %}
+                <span class="badge bg-success">首次體驗</span>
+                <span class="text-success fw-bold">NT$ {{ '{:,.0f}'.format(course.experience_price) }}</span>
+                {% endif %}
+
+                <p
+                  class="mb-0 {% if course.experience_price %}text-muted text-decoration-line-through small{% else %}text-primary fw-bold{% endif %}">
+                  {% if course.regular_price > 0 %}
+                  NT$ {{ '{:,.0f}'.format(course.regular_price) }}
+                  {% else %}
+
+                  {% endif %}
+                </p>
+              </div>
+
+              {% if course.duration %}
+              <span class="text-muted small"><i class="bi bi-clock"></i> {{ course.duration }} 分鐘</span>
+              {% else %}
+              <span class="text-muted small" style="visibility: hidden;">&nbsp;</span>
+              {% endif %}
+            </div>
+
+            <div class="mt-auto">
+              {% if course.category_name %}
+              <span class="badge bg-light text-dark">{{ course.category_name }}</span>
+              {% else %}
+              <span class="badge" style="visibility: hidden;">&nbsp;</span>
+              {% endif %}
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
+    {% else %}
+    <div class="col-12 text-center text-muted">目前沒有熱門課程</div>
+    {% endfor %}
+  </div>
+</section>
 
-    <div class="row g-4">
-      {% for post in posts %}
-      <div class="col-12 col-md-6 col-lg-4">
-        <a href="{{ url_for('main.post_detail', post_id=post.id) }}" class="text-decoration-none"
-          style="text-decoration: none;">
-          <div style="
+{% for course in courses %}
+<div class="modal fade" id="courseModal{{ course.id }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title fw-bold">{{ course.name }}</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          {% if course.image and course.image.startswith('http') %}
+          <img src="{{ course.image }}" class="img-fluid rounded w-100 object-fit-cover" style="max-height: 300px;"
+            alt="{{ course.name }}" onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+          {% elif course.image %}
+          <img src="{{ url_for('static', filename='img/' + course.image) }}"
+            class="img-fluid rounded w-100 object-fit-cover" style="max-height: 300px;" alt="{{ course.name }}"
+            onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+          {% endif %}
+        </div>
+
+        <p><strong>類別：</strong> {{ course.category_name or '無' }}</p>
+        <p><strong>時長：</strong> {{ course.duration or '未知' }} 分鐘</p>
+        <div class="mb-3">
+          <strong>價格：</strong>
+          {% if course.experience_price %}
+          <span class="text-success fw-bold fs-5">首次體驗 NT$ {{ '{:,.0f}'.format(course.experience_price) }}</span>
+          {% if course.regular_price > 0 %}
+          <span class="text-decoration-line-through text-muted ms-2">NT$ {{ '{:,.0f}'.format(course.regular_price)
+            }}</span>
+          {% endif %}
+          {% else %}
+          {% if course.regular_price > 0 %}
+          <span class="text-primary fw-bold fs-5">NT$ {{ '{:,.0f}'.format(course.regular_price) }}</span>
+          {% endif %}
+          {% endif %}
+        </div>
+
+        {% if course.description %}
+        <hr>
+        <div class="mb-3">
+          <h6>課程說明：</h6>
+          <p class="text-muted" style="white-space: pre-line;">{{ course.description }}</p>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer">
+        {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
+        <a href="{{ url_for('main.course_detail', course_id=course.id) }}" class="btn btn-success w-100">
+          <i class="bi bi-calendar-week"></i> 前往選擇時段
+        </a>
+        {% else %}
+        <button class="btn btn-secondary w-100" disabled>請先登入</button>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endfor %}
+
+
+{% if posts %}
+<section class="mb-5 mt-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h3 class="fw-bold mb-0">美麗知識</h3>
+    <a href="{{ url_for('main.blog') }}" class="btn btn-outline-secondary rounded-pill btn-sm">
+      查看全部 <i class="bi bi-arrow-right ms-1"></i>
+    </a>
+  </div>
+
+  <div class="row g-4">
+    {% for post in posts %}
+    <div class="col-12 col-md-6 col-lg-4">
+      <a href="{{ url_for('main.post_detail', post_id=post.id) }}" class="text-decoration-none"
+        style="text-decoration: none;">
+        <div style="
           border-radius: 15px;
           overflow: hidden;
           position: relative;
@@ -254,119 +266,121 @@
           border: 0;
           box-shadow: 0 1px 5px rgba(0,0,0,0.1);
         " onmouseover="this.style.transform='translateY(-5px) scale(1.02)'; this.style.boxShadow='0 10px 25px rgba(0,0,0,0.15)';"
-            onmouseout="this.style.transform='translateY(0) scale(1)'; this.style.boxShadow='0 1px 5px rgba(0,0,0,0.1)';">
+          onmouseout="this.style.transform='translateY(0) scale(1)'; this.style.boxShadow='0 1px 5px rgba(0,0,0,0.1)';">
 
-            <div style="position: relative; width: 100%; padding-top: 56.25%; overflow: hidden;">
-              <img src="{{ url_for('static', filename='img/gallery_1.jpg') }}" alt="{{ post.title }}" style="
-                   position: absolute;
-                   top: 0; left: 0;
-                   width: 100%; height: 100%;
-                   object-fit: cover;
-                 ">
-              <div style="
-              position: absolute;
-              top: 0; left: 0;
-              width: 100%; height: 100%;
-              background: linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.25));
-              pointer-events: none;
-            "></div>
+          <div style="position: relative; width: 100%; padding-top: 56.25%; overflow: hidden;">
+            {% if post.image and post.image.startswith('http') %}
+            <img src="{{ post.image }}" alt="{{ post.title }}"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"
+              onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+            {% elif post.image %}
+            <img src="{{ url_for('static', filename='img/' + post.image) }}" alt="{{ post.title }}"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;"
+              onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+            {% else %}
+            <img src="{{ url_for('static', filename='img/default-post.png') }}" alt="{{ post.title }}"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover;">
+            {% endif %}
+            <div
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.25)); pointer-events: none;">
             </div>
-
-            <div style="padding: 1rem;">
-              <h5 style="font-size: 1.1rem; line-height: 1.4; font-weight: bold; color: #000;">{{ post.title }}</h5>
-              <p style="font-size: 0.85rem; line-height: 1.4; color: #6c757d; margin-bottom: 0.5rem;">
-                <i class="bi bi-calendar3 me-1"></i> {{ post.date }}
-              </p>
-              <p style="font-size: 0.95rem; line-height: 1.5; color: #6c757d;">{{ post.summary }}</p>
-              <span style="font-weight: bold; color: #0d6efd;">閱讀更多 →</span>
-            </div>
-
           </div>
-        </a>
+
+          <div style="padding: 1rem;">
+            <h5 style="font-size: 1.1rem; line-height: 1.4; font-weight: bold; color: #000;">{{ post.title }}</h5>
+            <p style="font-size: 0.85rem; line-height: 1.4; color: #6c757d; margin-bottom: 0.5rem;">
+              <i class="bi bi-calendar3 me-1"></i> {{ post.date }}
+            </p>
+            <p style="font-size: 0.95rem; line-height: 1.5; color: #6c757d;">{{ post.summary }}</p>
+            <span style="font-weight: bold; color: #0d6efd;">閱讀更多 →</span>
+          </div>
+
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+
+{% if testimonials %}
+<section class="mb-5">
+  <h3 class="fw-bold mb-4 text-center">使用者推薦</h3>
+
+  <div id="testimonialCarousel" class="carousel slide" data-bs-ride="carousel">
+    <div class="carousel-inner">
+      {% for testimonial in testimonials %}
+      <div class="carousel-item {% if loop.first %}active{% endif %}">
+        <div class="p-5 bg-light rounded-4 shadow text-center">
+          <i class="bi bi-quote fs-1 text-primary"></i>
+          <p class="fs-5 my-4">{{ testimonial.content }}</p>
+          <p class="fw-bold text-primary">— {{ testimonial.author }}</p>
+        </div>
       </div>
       {% endfor %}
     </div>
-  </section>
-  {% endif %}
+    <button class="carousel-control-prev" type="button" data-bs-target="#testimonialCarousel" data-bs-slide="prev">
+      <span class="carousel-control-prev-icon bg-dark rounded-circle p-3"></span>
+    </button>
+    <button class="carousel-control-next" type="button" data-bs-target="#testimonialCarousel" data-bs-slide="next">
+      <span class="carousel-control-next-icon bg-dark rounded-circle p-3"></span>
+    </button>
+  </div>
+</section>
+{% endif %}
 
+<section class="row g-5">
+  <div class="col-12 col-lg-6">
+    <h4 class="fw-bold mb-3">聯絡我們</h4>
 
-  {% if testimonials %}
-  <section class="mb-5">
-    <h3 class="fw-bold mb-4 text-center">使用者推薦</h3>
+    <form action="{{ url_for('main.contact') }}" method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-    <div id="testimonialCarousel" class="carousel slide" data-bs-ride="carousel">
-      <div class="carousel-inner">
-        {% for testimonial in testimonials %}
-        <div class="carousel-item {% if loop.first %}active{% endif %}">
-          <div class="p-5 bg-light rounded-4 shadow text-center">
-            <i class="bi bi-quote fs-1 text-primary"></i>
-            <p class="fs-5 my-4">{{ testimonial.content }}</p>
-            <p class="fw-bold text-primary">— {{ testimonial.author }}</p>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-      <button class="carousel-control-prev" type="button" data-bs-target="#testimonialCarousel" data-bs-slide="prev">
-        <span class="carousel-control-prev-icon bg-dark rounded-circle p-3"></span>
-      </button>
-      <button class="carousel-control-next" type="button" data-bs-target="#testimonialCarousel" data-bs-slide="next">
-        <span class="carousel-control-next-icon bg-dark rounded-circle p-3"></span>
-      </button>
-    </div>
-  </section>
-  {% endif %}
-
-  <section class="row g-5">
-    <div class="col-12 col-lg-6">
-      <h4 class="fw-bold mb-3">聯絡我們</h4>
-
-      <form action="{{ url_for('main.contact') }}" method="POST">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-
-        <div class="mb-3">
-          <label class="form-label">姓名 <span class="text-danger">*</span></label>
-          <input type="text" name="name" class="form-control" required>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">Email <span class="text-danger">*</span></label>
-          <input type="email" name="email" class="form-control" required>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">電話</label>
-          <input type="tel" name="phone" class="form-control">
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">LINE 帳號</label>
-          <input type="text" name="line" class="form-control">
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">訊息 <span class="text-danger">*</span></label>
-          <textarea name="message" rows="4" class="form-control" required></textarea>
-        </div>
-
-        <button type="submit" class="btn btn-primary w-100">送出</button>
-      </form>
-    </div>
-
-    <div class="col-12 col-lg-6 d-flex flex-column">
-      <h4 class="fw-bold mb-3">交通資訊</h4>
-      <div class="mb-4">
-        <p class="mb-2"><i class="bi bi-geo-alt-fill text-primary"></i> 新北市新莊區思源路296巷37號1樓</p>
-        <p class="mb-2"><i class="bi bi-train-front-fill text-primary"></i> 捷運幸福站 1 號出口</p>
-        <p class="mb-2"><i class="bi bi-p-square-fill text-primary"></i> 遠東好停幸福站停車場</p>
+      <div class="mb-3">
+        <label class="form-label">姓名 <span class="text-danger">*</span></label>
+        <input type="text" name="name" class="form-control" required>
       </div>
 
-      <div class="flex-grow-1" style="min-height: 300px;">
-        <iframe
-          src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d903.6300122500033!2d121.46053552850924!3d25.05035699860708!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a862815f21fd%3A0xcaaa930671c6c827!2z5pm25ZOB6Iqz55mC!5e0!3m2!1szh-TW!2sau!4v1763110421398!5m2!1szh-TW!2sau"
-          class="w-100 h-100 rounded-4 shadow" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
+      <div class="mb-3">
+        <label class="form-label">Email <span class="text-danger">*</span></label>
+        <input type="email" name="email" class="form-control" required>
       </div>
+
+      <div class="mb-3">
+        <label class="form-label">電話</label>
+        <input type="tel" name="phone" class="form-control">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">LINE 帳號</label>
+        <input type="text" name="line" class="form-control">
+      </div>
+
+      <div class="mb-3">
+        <label class="form-label">訊息 <span class="text-danger">*</span></label>
+        <textarea name="message" rows="4" class="form-control" required></textarea>
+      </div>
+
+      <button type="submit" class="btn btn-primary w-100">送出</button>
+    </form>
+  </div>
+
+  <div class="col-12 col-lg-6 d-flex flex-column">
+    <h4 class="fw-bold mb-3">交通資訊</h4>
+    <div class="mb-4">
+      <p class="mb-2"><i class="bi bi-geo-alt-fill text-primary"></i> 新北市新莊區思源路296巷37號1樓</p>
+      <p class="mb-2"><i class="bi bi-train-front-fill text-primary"></i> 捷運幸福站 1 號出口</p>
+      <p class="mb-2"><i class="bi bi-p-square-fill text-primary"></i> 遠東好停幸福站停車場</p>
     </div>
-  </section>
+
+    <div class="flex-grow-1" style="min-height: 300px;">
+      <iframe
+        src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d903.6300122500033!2d121.46053552850924!3d25.05035699860708!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3442a862815f21fd%3A0xcaaa930671c6c827!2z5pm25ZOB6Iqz55mC!5e0!3m2!1szh-TW!2sau!4v1763110421398!5m2!1szh-TW!2sau"
+        class="w-100 h-100 rounded-4 shadow" style="border:0;" allowfullscreen="" loading="lazy"></iframe>
+    </div>
+  </div>
+</section>
 
 </div>
 {% endblock %}

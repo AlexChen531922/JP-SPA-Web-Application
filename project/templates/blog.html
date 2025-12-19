@@ -18,9 +18,13 @@
 
                     <!-- Post Image -->
                     <div class="ratio ratio-16x9">
-                        {% if post.image %}
-                        <img src="{{ url_for('static', filename=post.image) }}" class="card-img-top object-fit-cover"
-                            alt="{{ post.title }}">
+                        {% if post.image and post.image.startswith('http') %}
+                        <img src="{{ post.image }}" class="card-img-top object-fit-cover" alt="{{ post.title }}"
+                            onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+                        {% elif post.image %}
+                        <img src="{{ url_for('static', filename='img/' + post.image) }}"
+                            class="card-img-top object-fit-cover" alt="{{ post.title }}"
+                            onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
                         {% else %}
                         <div class="bg-light d-flex align-items-center justify-content-center">
                             <i class="bi bi-newspaper display-3 text-muted"></i>

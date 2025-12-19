@@ -93,8 +93,15 @@
                             </td>
                             <td>
                                 <div class="d-flex align-items-center">
-                                    <img src="{{ url_for('static', filename=course.image or 'img/placeholder.jpg') }}"
-                                        class="rounded me-2" style="width: 40px; height: 40px; object-fit: cover;">
+                                    {% if course.image and course.image.startswith('http') %}
+                                    <img src="{{ course.image }}" class="rounded me-2 object-fit-cover"
+                                        style="width: 40px; height: 40px;"
+                                        onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+                                    {% else %}
+                                    <img src="{{ url_for('static', filename='img/' + course.image) if course.image else url_for('static', filename='img/placeholder.jpg') }}"
+                                        class="rounded me-2 object-fit-cover" style="width: 40px; height: 40px;"
+                                        onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+                                    {% endif %}
                                     <span class="fw-bold">{{ course.name }}</span>
                                 </div>
                             </td>

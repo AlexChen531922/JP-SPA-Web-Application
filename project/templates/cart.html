@@ -35,10 +35,15 @@
 
                                 <div class="col-3 col-md-2">
                                     <a href="{{ url_for('main.product_detail', product_id=item.product_id) }}"
-                                        class="d-block ratio ratio-1x1 bg-light rounded overflow-hidden">
-                                        {% if item.image %}
-                                        <img src="{{ url_for('static', filename=item.image) }}" class="object-fit-cover"
-                                            alt="{{ item.name }}">
+                                        class="d-block ratio ratio-1x1 bg-light rounded overflow-hidden border">
+                                        {% if item.image and item.image.startswith('http') %}
+                                        <img src="{{ item.image }}" class="object-fit-cover w-100 h-100"
+                                            alt="{{ item.name }}"
+                                            onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                                        {% elif item.image %}
+                                        <img src="{{ url_for('static', filename='img/' + item.image) }}"
+                                            class="object-fit-cover w-100 h-100" alt="{{ item.name }}"
+                                            onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
                                         {% else %}
                                         <div class="d-flex align-items-center justify-content-center h-100">
                                             <i class="bi bi-image text-muted fs-4"></i>

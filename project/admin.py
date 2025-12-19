@@ -3,11 +3,13 @@ Complete Admin Management System with Advanced Reporting
 Fixed all CRUD operations and inventory integration
 """
 from werkzeug.security import generate_password_hash
-from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, current_app
+from flask import Blueprint, render_template, request, flash, redirect, url_for, jsonify, current_app, session
 from functools import wraps
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import os
+import cloudinary
+import cloudinary.uploader
 import re
 from project.extensions import database
 from project.db import get_current_user_id, get_current_user_role
@@ -28,15 +30,37 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def upload_to_cloudinary(image_file):
+    """
+    將圖片上傳到 Cloudinary 並回傳安全連結 (HTTPS)。
+    如果上傳失敗或檔案為空，回傳 None。
+    """
+    if not image_file:
+        return None
+
+    try:
+        # 直接上傳檔案物件
+        upload_result = cloudinary.uploader.upload(image_file)
+        # 取得 HTTPS 網址
+        return upload_result.get('secure_url')
+    except Exception as e:
+        # 建議加入 log 記錄錯誤
+        print(f"Cloudinary Upload Error: {e}")
+        return None
+
+
 def save_upload(file, upload_folder):
-    """Save uploaded file with timestamp"""
     if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        filename = f"{timestamp}_{filename}"
-        filepath = os.path.join(upload_folder, filename)
-        file.save(filepath)
-        return f"img/{filename}"
+        try:
+            # 直接上傳到 Cloudinary，不需要先存到本地
+            upload_result = cloudinary.uploader.upload(file)
+
+            # 取得雲端上的圖片網址
+            return upload_result['secure_url']
+
+        except Exception as e:
+            print(f"上傳失敗: {e}")
+            return None
     return None
 
 
@@ -321,53 +345,43 @@ def dashboard():
 # ... (Rest of admin.py content for products, courses, etc. - ensure you keep them)
 
 
-@admin_bp.route('/product/add', methods=['POST'])
+@admin_bp.route('/product/add/modal', methods=['POST'])
 @staff_required
 def add_product_modal():
-    """Add new product"""
     try:
-        name = request.form.get('name', '').strip()
-        category_id = request.form.get('category_id', type=int) or None
-        price = request.form.get('price', 0, type=float)
-        cost = request.form.get('cost', 0, type=float)
-        stock = request.form.get('stock', 0, type=int)
-        unit = request.form.get('unit', '件').strip()
-        description = request.form.get('description', '').strip()
+        # 1. 接收欄位
+        name = request.form.get('name')
+        category_id = request.form.get('category_id') or None
+        price = request.form.get('price') or 0
+        cost = request.form.get('cost') or 0
+        stock = request.form.get('stock') or 0
+        description = request.form.get('description')
 
-        if not name:
-            flash('請填寫產品名稱', 'error')
-            return redirect(url_for('admin.dashboard', tab='products'))
-
+        # 2. 圖片處理 (Cloudinary)
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
-            if file and file.filename:
-                image_url = save_upload(
-                    file, current_app.config['UPLOAD_FOLDER'])
+            if file and file.filename != '':
+                image_url = upload_to_cloudinary(file)
 
+        # 3. 執行 SQL (INSERT)
         cursor = database.connection.cursor()
-        cursor.execute("""
-            INSERT INTO products (name, category_id, price, cost, stock_quantity, unit, description, image)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (name, category_id, price, cost, stock, unit, description, image_url))
+        sql = """
+            INSERT INTO products 
+            (name, category_id, price, cost, stock_quantity, description, image, is_active, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+        """
+        # 預設 is_active 為 1 (True)
+        cursor.execute(sql, (name, category_id, price, cost,
+                       stock, description, image_url, 1))
 
-        product_id = cursor.lastrowid
-
-        # Log initial inventory
-        if stock > 0:
-            cursor.execute("""
-                INSERT INTO inventory_logs (product_id, change_amount, change_type, notes, created_by)
-                VALUES (%s, %s, 'purchase', 'Initial stock', %s)
-            """, (product_id, stock, get_current_user_id()))
-
+        new_id = cursor.lastrowid  # 取得剛新增的 ID
         database.connection.commit()
         cursor.close()
 
-        # ⭐ LOG ACTIVITY
-        log_activity('create', 'product', product_id, {
-                     'name': name, 'price': price, 'stock': stock})
+        log_activity('create', 'product', new_id, {'name': name})
+        flash('產品新增成功', 'success')
 
-        flash('產品已新增', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'新增失敗: {str(e)}', 'error')
@@ -375,67 +389,56 @@ def add_product_modal():
     return redirect(url_for('admin.dashboard', tab='products'))
 
 
-@admin_bp.route('/product/<int:product_id>/update', methods=['POST'])
+@admin_bp.route('/product/update/modal/<int:product_id>', methods=['POST'])
 @staff_required
 def update_product_modal(product_id):
-    """Update product"""
     try:
-        name = request.form.get('name', '').strip()
-        category_id = request.form.get('category_id', type=int) or None
-        price = request.form.get('price', 0, type=float)
-        cost = request.form.get('cost', 0, type=float)
-        stock = request.form.get('stock', 0, type=int)
-        unit = request.form.get('unit', '件').strip()
-        description = request.form.get('description', '').strip()
-        is_active = request.form.get('is_active') == 'on'
+        # 1. 接收欄位
+        name = request.form.get('name')
+        category_id = request.form.get('category_id') or None
+        price = request.form.get('price') or 0
+        cost = request.form.get('cost') or 0
+        stock = request.form.get('stock') or 0
+        description = request.form.get('description')
+        is_active = 1 if request.form.get('is_active') else 0
 
-        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-        # Get current data for logging & stock check
-        cursor.execute(
-            "SELECT name, price, stock_quantity, image FROM products WHERE id = %s", (product_id,))
-        old_data = cursor.fetchone()
-        old_stock = old_data['stock_quantity'] if old_data else 0
-
-        # Handle image
-        image_url = request.form.get('current_image')
+        # 2. 圖片處理
+        image_url = None
         if 'image' in request.files:
             file = request.files['image']
-            if file and file.filename:
-                new_image = save_upload(
-                    file, current_app.config['UPLOAD_FOLDER'])
-                if new_image:
-                    image_url = new_image
+            if file and file.filename != '':
+                image_url = upload_to_cloudinary(file)
 
-        # Update product
-        cursor.execute("""
-            UPDATE products
-            SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s,
-                unit=%s, description=%s, image=%s, is_active=%s
-            WHERE id=%s
-        """, (name, category_id, price, cost, stock, unit, description, image_url, is_active, product_id))
+        cursor = database.connection.cursor()
 
-        # Log stock change if different
-        if stock != old_stock:
-            change = stock - old_stock
-            cursor.execute("""
-                INSERT INTO inventory_logs (product_id, change_amount, change_type, notes, created_by)
-                VALUES (%s, %s, 'adjustment', 'Stock updated via product edit', %s)
-            """, (product_id, change, get_current_user_id()))
+        # 3. 執行 SQL (UPDATE)
+        if image_url:
+            # 如果有上傳新圖，連同圖片網址一起更新
+            sql = """
+                UPDATE products 
+                SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s, 
+                    description=%s, is_active=%s, image=%s, updated_at=NOW()
+                WHERE id=%s
+            """
+            cursor.execute(sql, (name, category_id, price, cost,
+                           stock, description, is_active, image_url, product_id))
+        else:
+            # 沒上傳新圖，只更新文字
+            sql = """
+                UPDATE products 
+                SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s, 
+                    description=%s, is_active=%s, updated_at=NOW()
+                WHERE id=%s
+            """
+            cursor.execute(sql, (name, category_id, price, cost,
+                           stock, description, is_active, product_id))
 
         database.connection.commit()
         cursor.close()
 
-        # ⭐ LOG ACTIVITY
-        log_changes = {
-            'old_data': {'name': old_data['name'], 'price': float(old_data['price'])},
-            'new_data': {'name': name, 'price': price}
-        }
-        print(f"呼叫 Log: Product {product_id}")
-        log_activity('update', 'product', product_id,
-                     {'name': name, 'price': price})
+        log_activity('update', 'product', product_id, {'name': name})
+        flash('產品更新成功', 'success')
 
-        flash('產品已更新', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
@@ -532,50 +535,42 @@ def get_course_json(course_id):
 # =====================================================
 
 
-@admin_bp.route('/course/add', methods=['POST'])
+# --- 新增課程 ---
+@admin_bp.route('/course/add/modal', methods=['POST'])
 @staff_required
 def add_course_modal():
-    """Add new course"""
     try:
-        name = request.form.get('name', '').strip()
-        category_id = request.form.get('category_id', type=int) or None
-        regular_price = request.form.get('regular_price', 0, type=float)
-        experience_price = request.form.get('experience_price', 0, type=float)
-        # Add fee fields
-        service_fee = request.form.get('service_fee', 0, type=float)
-        product_fee = request.form.get('product_fee', 0, type=float)
-
-        duration = request.form.get('duration', type=int) or None
-        sessions = request.form.get('sessions', 1, type=int)
-        description = request.form.get('description', '').strip()
-
-        if not name:
-            flash('請填寫課程名稱', 'error')
-            return redirect(url_for('admin.dashboard', tab='courses'))
+        name = request.form.get('name')
+        category_id = request.form.get('category_id') or None
+        regular_price = request.form.get('regular_price') or 0
+        experience_price = request.form.get('experience_price') or 0
+        service_fee = request.form.get('service_fee') or 0
+        product_fee = request.form.get('product_fee') or 0
+        duration = request.form.get('duration') or 60
+        description = request.form.get('description')
 
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
-            if file and file.filename:
-                image_url = save_upload(
-                    file, current_app.config['UPLOAD_FOLDER'])
+            if file and file.filename != '':
+                image_url = upload_to_cloudinary(file)
 
         cursor = database.connection.cursor()
-        cursor.execute("""
-            INSERT INTO courses (name, category_id, regular_price, experience_price, 
-                               service_fee, product_fee, duration, sessions, description, image)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (name, category_id, regular_price, experience_price, service_fee, product_fee, duration, sessions, description, image_url))
+        sql = """
+            INSERT INTO courses 
+            (name, category_id, regular_price, experience_price, service_fee, product_fee, 
+             duration, description, image, is_active, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
+        """
+        cursor.execute(sql, (name, category_id, regular_price, experience_price,
+                       service_fee, product_fee, duration, description, image_url))
 
-        course_id = cursor.lastrowid
-        # Removed auto-scheduling for individual courses as per new requirement
+        new_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
 
-        # ⭐ LOG ACTIVITY
-        log_activity('create', 'course', course_id, {
-                     'name': name, 'price': regular_price})
-        flash('課程已新增', 'success')
+        log_activity('create', 'course', new_id, {'name': name})
+        flash('課程新增成功', 'success')
 
     except Exception as e:
         database.connection.rollback()
@@ -584,58 +579,56 @@ def add_course_modal():
     return redirect(url_for('admin.dashboard', tab='courses'))
 
 
-@admin_bp.route('/course/<int:course_id>/update', methods=['POST'])
+# --- 編輯課程 ---
+@admin_bp.route('/course/update/modal/<int:course_id>', methods=['POST'])
 @staff_required
 def update_course_modal(course_id):
-    """Update course"""
     try:
-        name = request.form.get('name', '').strip()
-        category_id = request.form.get('category_id', type=int) or None
-        regular_price = request.form.get('regular_price', 0, type=float)
-        experience_price = request.form.get('experience_price', 0, type=float)
-        # Add fee fields
-        service_fee = request.form.get('service_fee', 0, type=float)
-        product_fee = request.form.get('product_fee', 0, type=float)
+        name = request.form.get('name')
+        category_id = request.form.get('category_id') or None
+        regular_price = request.form.get('regular_price') or 0
+        experience_price = request.form.get('experience_price') or 0
+        service_fee = request.form.get('service_fee') or 0
+        product_fee = request.form.get('product_fee') or 0
+        duration = request.form.get('duration') or 60
+        description = request.form.get('description')
+        is_active = 1 if request.form.get('is_active') else 0
 
-        duration = request.form.get('duration', type=int) or None
-        sessions = request.form.get('sessions', 1, type=int)
-        description = request.form.get('description', '').strip()
-        is_active = request.form.get('is_active') == 'on'
-
-        image_url = request.form.get('current_image')
+        image_url = None
         if 'image' in request.files:
             file = request.files['image']
-            if file and file.filename:
-                new_image = save_upload(
-                    file, current_app.config['UPLOAD_FOLDER'])
-                if new_image:
-                    image_url = new_image
+            if file and file.filename != '':
+                image_url = upload_to_cloudinary(file)
 
-        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor = database.connection.cursor()
 
-        # Get old data
-        cursor.execute("SELECT name FROM courses WHERE id = %s", (course_id,))
-        old_data = cursor.fetchone()
-
-        cursor.execute("""
-            UPDATE courses
-            SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
-                service_fee=%s, product_fee=%s, duration=%s, sessions=%s, 
-                description=%s, image=%s, is_active=%s
-            WHERE id=%s
-        """, (name, category_id, regular_price, experience_price, service_fee, product_fee,
-              duration, sessions, description, image_url, is_active, course_id))
+        if image_url:
+            sql = """
+                UPDATE courses 
+                SET name=%s, category_id=%s, regular_price=%s, experience_price=%s, 
+                    service_fee=%s, product_fee=%s, duration=%s, description=%s, 
+                    is_active=%s, image=%s, updated_at=NOW()
+                WHERE id=%s
+            """
+            cursor.execute(sql, (name, category_id, regular_price, experience_price, service_fee,
+                           product_fee, duration, description, is_active, image_url, course_id))
+        else:
+            sql = """
+                UPDATE courses 
+                SET name=%s, category_id=%s, regular_price=%s, experience_price=%s, 
+                    service_fee=%s, product_fee=%s, duration=%s, description=%s, 
+                    is_active=%s, updated_at=NOW()
+                WHERE id=%s
+            """
+            cursor.execute(sql, (name, category_id, regular_price, experience_price,
+                           service_fee, product_fee, duration, description, is_active, course_id))
 
         database.connection.commit()
         cursor.close()
 
-        # ⭐ LOG ACTIVITY
-        log_activity('update', 'course', course_id, {
-            'old_name': old_data['name'] if old_data else '',
-            'new_name': name
-        })
+        log_activity('update', 'course', course_id, {'name': name})
+        flash('課程更新成功', 'success')
 
-        flash('課程已更新', 'success')
     except Exception as e:
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
@@ -1613,108 +1606,104 @@ def get_date_range(period, custom_start=None, custom_end=None):
 # =====================================================
 # BLOG MANAGEMENT
 # =====================================================
-@admin_bp.route('/add_post', methods=['GET', 'POST'])
+# --- 新增文章 ---
+@admin_bp.route('/post/add', methods=['GET', 'POST'])
 @staff_required
 def add_post():
-    # 處理表單提交 (POST)
     if request.method == 'POST':
-        title = request.form.get('title')
-        summary = request.form.get('summary')
-        content = request.form.get('content')
-        status = request.form.get('status', 'draft')
-
-        # 處理圖片上傳
-        image_url = None
-        if 'image' in request.files:
-            file = request.files['image']
-            if file and file.filename:
-                # 假設您有 save_upload 函式 (之前在 admin.py 看過)
-                image_url = save_upload(
-                    file, current_app.config['UPLOAD_FOLDER'])
-
         try:
+            title = request.form.get('title')
+            content = request.form.get('content')
+            summary = request.form.get('summary')
+            status = request.form.get('status', 'draft')
+            author_id = session.get('user', {}).get('id')
+
+            image_url = None
+            if 'image' in request.files:
+                file = request.files['image']
+                if file and file.filename != '':
+                    image_url = upload_to_cloudinary(file)
+
             cursor = database.connection.cursor()
-            cursor.execute("""
-                INSERT INTO blog_posts (title, summary, content, image, status, author_id, published_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (
-                title,
-                summary,
-                content,
-                image_url,
-                status,
-                get_current_user_id(),
-                datetime.now() if status == 'published' else None
-            ))
+            sql = """
+                INSERT INTO posts 
+                (title, content, summary, status, author_id, image, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
+            """
+            cursor.execute(sql, (title, content, summary,
+                           status, author_id, image_url))
+
+            new_id = cursor.lastrowid
             database.connection.commit()
             cursor.close()
-            flash('文章已新增', 'success')
+
+            log_activity('create', 'post', new_id, {'title': title})
+            flash('文章已建立', 'success')
             return redirect(url_for('admin.dashboard', tab='posts'))
 
         except Exception as e:
             database.connection.rollback()
-            flash(f'新增失敗: {str(e)}', 'error')
+            flash(f'建立失敗: {str(e)}', 'error')
 
-    # 顯示頁面 (GET) - 修正這裡，原本是 return "Add post page"
-    return render_template('admin_post_form.html', post=None)
+    return render_template('admin_post_form.html')
 
 
-@admin_bp.route('/edit-post/<int:post_id>', methods=['GET', 'POST'])
+# --- 編輯文章 ---
+@admin_bp.route('/post/edit/<int:post_id>', methods=['GET', 'POST'])
 @staff_required
 def edit_post(post_id):
-    # 修正 1: 使用 database 而不是 mysql
+    # 先查詢文章資料 (因為 GET 需要顯示，POST 需要更新)
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-    # 修正 2: 表格名稱改為 blog_posts
-    cursor.execute("SELECT * FROM blog_posts WHERE id = %s", (post_id,))
+    cursor.execute("SELECT * FROM posts WHERE id = %s", (post_id,))
     post = cursor.fetchone()
+    cursor.close()
 
     if not post:
-        cursor.close()
-        flash("找不到該文章", "danger")
+        flash('找不到該文章', 'error')
         return redirect(url_for('admin.dashboard', tab='posts'))
 
-    # POST → 更新文章
     if request.method == 'POST':
-        title = request.form.get("title")
-        summary = request.form.get("summary")
-        content = request.form.get("content")
-        status = request.form.get("status")
-
-        # 處理圖片
-        image = post['image']  # 預設使用原本圖片
-        if 'image' in request.files:
-            file = request.files['image']
-            if file and file.filename:
-                # 這裡假設您有 save_upload 函式可用
-                image = save_upload(file, current_app.config['UPLOAD_FOLDER'])
-
         try:
-            # 修正 3: Update 語句也要改成 blog_posts
-            cursor.execute("""
-                UPDATE blog_posts
-                SET title=%s, summary=%s, content=%s, status=%s, image=%s
-                WHERE id=%s
-            """, (title, summary, content, status, image, post_id))
+            title = request.form.get('title')
+            content = request.form.get('content')
+            summary = request.form.get('summary')
+            status = request.form.get('status')
+
+            image_url = None
+            if 'image' in request.files:
+                file = request.files['image']
+                if file and file.filename != '':
+                    image_url = upload_to_cloudinary(file)
+
+            cursor = database.connection.cursor()
+            if image_url:
+                sql = """
+                    UPDATE posts 
+                    SET title=%s, content=%s, summary=%s, status=%s, image=%s, updated_at=NOW()
+                    WHERE id=%s
+                """
+                cursor.execute(sql, (title, content, summary,
+                               status, image_url, post_id))
+            else:
+                sql = """
+                    UPDATE posts 
+                    SET title=%s, content=%s, summary=%s, status=%s, updated_at=NOW()
+                    WHERE id=%s
+                """
+                cursor.execute(sql, (title, content, summary, status, post_id))
 
             database.connection.commit()
-            flash("文章已成功更新", "success")
+            cursor.close()
+
+            log_activity('update', 'post', post_id, {'title': title})
+            flash('文章已更新', 'success')
+            return redirect(url_for('admin.dashboard', tab='posts'))
 
         except Exception as e:
             database.connection.rollback()
-            flash(f"更新失敗: {str(e)}", "error")
-        finally:
-            cursor.close()
+            flash(f'更新失敗: {str(e)}', 'error')
 
-        return redirect(url_for('admin.dashboard', tab='posts'))
-
-    cursor.close()
-
-    # GET → 顯示編輯頁
-    return render_template(
-        "admin_post_form.html",
-        post=post
-    )
+    return render_template('admin_post_form.html', post=post)
 
 
 @admin_bp.route("/posts/delete/<int:post_id>", methods=["POST"])

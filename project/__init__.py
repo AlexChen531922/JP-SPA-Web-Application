@@ -40,6 +40,11 @@ def create_app():
         # 設定 UPLOAD_FOLDER
         UPLOAD_FOLDER=UPLOAD_FOLDER,
 
+        # Cloudinary Configuration
+        cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+        api_key=os.environ.get('CLOUDINARY_API_KEY'),
+        api_secret=os.environ.get('CLOUDINARY_API_SECRET'),
+
         MYSQL_HOST=os.environ.get("MYSQL_HOST", "localhost"),
         MYSQL_USER=os.environ.get("MYSQL_USER", "root"),
         MYSQL_PASSWORD=os.environ.get("MYSQL_PASSWORD"),

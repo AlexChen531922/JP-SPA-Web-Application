@@ -55,8 +55,15 @@
                     <tr>
                         <td>
                             <div class="ratio ratio-1x1" style="width: 50px;">
-                                <img src="{{ url_for('static', filename=item.image or 'img/placeholder.jpg') }}"
-                                    class="rounded border object-fit-cover">
+                                {% if item.image and item.image.startswith('http') %}
+                                <img src="{{ item.image }}" class="rounded border object-fit-cover w-100 h-100"
+                                    alt="{{ item.name }}"
+                                    onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                                {% else %}
+                                <img src="{{ url_for('static', filename='img/' + item.image) if item.image else url_for('static', filename='img/placeholder.jpg') }}"
+                                    class="rounded border object-fit-cover w-100 h-100" alt="{{ item.name }}"
+                                    onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                                {% endif %}
                             </div>
                         </td>
                         <td>{{ item.name }}</td>

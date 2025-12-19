@@ -52,9 +52,13 @@
         <div data-bs-toggle="modal" data-bs-target="#productModal{{ product.id }}" style="cursor:pointer;">
 
           <div class="ratio ratio-4x3 bg-light">
-            {% if product.image %}
-            <img src="{{ url_for('static', filename=product.image) }}" class="object-fit-cover" alt="{{ product.name }}"
-              loading="lazy" onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+            {% if product.image and product.image.startswith('http') %}
+            <img src="{{ product.image }}" class="object-fit-cover" alt="{{ product.name }}" loading="lazy"
+              onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+            {% elif product.image %}
+            <img src="{{ url_for('static', filename='img/' + product.image) }}" class="object-fit-cover"
+              alt="{{ product.name }}" loading="lazy"
+              onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
             {% else %}
             <div class="d-flex align-items-center justify-content-center h-100 text-muted">
               <i class="bi bi-image fs-3 opacity-25"></i>
@@ -138,154 +142,158 @@
         <div class="row g-0">
           <div class="col-md-6">
             <div class="ratio ratio-1x1 bg-light h-100">
-              {% if product.image %}
-              <img src="{{ url_for('static', filename=product.image) }}" class="object-fit-cover"
-                alt="{{ product.name }}">
+              {% if product.image and product.image.startswith('http') %}
+              <img src="{{ product.image }}" class="object-fit-cover" alt="{{ product.name }}"
+                onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+              {% elif product.image %}
+              <img src="{{ url_for('static', filename='img/' + product.image) }}" class="object-fit-cover"
+                alt="{{ product.name }}"
+                onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
               {% else %}
-              <div class="d-flex align-items-center justify-content-center h-100"><i
-                  class="bi bi-image fs-1 text-muted"></i></div>
+              <div class="d-flex align-items-center justify-content-center h-100">
+                <i class="bi bi-image fs-1 text-muted"></i>
+              </div>
               {% endif %}
             </div>
-          </div>
+            <div class="col-md-6 d-flex flex-column p-4 p-lg-5">
+              <div>
+                <span class="badge bg-success bg-opacity-10 text-success mb-2 rounded-pill px-3">{{
+                  product.category_name
+                  }}</span>
+                <h3 class="fw-bold mb-3">{{ product.name }}</h3>
+                <p class="text-secondary lh-lg mb-4">{{ product.description }}</p>
 
-          <div class="col-md-6 d-flex flex-column p-4 p-lg-5">
-            <div>
-              <span class="badge bg-success bg-opacity-10 text-success mb-2 rounded-pill px-3">{{ product.category_name
-                }}</span>
-              <h3 class="fw-bold mb-3">{{ product.name }}</h3>
-              <p class="text-secondary lh-lg mb-4">{{ product.description }}</p>
-
-              <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-3">
-                {% if (product.stock_quantity | default(0)) > 0 %}
-                <i class="bi bi-check-circle-fill text-success fs-5 me-2"></i>
-                <div>
-                  <small class="text-muted d-block" style="font-size: 0.8rem;">庫存狀態</small>
-                  <span class="text-success fw-bold">現貨供應 </span>
-                </div>
-                {% else %}
-                <i class="bi bi-x-circle-fill text-danger fs-5 me-2"></i>
-                <div>
-                  <small class="text-muted d-block" style="font-size: 0.8rem;">庫存狀態</small>
-                  <span class="text-danger fw-bold">目前缺貨</span>
-                </div>
-                {% endif %}
-              </div>
-            </div>
-
-            <div class="mt-auto pt-3 border-top">
-              <div class="d-flex justify-content-between align-items-center mb-3">
-                <span class="text-muted">售價</span>
-                <span class="fs-4 fw-bold text-success">請洽詢</span>
-              </div>
-
-              <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button type="submit" class="btn btn-success w-100 rounded-pill py-3 fw-bold shadow-sm hover-scale" {%
-                  if (product.stock_quantity | default(0)) <=0 %}disabled{% endif %}>
+                <div class="d-flex align-items-center mb-4 p-3 bg-light rounded-3">
                   {% if (product.stock_quantity | default(0)) > 0 %}
-                  <i class="bi bi-cart-plus me-1"></i> 送出預訂
+                  <i class="bi bi-check-circle-fill text-success fs-5 me-2"></i>
+                  <div>
+                    <small class="text-muted d-block" style="font-size: 0.8rem;">庫存狀態</small>
+                    <span class="text-success fw-bold">現貨供應 </span>
+                  </div>
                   {% else %}
-                  暫時缺貨
+                  <i class="bi bi-x-circle-fill text-danger fs-5 me-2"></i>
+                  <div>
+                    <small class="text-muted d-block" style="font-size: 0.8rem;">庫存狀態</small>
+                    <span class="text-danger fw-bold">目前缺貨</span>
+                  </div>
                   {% endif %}
-                </button>
-              </form>
+                </div>
+              </div>
+
+              <div class="mt-auto pt-3 border-top">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <span class="text-muted">售價</span>
+                  <span class="fs-4 fw-bold text-success">請洽詢</span>
+                </div>
+
+                <form action="{{ url_for('main.add_to_cart', product_id=product.id) }}" method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-success w-100 rounded-pill py-3 fw-bold shadow-sm hover-scale" {%
+                    if (product.stock_quantity | default(0)) <=0 %}disabled{% endif %}>
+                    {% if (product.stock_quantity | default(0)) > 0 %}
+                    <i class="bi bi-cart-plus me-1"></i> 送出預訂
+                    {% else %}
+                    暫時缺貨
+                    {% endif %}
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
   </div>
-</div>
-{% endfor %}
+  {% endfor %}
 
-{% endblock %}
+  {% endblock %}
 
-{% block scripts %}
-<script>
-  let page = 1;
-  let loading = false;
-  let hasMore = {{ 'true' if products| length >= 15 else 'false' }};
-  const productList = document.getElementById('product-list');
-  const loadingIndicator = document.getElementById('loading');
-  const noMoreIndicator = document.getElementById('no-more');
-  const currentCategory = {{ current_category| tojson }};
-  const searchQuery = {{ search_query| tojson }};
+  {% block scripts %}
+  <script>
+    let page = 1;
+    let loading = false;
+    let hasMore = {{ 'true' if products| length >= 15 else 'false' }};
+    const productList = document.getElementById('product-list');
+    const loadingIndicator = document.getElementById('loading');
+    const noMoreIndicator = document.getElementById('no-more');
+    const currentCategory = {{ current_category| tojson }};
+    const searchQuery = {{ search_query| tojson }};
 
-  // Infinite scroll
-  function loadMoreProducts() {
-    if (loading || !hasMore) return;
+    // Infinite scroll
+    function loadMoreProducts() {
+      if (loading || !hasMore) return;
 
-    const scrollTop = window.scrollY;
-    const windowHeight = window.innerHeight;
-    const docHeight = document.documentElement.scrollHeight;
+      const scrollTop = window.scrollY;
+      const windowHeight = window.innerHeight;
+      const docHeight = document.documentElement.scrollHeight;
 
-    if (scrollTop + windowHeight >= docHeight - 300) {
-      loading = true;
-      page += 1;
-      loadingIndicator.style.display = 'block';
+      if (scrollTop + windowHeight >= docHeight - 300) {
+        loading = true;
+        page += 1;
+        loadingIndicator.style.display = 'block';
 
-      let url = `/products?page=${page}`;
-      if (currentCategory) url += `&category=${currentCategory}`;
-      if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+        let url = `/products?page=${page}`;
+        if (currentCategory) url += `&category=${currentCategory}`;
+        if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
 
-      fetch(url, {
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest'
-        }
-      })
-        .then(res => res.text())
-        .then(html => {
-          loadingIndicator.style.display = 'none';
+        fetch(url, {
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+          .then(res => res.text())
+          .then(html => {
+            loadingIndicator.style.display = 'none';
 
-          if (html.trim()) {
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = html;
-            const newItems = tempDiv.querySelectorAll('.col-6');
+            if (html.trim()) {
+              const tempDiv = document.createElement('div');
+              tempDiv.innerHTML = html;
+              const newItems = tempDiv.querySelectorAll('.col-6');
 
-            if (newItems.length > 0) {
-              newItems.forEach(item => {
-                productList.appendChild(item);
-              });
-              loading = false;
+              if (newItems.length > 0) {
+                newItems.forEach(item => {
+                  productList.appendChild(item);
+                });
+                loading = false;
+              } else {
+                hasMore = false;
+                noMoreIndicator.style.display = 'block';
+              }
             } else {
               hasMore = false;
               noMoreIndicator.style.display = 'block';
             }
-          } else {
-            hasMore = false;
-            noMoreIndicator.style.display = 'block';
-          }
-        })
-        .catch(err => {
-          console.error('載入失敗:', err);
-          loadingIndicator.style.display = 'none';
-          loading = false;
-        });
+          })
+          .catch(err => {
+            console.error('載入失敗:', err);
+            loadingIndicator.style.display = 'none';
+            loading = false;
+          });
+      }
     }
-  }
 
-  if (hasMore) {
-    window.addEventListener('scroll', loadMoreProducts);
-  }
+    if (hasMore) {
+      window.addEventListener('scroll', loadMoreProducts);
+    }
 
-  // Hover effect
-  document.querySelectorAll('.hover-zoom').forEach(card => {
-    card.addEventListener('mouseenter', function () { this.style.transform = 'translateY(-5px)'; });
-    card.addEventListener('mouseleave', function () { this.style.transform = 'translateY(0)'; });
-  });
-</script>
+    // Hover effect
+    document.querySelectorAll('.hover-zoom').forEach(card => {
+      card.addEventListener('mouseenter', function () { this.style.transform = 'translateY(-5px)'; });
+      card.addEventListener('mouseleave', function () { this.style.transform = 'translateY(0)'; });
+    });
+  </script>
 
-<style>
-  .hover-zoom {
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
-  }
+  <style>
+    .hover-zoom {
+      transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
 
-  .hover-zoom:hover {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
-  }
+    .hover-zoom:hover {
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15) !important;
+    }
 
-  .object-fit-cover {
-    object-fit: cover;
-  }
-</style>
-{% endblock %}
+    .object-fit-cover {
+      object-fit: cover;
+    }
+  </style>
+  {% endblock %}

@@ -279,8 +279,16 @@
               <tbody>
                 {% for product in products %}
                 <tr>
-                  <td><img src="{{ url_for('static', filename=product.image or 'img/placeholder.jpg') }}" width="50"
-                      class="rounded"></td>
+                  <td>
+                    {% if product.image and product.image.startswith('http') %}
+                    <img src="{{ product.image }}" width="50" class="rounded object-fit-cover" alt="Product"
+                      onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                    {% else %}
+                    <img
+                      src="{{ url_for('static', filename='img/' + product.image) if product.image else url_for('static', filename='img/default-product.png') }}"
+                      width="50" class="rounded object-fit-cover" alt="Product">
+                    {% endif %}
+                  </td>
                   <td>{{ product.name }}</td>
                   <td><span class="badge bg-light text-dark">{{ product.category_name or '未分類' }}</span></td>
                   {% if session.get('user', {}).get('role') == 'admin' %}<td>{{ '{:,.0f}'.format(product.cost or 0) }}
@@ -361,8 +369,16 @@
               <tbody>
                 {% for course in courses %}
                 <tr>
-                  <td><img src="{{ url_for('static', filename=course.image or 'img/placeholder.jpg') }}" width="50"
-                      class="rounded"></td>
+                  <td>
+                    {% if course.image and course.image.startswith('http') %}
+                    <img src="{{ course.image }}" width="50" class="rounded object-fit-cover" alt="Course"
+                      onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+                    {% else %}
+                    <img
+                      src="{{ url_for('static', filename='img/' + course.image) if course.image else url_for('static', filename='img/default-course.png') }}"
+                      width="50" class="rounded object-fit-cover" alt="Course">
+                    {% endif %}
+                  </td>
                   <td>{{ course.name }}</td>
                   <td><span class="badge bg-light text-dark">{{ course.category_name }}</span></td>
                   <td>{{ '{:,.0f}'.format(course.regular_price) }}</td>
@@ -814,9 +830,14 @@
                 {% for prod in inventory_products %}
                 <tr>
                   <td>
-                    {% if prod.image %}
-                    <img src="{{ url_for('static', filename='img/' + prod.image) }}" alt="Product" class="rounded"
-                      style="width: 40px; height: 40px; object-fit: cover;">
+                    {% if prod.image and prod.image.startswith('http') %}
+                    <img src="{{ prod.image }}" alt="Product" class="rounded object-fit-cover"
+                      style="width: 40px; height: 40px;"
+                      onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                    {% elif prod.image %}
+                    <img src="{{ url_for('static', filename='img/' + prod.image) }}" alt="Product"
+                      class="rounded object-fit-cover" style="width: 40px; height: 40px;"
+                      onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
                     {% else %}
                     <div class="bg-light rounded d-flex align-items-center justify-content-center text-muted"
                       style="width: 40px; height: 40px;">
@@ -824,7 +845,6 @@
                     </div>
                     {% endif %}
                   </td>
-
                   <td class="fw-bold">{{ prod.name }}</td>
 
                   <td>

@@ -41,8 +41,14 @@
 
                 {% if post.image %}
                 <div class="ratio ratio-16x9 mb-4 rounded-4 overflow-hidden shadow-sm">
-                    <img src="{{ url_for('static', filename=post.image) }}" alt="{{ post.title }}"
-                        class="object-fit-cover">
+                    {% if post.image.startswith('http') %}
+                    <img src="{{ post.image }}" alt="{{ post.title }}" class="object-fit-cover"
+                        onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+                    {% else %}
+                    <img src="{{ url_for('static', filename='img/' + post.image) }}" alt="{{ post.title }}"
+                        class="object-fit-cover"
+                        onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+                    {% endif %}
                 </div>
                 {% endif %}
 
@@ -81,9 +87,14 @@
                         <a href="{{ url_for('main.post_detail', post_id=related.id) }}" class="text-decoration-none">
                             <div class="card border-0 shadow-sm h-100">
                                 <div class="ratio ratio-16x9">
-                                    {% if related.image %}
-                                    <img src="{{ url_for('static', filename=related.image) }}"
-                                        class="card-img-top object-fit-cover rounded-top" alt="{{ related.title }}">
+                                    {% if related.image and related.image.startswith('http') %}
+                                    <img src="{{ related.image }}" class="card-img-top object-fit-cover rounded-top"
+                                        alt="{{ related.title }}"
+                                        onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
+                                    {% elif related.image %}
+                                    <img src="{{ url_for('static', filename='img/' + related.image) }}"
+                                        class="card-img-top object-fit-cover rounded-top" alt="{{ related.title }}"
+                                        onerror="this.src='{{ url_for('static', filename='img/default-post.png') }}'">
                                     {% else %}
                                     <div class="bg-light d-flex align-items-center justify-content-center rounded-top">
                                         <i class="bi bi-newspaper fs-1 text-muted"></i>
