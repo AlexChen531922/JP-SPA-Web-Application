@@ -13,7 +13,7 @@ import MySQLdb.cursors
 
 from project.extensions import database
 from project.forms import LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm
-from project.notifications import send_password_reset_email
+
 
 auth_bp = Blueprint('auth', __name__)
 
