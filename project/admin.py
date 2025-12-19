@@ -1399,7 +1399,6 @@ def validate_password_strength(password):
     return True
 
 
-# 找到原本的 add_customer，替換成下面這樣
 @admin_bp.route('/customer/add', methods=['POST'])
 @staff_required
 def add_customer():
