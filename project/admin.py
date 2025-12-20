@@ -20,6 +20,12 @@ from project.db import get_current_user_id
 from project.audit import log_activity
 from project.decorators import admin_required, staff_required
 
+# --- Cloudinary 設定 ---
+cloudinary.config(
+    cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    api_key=os.environ.get('CLOUDINARY_API_KEY'),
+    api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+)
 
 admin_bp = Blueprint('admin', __name__)
 
@@ -30,21 +36,14 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+# --- 上傳 Helper ---
 def upload_to_cloudinary(image_file):
-    """
-    將圖片上傳到 Cloudinary 並回傳安全連結 (HTTPS)。
-    如果上傳失敗或檔案為空，回傳 None。
-    """
     if not image_file:
         return None
-
     try:
-        # 直接上傳檔案物件
         upload_result = cloudinary.uploader.upload(image_file)
-        # 取得 HTTPS 網址
         return upload_result.get('secure_url')
     except Exception as e:
-        # 建議加入 log 記錄錯誤
         print(f"Cloudinary Upload Error: {e}")
         return None
 
@@ -91,9 +90,9 @@ def dashboard():
         "SELECT COUNT(*) as count FROM users WHERE role = 'customer'")
     customer_count = cursor.fetchone()['count']
 
-    # 修正：資料表名稱改回 posts
+    # ⭐ 修正 1: 資料表名稱 posts -> blog_posts
     cursor.execute(
-        "SELECT COUNT(*) as count FROM posts WHERE status = 'published'")
+        "SELECT COUNT(*) as count FROM blog_posts WHERE status = 'published'")
     post_count = cursor.fetchone()['count']
 
     # 2. 營收計算 (Revenue)
@@ -155,7 +154,7 @@ def dashboard():
     """)
     recent_bookings = cursor.fetchall()
 
-    # Products with full details
+    # Products
     cursor.execute("""
         SELECT p.*, pc.name as category_name
         FROM products p
@@ -164,7 +163,7 @@ def dashboard():
     """)
     products = cursor.fetchall()
 
-    # Courses with full details
+    # Courses
     cursor.execute("""
         SELECT c.*, cc.name as category_name
         FROM courses c
@@ -182,14 +181,9 @@ def dashboard():
         "SELECT * FROM course_categories ORDER BY display_order, name")
     course_categories = cursor.fetchall()
 
-    # Events
-    cursor.execute("""
-        SELECT e.*, CONCAT(u.firstname, ' ', u.surname) as customer_name
-        FROM events e
-        LEFT JOIN users u ON e.customer_id = u.id
-        ORDER BY e.start_date DESC
-    """)
-    events = cursor.fetchall()
+    # ⭐ 修正 2: Events 表不存在，暫時給空列表防止 500 錯誤
+    # cursor.execute("SELECT e.* ... FROM events e ...")
+    events = []
 
     # Inventory
     cursor.execute("""
@@ -203,7 +197,7 @@ def dashboard():
     """)
     inventory_products = cursor.fetchall()
 
-    # Customers dropdown
+    # Customers
     cursor.execute(
         "SELECT id, firstname, surname, username FROM users WHERE role = 'customer' ORDER BY firstname")
     customers = cursor.fetchall()
@@ -225,7 +219,6 @@ def dashboard():
     """)
     all_items = cursor.fetchall()
 
-    # 將 Decimal 轉為 float
     for item in all_items:
         if isinstance(item.get('unit_price'), Decimal):
             item['unit_price'] = float(item['unit_price'])
@@ -239,24 +232,22 @@ def dashboard():
             order_items_map[oid] = []
         order_items_map[oid].append(item)
 
-    # 將 Orders 的 Decimal 轉為 float
     for order in orders:
         if isinstance(order.get('total_amount'), Decimal):
             order['total_amount'] = float(order['total_amount'])
 
-    # Bookings full list (修正: shop_schedules 改為 course_schedules)
+    # ⭐ 修正 3: course_schedules -> shop_schedules
     cursor.execute("""
         SELECT b.*, u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
                c.name as course_name, c.duration, s.start_time, s.end_time
         FROM bookings b
         LEFT JOIN users u ON b.customer_id = u.id
         LEFT JOIN courses c ON b.course_id = c.id
-        LEFT JOIN course_schedules s ON b.global_schedule_id = s.id
+        LEFT JOIN shop_schedules s ON b.global_schedule_id = s.id
         ORDER BY b.created_at DESC
     """)
     bookings = cursor.fetchall()
 
-    # 將 Bookings 的 Decimal 轉為 float
     for booking in bookings:
         if isinstance(booking.get('total_amount'), Decimal):
             booking['total_amount'] = float(booking['total_amount'])
@@ -280,10 +271,10 @@ def dashboard():
     """)
     customers_list = cursor.fetchall()
 
-    # Posts (修正: blog_posts 改為 posts)
+    # ⭐ 修正 4: blog_posts -> posts (變數名 posts 維持不變，SQL 改為 blog_posts)
     cursor.execute("""
         SELECT p.*, u.firstname, u.surname, CONCAT(u.firstname, ' ', u.surname) as author_name
-        FROM posts p
+        FROM blog_posts p
         LEFT JOIN users u ON p.author_id = u.id
         ORDER BY p.created_at DESC
     """)
@@ -291,23 +282,26 @@ def dashboard():
 
     # Audit Logs
     audit_logs = []
-    if get_current_user_role() == 'admin':
-        cursor.execute("""
-            SELECT a.*, u.username, u.firstname, u.surname,
-                   CONCAT(u.firstname, ' ', u.surname) as operator_name
-            FROM audit_logs a
-            LEFT JOIN users u ON a.user_id = u.id
-            ORDER BY a.created_at DESC
-            LIMIT 50
-        """)
-        audit_logs = cursor.fetchall()
+    if session.get('user', {}).get('role') == 'admin':
+        # 檢查 audit_logs 表是否存在，避免 500
+        try:
+            cursor.execute("""
+                SELECT a.*, u.username, u.firstname, u.surname,
+                    CONCAT(u.firstname, ' ', u.surname) as operator_name
+                FROM audit_logs a
+                LEFT JOIN users u ON a.user_id = u.id
+                ORDER BY a.created_at DESC
+                LIMIT 50
+            """)
+            audit_logs = cursor.fetchall()
+        except:
+            audit_logs = []
 
     cursor.execute("SELECT * FROM customer_sources ORDER BY id")
     customer_sources = cursor.fetchall()
 
     cursor.close()
 
-    # 修正：正確的時間物件處理
     now = datetime.now()
 
     stats = {
@@ -341,7 +335,7 @@ def dashboard():
         posts=posts,
         order_items_map=order_items_map,
         audit_logs=audit_logs,
-        now_str=now.strftime('%Y-%m-%d')  # 修正：這裡傳入正確的字串格式
+        now_str=now.strftime('%Y-%m-%d')
     )
 
 
@@ -349,7 +343,6 @@ def dashboard():
 @staff_required
 def add_product_modal():
     try:
-        # 1. 接收欄位
         name = request.form.get('name')
         category_id = request.form.get('category_id') or None
         price = request.form.get('price') or 0
@@ -357,25 +350,22 @@ def add_product_modal():
         stock = request.form.get('stock') or 0
         description = request.form.get('description')
 
-        # 2. 圖片處理 (Cloudinary)
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
             if file and file.filename != '':
                 image_url = upload_to_cloudinary(file)
 
-        # 3. 執行 SQL (INSERT)
         cursor = database.connection.cursor()
         sql = """
             INSERT INTO products 
             (name, category_id, price, cost, stock_quantity, description, image, is_active, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
-        # 預設 is_active 為 1 (True)
         cursor.execute(sql, (name, category_id, price, cost,
                        stock, description, image_url, 1))
 
-        new_id = cursor.lastrowid  # 取得剛新增的 ID
+        new_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
 
@@ -393,7 +383,6 @@ def add_product_modal():
 @staff_required
 def update_product_modal(product_id):
     try:
-        # 1. 接收欄位
         name = request.form.get('name')
         category_id = request.form.get('category_id') or None
         price = request.form.get('price') or 0
@@ -402,7 +391,6 @@ def update_product_modal(product_id):
         description = request.form.get('description')
         is_active = 1 if request.form.get('is_active') else 0
 
-        # 2. 圖片處理
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
@@ -411,9 +399,7 @@ def update_product_modal(product_id):
 
         cursor = database.connection.cursor()
 
-        # 3. 執行 SQL (UPDATE)
         if image_url:
-            # 如果有上傳新圖，連同圖片網址一起更新
             sql = """
                 UPDATE products 
                 SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s, 
@@ -423,7 +409,6 @@ def update_product_modal(product_id):
             cursor.execute(sql, (name, category_id, price, cost,
                            stock, description, is_active, image_url, product_id))
         else:
-            # 沒上傳新圖，只更新文字
             sql = """
                 UPDATE products 
                 SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s, 
@@ -449,48 +434,34 @@ def update_product_modal(product_id):
 @admin_bp.route('/product/<int:product_id>/delete', methods=['POST'])
 @admin_required
 def delete_product_modal(product_id):
-    """
-    Delete product (Smart Delete)
-    如果有訂單紀錄 -> 改為停用 (Soft Delete)
-    如果完全無紀錄 -> 真刪除 (Hard Delete)
-    """
     try:
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-        # 1. 取得產品名稱 (給 Log 用)
         cursor.execute(
             "SELECT name FROM products WHERE id = %s", (product_id,))
         res = cursor.fetchone()
         p_name = res['name'] if res else 'Unknown'
 
-        # 2. 檢查是否有關聯的訂單
         cursor.execute(
             "SELECT COUNT(*) as count FROM order_items WHERE product_id = %s", (product_id,))
         order_count = cursor.fetchone()['count']
 
         if order_count > 0:
-            # A. 有訂單紀錄 -> 執行「停用」
             cursor.execute(
                 "UPDATE products SET is_active = FALSE WHERE id = %s", (product_id,))
-            msg = f'產品「{p_name}」已有 {order_count} 筆銷售紀錄，已自動改為「停用」狀態（保留歷史資料）。'
+            msg = f'產品「{p_name}」已有 {order_count} 筆銷售紀錄，已自動改為「停用」狀態。'
             action = 'deactivate'
         else:
-            # B. 無訂單紀錄 -> 執行「真刪除」
             cursor.execute("DELETE FROM products WHERE id = %s", (product_id,))
             msg = f'產品「{p_name}」已永久刪除。'
             action = 'delete'
 
         database.connection.commit()
         cursor.close()
-
-        # LOG ACTIVITY
         log_activity(action, 'product', product_id, {'name': p_name})
-
         flash(msg, 'success')
 
     except Exception as e:
         database.connection.rollback()
-        print(f"Delete Product Error: {e}")
         flash(f'刪除失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='products'))
@@ -578,7 +549,6 @@ def add_course_modal():
     return redirect(url_for('admin.dashboard', tab='courses'))
 
 
-# --- 編輯課程 ---
 @admin_bp.route('/course/update/modal/<int:course_id>', methods=['POST'])
 @staff_required
 def update_course_modal(course_id):
@@ -1624,8 +1594,9 @@ def add_post():
                     image_url = upload_to_cloudinary(file)
 
             cursor = database.connection.cursor()
+            # ⭐ 修正: posts -> blog_posts
             sql = """
-                INSERT INTO posts 
+                INSERT INTO blog_posts 
                 (title, content, summary, status, author_id, image, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
             """
@@ -1647,13 +1618,12 @@ def add_post():
     return render_template('admin_post_form.html')
 
 
-# --- 編輯文章 ---
 @admin_bp.route('/post/edit/<int:post_id>', methods=['GET', 'POST'])
 @staff_required
 def edit_post(post_id):
-    # 先查詢文章資料 (因為 GET 需要顯示，POST 需要更新)
+    # ⭐ 修正: posts -> blog_posts
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute("SELECT * FROM posts WHERE id = %s", (post_id,))
+    cursor.execute("SELECT * FROM blog_posts WHERE id = %s", (post_id,))
     post = cursor.fetchone()
     cursor.close()
 
@@ -1676,16 +1646,18 @@ def edit_post(post_id):
 
             cursor = database.connection.cursor()
             if image_url:
+                # ⭐ 修正: posts -> blog_posts
                 sql = """
-                    UPDATE posts 
+                    UPDATE blog_posts 
                     SET title=%s, content=%s, summary=%s, status=%s, image=%s, updated_at=NOW()
                     WHERE id=%s
                 """
                 cursor.execute(sql, (title, content, summary,
                                status, image_url, post_id))
             else:
+                # ⭐ 修正: posts -> blog_posts
                 sql = """
-                    UPDATE posts 
+                    UPDATE blog_posts 
                     SET title=%s, content=%s, summary=%s, status=%s, updated_at=NOW()
                     WHERE id=%s
                 """
@@ -1705,21 +1677,23 @@ def edit_post(post_id):
     return render_template('admin_post_form.html', post=post)
 
 
-@admin_bp.route("/posts/delete/<int:post_id>", methods=["POST"])
+@admin_bp.route('/post/delete/<int:post_id>', methods=['POST'])
 @admin_required
 def delete_post(post_id):
     try:
         cursor = database.connection.cursor()
-        # 修正: 表格名稱改為 blog_posts
+        # ⭐ 修正: posts -> blog_posts
         cursor.execute("DELETE FROM blog_posts WHERE id = %s", (post_id,))
         database.connection.commit()
         cursor.close()
-        flash("文章已刪除", "success")
+
+        log_activity('delete', 'post', post_id)
+        flash('文章已刪除', 'success')
     except Exception as e:
         database.connection.rollback()
-        flash(f"刪除失敗: {str(e)}", "error")
+        flash(f'刪除失敗: {str(e)}', 'error')
 
-    return redirect(url_for("admin.dashboard", tab='posts'))
+    return redirect(url_for('admin.dashboard', tab='posts'))
 
 # =====================================================
 # MANUAL ORDER & BOOKING (BACKDATING/CONCIERGE)
