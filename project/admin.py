@@ -91,8 +91,9 @@ def dashboard():
         "SELECT COUNT(*) as count FROM users WHERE role = 'customer'")
     customer_count = cursor.fetchone()['count']
 
+    # 修正：資料表名稱改回 posts
     cursor.execute(
-        "SELECT COUNT(*) as count FROM blog_posts WHERE status = 'published'")
+        "SELECT COUNT(*) as count FROM posts WHERE status = 'published'")
     post_count = cursor.fetchone()['count']
 
     # 2. 營收計算 (Revenue)
@@ -202,7 +203,7 @@ def dashboard():
     """)
     inventory_products = cursor.fetchall()
 
-    # Customers dropdown - FIXED: Added username
+    # Customers dropdown
     cursor.execute(
         "SELECT id, firstname, surname, username FROM users WHERE role = 'customer' ORDER BY firstname")
     customers = cursor.fetchall()
@@ -224,7 +225,7 @@ def dashboard():
     """)
     all_items = cursor.fetchall()
 
-    # ⭐ [關鍵修正]：將 Decimal 轉為 float，避免前端 tojson 報錯 500
+    # 將 Decimal 轉為 float
     for item in all_items:
         if isinstance(item.get('unit_price'), Decimal):
             item['unit_price'] = float(item['unit_price'])
@@ -238,24 +239,24 @@ def dashboard():
             order_items_map[oid] = []
         order_items_map[oid].append(item)
 
-    # ⭐ [關鍵修正]：將 Orders 的 Decimal 轉為 float
+    # 將 Orders 的 Decimal 轉為 float
     for order in orders:
         if isinstance(order.get('total_amount'), Decimal):
             order['total_amount'] = float(order['total_amount'])
 
-    # Bookings full list
+    # Bookings full list (修正: shop_schedules 改為 course_schedules)
     cursor.execute("""
         SELECT b.*, u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
                c.name as course_name, c.duration, s.start_time, s.end_time
         FROM bookings b
         LEFT JOIN users u ON b.customer_id = u.id
         LEFT JOIN courses c ON b.course_id = c.id
-        LEFT JOIN shop_schedules s ON b.global_schedule_id = s.id
+        LEFT JOIN course_schedules s ON b.global_schedule_id = s.id
         ORDER BY b.created_at DESC
     """)
     bookings = cursor.fetchall()
 
-    # ⭐ [關鍵修正]：將 Bookings 的 Decimal 轉為 float
+    # 將 Bookings 的 Decimal 轉為 float
     for booking in bookings:
         if isinstance(booking.get('total_amount'), Decimal):
             booking['total_amount'] = float(booking['total_amount'])
@@ -279,10 +280,10 @@ def dashboard():
     """)
     customers_list = cursor.fetchall()
 
-    # Posts
+    # Posts (修正: blog_posts 改為 posts)
     cursor.execute("""
         SELECT p.*, u.firstname, u.surname, CONCAT(u.firstname, ' ', u.surname) as author_name
-        FROM blog_posts p
+        FROM posts p
         LEFT JOIN users u ON p.author_id = u.id
         ORDER BY p.created_at DESC
     """)
@@ -306,7 +307,8 @@ def dashboard():
 
     cursor.close()
 
-    now_str = datetime.now().strftime('%Y-%m-%dT%H:%M')
+    # 修正：正確的時間物件處理
+    now = datetime.now()
 
     stats = {
         'products': product_count,
@@ -339,10 +341,8 @@ def dashboard():
         posts=posts,
         order_items_map=order_items_map,
         audit_logs=audit_logs,
-        now_str=now_str.strftime('%Y-%m-%d')
+        now_str=now.strftime('%Y-%m-%d')  # 修正：這裡傳入正確的字串格式
     )
-
-# ... (Rest of admin.py content for products, courses, etc. - ensure you keep them)
 
 
 @admin_bp.route('/product/add/modal', methods=['POST'])
@@ -463,7 +463,7 @@ def delete_product_modal(product_id):
         res = cursor.fetchone()
         p_name = res['name'] if res else 'Unknown'
 
-        # 2. 檢查是否有關聯的訂單 (這是主要擋住刪除的原因)
+        # 2. 檢查是否有關聯的訂單
         cursor.execute(
             "SELECT COUNT(*) as count FROM order_items WHERE product_id = %s", (product_id,))
         order_count = cursor.fetchone()['count']
@@ -490,7 +490,6 @@ def delete_product_modal(product_id):
 
     except Exception as e:
         database.connection.rollback()
-        # 印出完整錯誤以便除錯
         print(f"Delete Product Error: {e}")
         flash(f'刪除失敗: {str(e)}', 'error')
 
