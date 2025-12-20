@@ -136,8 +136,9 @@ def register():
 
         try:
             sql = """
-                INSERT INTO users (username, email, password_hash, firstname, surname, line_id, role, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                INSERT INTO users 
+                (username, email, password_hash, firstname, surname, phone, line_id, role, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
             cursor.execute(sql, (username, email, hashed_password,
                            firstname, surname, line_id, role))
