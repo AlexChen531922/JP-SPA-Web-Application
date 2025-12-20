@@ -10,7 +10,7 @@ import secrets
 import requests
 import re
 import MySQLdb.cursors
-
+import traceback
 from project.extensions import database
 from project.forms import LoginForm, RegisterForm, ForgotPasswordForm, ResetPasswordForm
 
@@ -104,43 +104,47 @@ def logout():
 @auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
     form = RegisterForm()
+    cursor = None
+
     if form.validate_on_submit():
-        username = form.username.data
-        email = form.email.data
-        password = form.password.data
-        firstname = form.firstname.data
-        surname = form.surname.data
-        line_id = form.line_id.data
-        role = form.role.data
-
-        # 1. 驗證密碼強度
-        is_valid, error_msg = validate_password_strength(password)
-        if not is_valid:
-            flash(error_msg, 'error')
-            return render_template('register.html', form=form)
-
-        # 2. 檢查帳號是否重複
-        cursor = database.connection.cursor()
-        cursor.execute(
-            "SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
-        account = cursor.fetchone()
-
-        if account:
-            flash('帳號或 Email 已被註冊', 'error')
-            cursor.close()
-            return render_template('register.html', form=form)
-
-        # 3. 建立新帳號 (修正 SQL 欄位名稱)
-        # ⭐ 修正：資料庫欄位是 password_hash，不是 password
-        hashed_password = generate_password_hash(password)
-
+        # ⭐ 將所有邏輯包進 try，確保錯誤能被捕捉並顯示
         try:
+            username = form.username.data
+            email = form.email.data
+            password = form.password.data
+            firstname = form.firstname.data
+            surname = form.surname.data
+            line_id = form.line_id.data
+            role = form.role.data
+
+            # 1. 驗證密碼強度
+            is_valid, error_msg = validate_password_strength(password)
+            if not is_valid:
+                flash(error_msg, 'error')
+                return render_template('register.html', form=form)
+
+            # 2. 檢查帳號是否重複
+            cursor = database.connection.cursor()
+            cursor.execute(
+                "SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+            account = cursor.fetchone()
+
+            if account:
+                flash('帳號或 Email 已被註冊', 'error')
+                return render_template('register.html', form=form)
+
+            # 3. 建立新帳號
+            hashed_password = generate_password_hash(password)
+
             sql = """
                 INSERT INTO users 
                 (username, email, password_hash, firstname, surname, phone, line_id, role, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
-            # ⭐ 修正：在 surname 後面補上 '' (空字串) 對應 SQL 中的 phone
+
+            # 參數順序確認：
+            # 1.username, 2.email, 3.hashed_pw, 4.firstname, 5.surname,
+            # 6.phone(空值), 7.line_id, 8.role
             cursor.execute(sql, (username, email, hashed_password,
                                  firstname, surname, '', line_id, role))
 
@@ -150,13 +154,19 @@ def register():
             return redirect(url_for('auth.login'))
 
         except Exception as e:
-            database.connection.rollback()
-            # 發生錯誤時印出 Log 以便除錯
-            print(f"Register Error: {e}")
-            flash(f'註冊失敗，請稍後再試: {str(e)}', 'error')
+            if database.connection:
+                database.connection.rollback()
+
+            # ⭐ 這是重點：在終端機印出詳細錯誤，並在網頁顯示簡短錯誤
+            print("================ REGISTER ERROR ================")
+            traceback.print_exc()
+            print("================================================")
+
+            flash(f'註冊失敗 (系統錯誤): {str(e)}', 'error')
 
         finally:
-            cursor.close()
+            if cursor:
+                cursor.close()
 
     return render_template('register.html', form=form)
 
