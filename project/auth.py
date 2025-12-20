@@ -140,8 +140,10 @@ def register():
                 (username, email, password_hash, firstname, surname, phone, line_id, role, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
+            # ⭐ 修正：在 surname 後面補上 '' (空字串) 對應 SQL 中的 phone
             cursor.execute(sql, (username, email, hashed_password,
-                           firstname, surname, line_id, role))
+                                 firstname, surname, '', line_id, role))
+
             database.connection.commit()
 
             flash('註冊成功！請登入。', 'success')
