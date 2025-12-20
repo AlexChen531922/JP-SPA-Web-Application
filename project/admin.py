@@ -1377,75 +1377,67 @@ def add_customer():
 
         is_auto_generated = False
 
-        # 2. 自動生成邏輯 (統一標準)
-        # 帳號：優先手機，其次 Email 前綴
+        # ---------------------------------------------------
+        # ⭐ 自動生成邏輯 (針對不使用網站的老客戶)
+        # ---------------------------------------------------
+
+        # A. 如果沒填 Email -> 用 "手機@offline.local"
+        if not email:
+            if phone:
+                email = f"{phone}@offline.local"
+            else:
+                import time
+                email = f"user_{int(time.time())}@offline.local"
+
+        # B. 如果沒填 帳號 -> 預設同電話
         if not username:
+            username = phone if phone else email.split('@')[0]
+
+        # C. 如果沒填 密碼 -> 自動生成「符合高強度驗證」的密碼
+        # 規則：手機號碼 + "@Jp1"
+        # (這樣就同時滿足：>10碼、大寫、小寫、數字、符號)
+        if not password:
             if phone:
-                username = phone
+                password = f"{phone}@Jp1"
             else:
-                username = email.split('@')[0] if '@' in email else email
+                # 如果連電話都沒填，給一組預設合規密碼
+                password = "Password@123456"
 
-        # 密碼：優先手機，其次 123456
-        final_password = raw_password
-        if not final_password:
-            is_auto_generated = True
-            if phone:
-                final_password = phone
-            else:
-                final_password = "123456"
-
-        # 3. 強度驗證 (僅在「手動輸入」時檢查)
-        if not is_auto_generated:
-            if not validate_password_strength(final_password):
-                flash('手動設定的密碼強度不足！需含大小寫英數字及符號，且至少10碼。若不想設定請留空(使用預設值)。', 'error')
-                return redirect(url_for('admin.dashboard', tab='customers'))
-
-        # 4. 檢查帳號重複 (延遲引用，避免循環)
-        from project.db import check_username_exists
-        if check_username_exists(username):
-            flash(f'帳號「{username}」已存在。請手動輸入不同帳號。', 'error')
+        # 3. 檢查重複 (帳號或Email)
+        cursor = database.connection.cursor()
+        cursor.execute(
+            "SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+        if cursor.fetchone():
+            flash(f'建立失敗：帳號 {username} 或 Email {email} 已存在', 'warning')
             return redirect(url_for('admin.dashboard', tab='customers'))
 
-        # 5. 寫入資料庫
-        cursor = database.connection.cursor()
-        hashed_pw = generate_password_hash(final_password)
+        # 4. 加密密碼
+        from werkzeug.security import generate_password_hash
+        hashed_password = generate_password_hash(password)
 
+        # 5. 寫入資料庫 (使用 password_hash)
         sql = """
-            INSERT INTO users (
-                username, email, password_hash, 
-                firstname, surname, phone, 
-                line_id, gender, birth_date, 
-                occupation, address, source_id, notes,
-                role, created_at
-            ) VALUES (
-                %s, %s, %s, 
-                %s, %s, %s, 
-                %s, %s, %s, 
-                %s, %s, %s, %s,
-                'customer', NOW()
-            )
+            INSERT INTO users 
+            (username, email, password_hash, firstname, surname, phone, line_id, role, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'customer', NOW())
         """
-        cursor.execute(sql, (
-            username, email, hashed_pw,
-            firstname, surname, phone,
-            line_id, gender, birth_date,
-            occupation, address, source_id, notes
-        ))
+        cursor.execute(sql, (username, email, hashed_password,
+                       firstname, surname, line_id))
 
+        new_id = cursor.lastrowid
         database.connection.commit()
         cursor.close()
 
-        msg = f'客戶新增成功！帳號: {username}'
-        if is_auto_generated:
-            msg += f' / 預設密碼: {final_password}'
+        log_activity('create', 'customer', new_id, {
+                     'name': f"{firstname} {surname}"})
 
-        flash(msg, 'success')
+        # 提示訊息：明確顯示生成的密碼，方便您告知客戶
+        flash(f'客戶建立成功！預設帳號: {username} / 預設密碼: {password}', 'success')
 
     except Exception as e:
-        if "Duplicate entry" in str(e):
-            flash('新增失敗：Email 已被使用', 'error')
-        else:
-            flash(f'新增失敗: {str(e)}', 'error')
+        database.connection.rollback()
+        print(f"Add Customer Error: {e}")
+        flash(f'新增失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='customers'))
 

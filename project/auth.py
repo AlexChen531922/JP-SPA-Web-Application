@@ -101,71 +101,61 @@ def logout():
 # ==========================================
 
 
-@auth_bp.route('/register', methods=['POST'])
+@auth_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    form = RegisterForm(request.form)
+    form = RegisterForm()
     if form.validate_on_submit():
-        try:
-            # ⭐ 關鍵修正：延遲引用，確保專案啟動時不會因為 db 依賴而崩潰
-            from project.db import check_username_exists, check_email_exists
+        username = form.username.data
+        email = form.email.data
+        password = form.password.data
+        firstname = form.firstname.data
+        surname = form.surname.data
+        line_id = form.line_id.data
+        role = form.role.data
 
-            # 檢查邏輯放入 try 區塊
-            if check_username_exists(form.username.data):
-                flash('此帳號已被使用', 'error')
-                return redirect(url_for('main.home', open_register='true'))
+        # 1. 驗證密碼強度
+        is_valid, error_msg = validate_password_strength(password)
+        if not is_valid:
+            flash(error_msg, 'error')
+            return render_template('register.html', form=form)
 
-            if check_email_exists(form.email.data):
-                flash('此 Email 已被註冊', 'error')
-                return redirect(url_for('main.home', open_register='true'))
+        # 2. 檢查帳號是否重複
+        cursor = database.connection.cursor()
+        cursor.execute(
+            "SELECT id FROM users WHERE username = %s OR email = %s", (username, email))
+        account = cursor.fetchone()
 
-            is_valid, msg = validate_password_strength(form.password.data)
-            if not is_valid:
-                flash(msg, 'error')
-                return redirect(url_for('main.home', open_register='true'))
-
-            line_id_to_save = session.get(
-                'binding_line_id') or form.line_id.data or None
-
-            cursor = database.connection.cursor()
-            hashed_password = generate_password_hash(form.password.data)
-
-            # 注意：這裡不寫入 phone，因為註冊表單目前沒有 phone 欄位
-            cursor.execute("""
-                INSERT INTO users (username, email, password_hash, firstname, surname, role, line_id, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
-            """, (
-                form.username.data,
-                form.email.data,
-                hashed_password,
-                form.firstname.data,
-                form.surname.data,
-                form.role.data,
-                line_id_to_save
-            ))
-
-            database.connection.commit()
+        if account:
+            flash('帳號或 Email 已被註冊', 'error')
             cursor.close()
+            return render_template('register.html', form=form)
 
-            session.pop('binding_line_id', None)
-            session.pop('binding_line_name', None)
+        # 3. 建立新帳號 (修正 SQL 欄位名稱)
+        # ⭐ 修正：資料庫欄位是 password_hash，不是 password
+        hashed_password = generate_password_hash(password)
+
+        try:
+            sql = """
+                INSERT INTO users (username, email, password_hash, firstname, surname, line_id, role, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+            """
+            cursor.execute(sql, (username, email, hashed_password,
+                           firstname, surname, line_id, role))
+            database.connection.commit()
 
             flash('註冊成功！請登入。', 'success')
-            return redirect(url_for('main.home', open_login='true'))
+            return redirect(url_for('auth.login'))
 
         except Exception as e:
-            try:
-                database.connection.rollback()
-            except:
-                pass
-            print(f"Registration Error: {e}")
-            flash(f'註冊失敗: {str(e)}', 'error')
-            return redirect(url_for('main.home', open_register='true'))
-    else:
-        for field, errors in form.errors.items():
-            for error in errors:
-                flash(f'{error}', 'error')
+            database.connection.rollback()
+            # 發生錯誤時印出 Log 以便除錯
+            print(f"Register Error: {e}")
+            flash(f'註冊失敗，請稍後再試: {str(e)}', 'error')
 
-    return redirect(url_for('main.home', open_register='true'))
+        finally:
+            cursor.close()
+
+    return render_template('register.html', form=form)
 
 # ==========================================
 # 🔑 忘記密碼 & 重設密碼
