@@ -335,7 +335,7 @@ def dashboard():
         posts=posts,
         order_items_map=order_items_map,
         audit_logs=audit_logs,
-        now_str=now.strftime('%Y-%m-%d')
+        now_str=now.strftime('%Y-%m-%dT%H:%M')
     )
 
 
@@ -901,7 +901,8 @@ def restock_product():
             flash('請輸入有效的產品與數量', 'error')
             return redirect(url_for('admin.dashboard', tab='inventory'))
 
-        cursor = database.connection.cursor()  # 預設 cursor (Tuple)
+        cursor = database.connection.cursor(
+            MySQLdb.cursors.DictCursor)  # 預設 cursor (Tuple)
 
         # 1. 先查詢目前的庫存與成本
         # 注意：這裡使用 FOR UPDATE 鎖定行，避免並發寫入導致計算錯誤
@@ -915,9 +916,9 @@ def restock_product():
             return redirect(url_for('admin.dashboard', tab='inventory'))
 
         # 處理資料庫可能回傳 None 的情況
-        current_qty = current_data[0] if current_data[0] is not None else 0
+        current_qty = current_data['stock_quantity'] if current_data['stock_quantity'] is not None else 0
         current_avg_cost = float(
-            current_data[1]) if current_data[1] is not None else 0.0
+            current_data['cost']) if current_data['cost'] is not None else 0.0
 
         # 2. 計算加權平均成本
         # 公式：((舊庫存 * 舊成本) + (新進貨量 * 新進貨成本)) / (舊庫存 + 新進貨量)
@@ -929,8 +930,8 @@ def restock_product():
             total_value = (calc_qty * current_avg_cost) + (quantity * new_cost)
             total_qty = calc_qty + quantity
 
-            # 計算新的平均成本 (四捨五入到小數點後2位)
-            final_avg_cost = round(total_value / total_qty, 2)
+            # 計算新的平均成本 (四捨五入到小數點後1位)
+            final_avg_cost = round(total_value / total_qty, 1)
         else:
             # 如果沒有輸入新成本，則維持原成本
             final_avg_cost = current_avg_cost
