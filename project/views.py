@@ -356,42 +356,81 @@ def post_detail(post_id):
     """Blog post detail page"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-    # Get post
-    cursor.execute("""
-        SELECT p.*, u.firstname, u.surname,
-               CONCAT(u.firstname, ' ', u.surname) as author_name
-        FROM blog_posts p
-        LEFT JOIN users u ON p.author_id = u.id
-        WHERE p.id = %s AND p.status = 'published'
-    """, (post_id,))
-    post = cursor.fetchone()
+    try:
+        # 1. Get post (取得文章)
+        cursor.execute("""
+            SELECT p.*, u.firstname, u.surname,
+                   CONCAT(u.firstname, ' ', u.surname) as author_name
+            FROM blog_posts p
+            LEFT JOIN users u ON p.author_id = u.id
+            WHERE p.id = %s AND p.status = 'published'
+        """, (post_id,))
+        post = cursor.fetchone()
 
-    if not post:
+        if not post:
+            cursor.close()
+            abort(404)
+
+        # 2. Increment view count (增加觀看數)
+        cursor.execute("""
+            UPDATE blog_posts
+            SET views = views + 1
+            WHERE id = %s
+        """, (post_id,))
+        database.connection.commit()
+
+        # 3. Get related posts (取得相關文章)
+        cursor.execute("""
+            SELECT id, title, summary, image, published_at
+            FROM blog_posts
+            WHERE status = 'published' AND id != %s
+            ORDER BY published_at DESC
+            LIMIT 3
+        """, (post_id,))
+        related_posts = cursor.fetchall()
+
+        # =========================================================
+        # 4. Get Popular Products (⭐ 新增：取得熱門產品)
+        # 邏輯：關聯 products -> order_items -> orders
+        # 排除取消訂單，依照銷售數量 (SUM quantity) 排序
+        # =========================================================
+        cursor.execute("""
+            SELECT p.*, c.name as category_name, SUM(oi.quantity) as total_sold
+            FROM products p
+            JOIN order_items oi ON p.id = oi.product_id
+            JOIN orders o ON oi.order_id = o.id
+            LEFT JOIN product_categories c ON p.category_id = c.id
+            WHERE o.status != 'cancelled' AND p.is_active = 1
+            GROUP BY p.id
+            ORDER BY total_sold DESC
+            LIMIT 3
+        """)
+        popular_products = cursor.fetchall()
+
+        # 5. Fallback (備案：如果沒有銷售紀錄，隨機抓 3 個產品)
+        if not popular_products:
+            cursor.execute("""
+                SELECT p.*, c.name as category_name
+                FROM products p
+                LEFT JOIN product_categories c ON p.category_id = c.id
+                WHERE p.is_active = 1
+                ORDER BY p.id DESC
+                LIMIT 3
+            """)
+            popular_products = cursor.fetchall()
+        # =========================================================
+
+    except Exception as e:
+        print(f"Error in post_detail: {e}")
+        # 發生錯誤時確保 cursor 關閉並顯示 404 或錯誤頁
         cursor.close()
-        abort(404)
+        abort(500)
 
-    # Increment view count
-    cursor.execute("""
-        UPDATE blog_posts
-        SET views = views + 1
-        WHERE id = %s
-    """, (post_id,))
-    database.connection.commit()
+    finally:
+        cursor.close()
 
-    # Get related posts
-    cursor.execute("""
-        SELECT id, title, summary, image, published_at
-        FROM blog_posts
-        WHERE status = 'published' AND id != %s
-        ORDER BY published_at DESC
-        LIMIT 3
-    """, (post_id,))
-    related_posts = cursor.fetchall()
-
-    cursor.close()
-
-    # Format date
-    if post['published_at']:
+    # Format date (格式化日期)
+    if post.get('published_at'):
         post['date'] = post['published_at'].strftime('%Y-%m-%d')
     else:
         post['date'] = ''
@@ -399,9 +438,9 @@ def post_detail(post_id):
     return render_template(
         'post_detail.html',
         post=post,
-        related_posts=related_posts
+        related_posts=related_posts,
+        popular_products=popular_products  # 傳遞到前端
     )
-
 # =====================================================
 # BLOG
 # =====================================================

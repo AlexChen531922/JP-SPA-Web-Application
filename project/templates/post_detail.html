@@ -137,25 +137,55 @@
                 </div>
                 <div class="card-body p-0">
                     <div class="list-group list-group-flush">
-                        <a href="{{ url_for('main.products') }}" class="list-group-item list-group-item-action py-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="me-3 overflow-hidden">
-                                    <h6 class="mb-1 text-truncate">薰衣草精油</h6>
-                                    <small class="text-muted d-block">100% 純天然</small>
+
+                        {% for product in popular_products %}
+                        <a href="{{ url_for('main.products', q=product.name) }}"
+                            class="list-group-item list-group-item-action py-3">
+                            <div class="d-flex align-items-center">
+
+                                <div class="me-3 flex-shrink-0 bg-light rounded overflow-hidden d-flex align-items-center justify-content-center"
+                                    style="width: 60px; height: 60px;">
+                                    {% if product.image and product.image.startswith('http') %}
+                                    <img src="{{ product.image }}" alt="{{ product.name }}"
+                                        class="w-100 h-100 object-fit-contain p-1"
+                                        onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                                    {% elif product.image %}
+                                    <img src="{{ url_for('static', filename='img/' + product.image) }}"
+                                        alt="{{ product.name }}" class="w-100 h-100 object-fit-contain p-1"
+                                        onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                                    {% else %}
+                                    <i class="bi bi-image text-muted"></i>
+                                    {% endif %}
                                 </div>
-                                <span class="badge bg-primary rounded-pill text-nowrap">NT$ 580</span>
+
+                                <div class="flex-grow-1 overflow-hidden">
+                                    <h6 class="mb-1 text-truncate fw-bold">{{ product.name }}</h6>
+
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <small class="text-muted d-block text-truncate" style="max-width: 120px;">
+                                            {{ product.category_name or '熱銷推薦' }}
+                                        </small>
+
+                                        {% if product.price and product.price > 0 %}
+                                        <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill">
+                                            熱銷推薦
+                                        </span>
+                                        {% else %}
+                                        <span
+                                            class="badge bg-success bg-opacity-10 text-success rounded-pill">請洽詢</span>
+                                        {% endif %}
+                                    </div>
+                                </div>
+
                             </div>
                         </a>
-                        <a href="{{ url_for('main.products') }}" class="list-group-item list-group-item-action py-3">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <div class="me-3 overflow-hidden">
-                                    <h6 class="mb-1 text-truncate">玫瑰保濕化妝水</h6>
-                                    <small class="text-muted d-block">深層補水</small>
-                                </div>
-                                <span class="badge bg-primary rounded-pill text-nowrap">NT$ 880</span>
-                            </div>
-                        </a>
+                        {% else %}
+                        <div class="p-3 text-center text-muted">
+                            <small>暫無熱門產品資料</small>
+                        </div>
+                        {% endfor %}
                     </div>
+
                     <div class="card-footer bg-white p-3">
                         <a href="{{ url_for('main.products') }}" class="btn btn-sm btn-outline-primary w-100">
                             查看全部產品 <i class="bi bi-arrow-right"></i>
