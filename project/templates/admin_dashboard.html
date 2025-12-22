@@ -811,24 +811,28 @@
             <table class="table table-hover mb-0 align-middle text-nowrap">
               <thead class="table-light">
                 <tr>
+                  <th style="width: 40px;"></th>
                   <th style="width: 60px;">圖片</th>
                   <th>產品名稱</th>
                   <th>類別</th> {% if session.get('user', {}).get('role') == 'admin' %}
                   <th class="text-danger">成本價</th>
                   {% endif %}
-
                   <th>售價</th>
                   <th>庫存</th>
-
                   <th>描述</th>
                   <th>最後進貨</th>
                   <th>最後銷售</th>
                   <th class="text-end">操作</th>
                 </tr>
               </thead>
-              <tbody>
+
+              <tbody id="inventoryTableBody">
                 {% for prod in inventory_products %}
-                <tr>
+                <tr data-id="{{ prod.id }}">
+                  <td style="cursor: move;" class="text-center text-muted drag-handle">
+                    <i class="bi bi-grip-vertical fs-5"></i>
+                  </td>
+
                   <td>
                     {% if prod.image and prod.image.startswith('http') %}
                     <img src="{{ prod.image }}" alt="Product" class="rounded object-fit-cover"
@@ -1651,6 +1655,9 @@
 {% endblock %}
 
 {% block scripts %}
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+
 <script>
   // Helper: preview image
   function previewImage(input, previewId) {
@@ -2046,5 +2053,51 @@
     isFirstTime.addEventListener('change', updateBookingPrice);
   }
 
+  // ================= 庫存拖曳排序 (SortableJS) =================
+  document.addEventListener('DOMContentLoaded', function () {
+    const el = document.getElementById('inventoryTableBody');
+
+    if (el) {
+      new Sortable(el, {
+        animation: 150,  // 動畫速度
+        handle: '.drag-handle', // ⭐ 限制只能按住手柄圖示才能拖曳
+        ghostClass: 'bg-light', // 拖曳時的殘影樣式
+
+        // 當拖曳結束時觸發
+        onEnd: function (evt) {
+          // 1. 獲取新的 ID 順序
+          let newOrder = [];
+          el.querySelectorAll('tr').forEach(function (row) {
+            let id = row.getAttribute('data-id');
+            if (id) newOrder.push(id);
+          });
+
+          // 2. 發送 AJAX 請求到後台 API
+          // 注意：請確保您的 admin.py 已經有 /product/reorder 這個路由
+          fetch("{{ url_for('admin.reorder_products') }}", {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRFToken': "{{ csrf_token() }}" // 加入 CSRF Token
+            },
+            body: JSON.stringify({ order: newOrder })
+          })
+            .then(response => response.json())
+            .then(data => {
+              if (data.status === 'success') {
+                // 成功時不做特別提示，體驗較流暢，或可在 console 輸出
+                console.log('排序已更新');
+              } else {
+                alert('排序更新失敗：' + data.message);
+              }
+            })
+            .catch(error => {
+              console.error('Error:', error);
+              alert('連線錯誤，排序未能儲存');
+            });
+        }
+      });
+    }
+  });
 </script>
 {% endblock %}

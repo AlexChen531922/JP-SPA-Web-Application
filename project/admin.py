@@ -159,7 +159,7 @@ def dashboard():
         SELECT p.*, pc.name as category_name
         FROM products p
         LEFT JOIN product_categories pc ON p.category_id = pc.id
-        ORDER BY p.created_at DESC
+        ORDER BY p.display_order ASC, p.created_at DESC
     """)
     products = cursor.fetchall()
 
@@ -1890,3 +1890,64 @@ def add_booking_manual():
         flash(f'建立失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='bookings'))
+
+
+@admin_bp.route('/fix-db-order')
+@admin_required
+def fix_db_order():
+    try:
+        cursor = database.connection.cursor()
+        # 檢查欄位是否存在
+        cursor.execute("DESCRIBE products")
+        columns = [row[0] for row in cursor.fetchall()]
+
+        if 'display_order' not in columns:
+            # 新增 display_order 欄位，預設為 0
+            cursor.execute(
+                "ALTER TABLE products ADD COLUMN display_order INT DEFAULT 0")
+            # 初始化順序 (依 ID 排序)
+            cursor.execute("SET @i=0;")
+            cursor.execute(
+                "UPDATE products SET display_order = (@i:=@i+1) ORDER BY id ASC")
+            database.connection.commit()
+            return "✅ 資料庫更新成功：已新增 display_order 欄位"
+
+        return "👌 資料庫無需更新：display_order 欄位已存在"
+    except Exception as e:
+        return f"❌ 更新失敗: {str(e)}"
+
+    # ==========================================
+# 🔄 產品排序 API
+# ==========================================
+
+
+@admin_bp.route('/product/reorder', methods=['POST'])
+@staff_required
+def reorder_products():
+    """接收前端拖曳後的產品 ID 順序並更新資料庫"""
+    try:
+        data = request.get_json()
+        new_order = data.get('order')  # 例如 [5, 2, 8, 1] (產品ID列表)
+
+        if not new_order:
+            return jsonify({'status': 'error', 'message': '無效的數據'}), 400
+
+        cursor = database.connection.cursor()
+
+        # 依序更新每個產品的 display_order
+        for index, product_id in enumerate(new_order):
+            cursor.execute("""
+                UPDATE products 
+                SET display_order = %s 
+                WHERE id = %s
+            """, (index, product_id))
+
+        database.connection.commit()
+        cursor.close()
+
+        return jsonify({'status': 'success', 'message': '排序已更新'})
+
+    except Exception as e:
+        database.connection.rollback()
+        print(f"Reorder Error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
