@@ -1361,7 +1361,7 @@ def add_customer():
     try:
         # 1. 抓取資料
         username = request.form.get('username', '').strip()
-        raw_password = request.form.get('password', '').strip()
+        password = request.form.get('password', '').strip()
 
         firstname = request.form.get('firstname')
         surname = request.form.get('surname')
@@ -1419,11 +1419,14 @@ def add_customer():
         # 5. 寫入資料庫 (使用 password_hash)
         sql = """
             INSERT INTO users 
-            (username, email, password_hash, firstname, surname, phone, line_id, role, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'customer', NOW())
+            (username, email, password_hash, firstname, surname, phone, line_id, role, gender, birth_date, occupation, address, source_id, notes, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'customer', %s, %s, %s, %s, %s, %s, NOW())
         """
-        cursor.execute(sql, (username, email, hashed_password,
-                       firstname, surname, line_id))
+        cursor.execute(sql, (
+            username, email, hashed_password, firstname, surname,
+            phone, line_id, gender, birth_date, occupation,
+            address, source_id, notes
+        ))
 
         new_id = cursor.lastrowid
         database.connection.commit()
