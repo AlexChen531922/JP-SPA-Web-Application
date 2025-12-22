@@ -432,7 +432,7 @@ def update_product_modal(product_id):
 
 
 @admin_bp.route('/product/<int:product_id>/delete', methods=['POST'])
-@admin_required
+@staff_required
 def delete_product_modal(product_id):
     try:
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
@@ -606,7 +606,7 @@ def update_course_modal(course_id):
 
 
 @admin_bp.route('/course/<int:course_id>/delete', methods=['POST'])
-@admin_required
+@staff_required
 def delete_course_modal(course_id):
     """
     Delete course (Smart Delete)
@@ -718,7 +718,7 @@ def add_course_category():
 
 
 @admin_bp.route('/category/product/<int:category_id>/delete', methods=['POST'])
-@admin_required
+@staff_required
 def delete_product_category(category_id):
     """Delete product category"""
     try:
@@ -738,7 +738,7 @@ def delete_product_category(category_id):
 
 
 @admin_bp.route('/category/course/<int:category_id>/delete', methods=['POST'])
-@admin_required
+@staff_required
 def delete_course_category(category_id):
     """Delete course category"""
     try:
@@ -853,7 +853,7 @@ def update_event(event_id):
 
 
 @admin_bp.route('/event/<int:event_id>/delete', methods=['POST'])
-@admin_required
+@staff_required
 def delete_event(event_id):
     """Delete event"""
     try:
@@ -1670,7 +1670,7 @@ def edit_post(post_id):
 
 
 @admin_bp.route('/post/delete/<int:post_id>', methods=['POST'])
-@admin_required
+@staff_required
 def delete_post(post_id):
     try:
         cursor = database.connection.cursor()
