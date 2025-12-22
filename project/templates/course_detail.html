@@ -53,49 +53,74 @@
 </style>
 {% endblock %}
 
+{% block title %}{{ course.name }} - 課程預約{% endblock %}
+
 {% block content %}
 <div class="container py-5">
+    <nav aria-label="breadcrumb" class="mb-4">
+        <ol class="breadcrumb">
+            <li class="breadcrumb-item"><a href="{{ url_for('main.courses') }}" class="text-decoration-none">課程列表</a>
+            </li>
+            <li class="breadcrumb-item active" aria-current="page">{{ course.name }}</li>
+        </ol>
+    </nav>
+
     <div class="row g-5">
-        <div class="col-lg-4">
-            <div class="sticky-top" style="top: 100px;">
-                <h2 class="fw-bold mb-3">{{ course.name }}</h2>
-                {% if course.image %}
-                {% if course.image.startswith('http') %}
-                <img src="{{ course.image }}" class="img-fluid rounded-4 shadow-sm mb-4 w-100 object-fit-cover"
-                    style="max-height: 300px;" alt="{{ course.name }}"
-                    onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
-                {% else %}
-                <img src="{{ url_for('static', filename='img/' + course.image) }}"
-                    class="img-fluid rounded-4 shadow-sm mb-4 w-100 object-fit-cover" style="max-height: 300px;"
-                    alt="{{ course.name }}"
-                    onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
-                {% endif %}
-                {% endif %}
-
-                <div class="card border-0 bg-light rounded-4 mb-4">
-                    <div class="card-body">
-                        <h5 class="fw-bold"><i class="bi bi-info-circle-fill text-primary"></i> 預約說明</h5>
-                        <p class="mb-2">{{ course.description }}</p>
-                        <hr>
-                        <ul class="list-unstyled mb-0">
-                            <li class="mb-2"><i class="bi bi-clock text-muted"></i> 時長：{{ course.duration }} 分鐘</li>
-                            <li class="mb-2"><i class="bi bi-currency-dollar text-muted"></i> 價格：NT$ {{
-                                '{:,.0f}'.format(course.regular_price) }}</li>
-                        </ul>
+        <div class="col-lg-5">
+            <div class="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
+                <div class="ratio ratio-4x3 course-image-container">
+                    {% if course.image and course.image.startswith('http') %}
+                    <img src="{{ course.image }}" alt="{{ course.name }}"
+                        onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+                    {% elif course.image %}
+                    <img src="{{ url_for('static', filename='img/' + course.image) }}" alt="{{ course.name }}"
+                        onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+                    {% else %}
+                    <div class="d-flex align-items-center justify-content-center w-100 h-100 text-muted">
+                        <i class="bi bi-image fs-1"></i>
                     </div>
+                    {% endif %}
                 </div>
 
-                <div class="alert alert-primary d-flex align-items-center" role="alert">
-                    <i class="bi bi-hand-index-thumb-fill fs-4 me-3"></i>
-                    <div>
-                        <strong>如何預約？</strong><br>
-                        請點擊右側日曆上的 <span class="badge bg-success">綠色時段</span> 即可預約。
+                <div class="card-body p-4">
+                    <h2 class="fw-bold mb-3">{{ course.name }}</h2>
+                    <div class="d-flex align-items-center mb-3">
+                        <span class="badge bg-primary me-2">{{ course.category_name or '精選課程' }}</span>
+                        <span class="text-muted"><i class="bi bi-clock"></i> {{ course.duration }} 分鐘</span>
                     </div>
+
+                    <div class="mb-4">
+                        {% if course.experience_price %}
+                        <h4 class="text-danger fw-bold mb-0">體驗價 NT$ {{ '{:,.0f}'.format(course.experience_price) }}
+                        </h4>
+                        <small class="text-muted text-decoration-line-through">原價 NT$ {{
+                            '{:,.0f}'.format(course.regular_price) }}</small>
+                        {% else %}
+                        <h4 class="text-primary fw-bold">NT$ {{ '{:,.0f}'.format(course.regular_price) }}</h4>
+                        {% endif %}
+                    </div>
+
+                    <h5 class="fw-bold mb-2">課程內容</h5>
+                    <p class="text-muted" style="white-space: pre-line;">{{ course.description or '暫無詳細描述' }}</p>
                 </div>
+            </div>
+
+            <div class="alert alert-info d-lg-none">
+                <i class="bi bi-info-circle-fill me-2"></i> 請往下滑動選擇預約時段
             </div>
         </div>
 
-        <div class="col-lg-8">
+        <div class="col-lg-7">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h4 class="fw-bold mb-0">選擇預約時段</h4>
+
+                {% if not session.get('user') %}
+                <span class="badge bg-warning text-dark">
+                    <i class="bi bi-exclamation-circle"></i> 請先登入以進行預約
+                </span>
+                {% endif %}
+            </div>
+
             <div id='calendar'></div>
         </div>
     </div>
@@ -103,90 +128,71 @@
 
 <div class="modal fade" id="bookingModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
-        <div class="modal-content">
-            <form action="{{ url_for('main.book_course_slot') }}" method="POST">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold">確認預約資訊</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="{{ url_for('main.book_course', course_id=course.id) }}" method="POST">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="course_id" value="{{ course.id }}">
                 <input type="hidden" name="schedule_id" id="modalScheduleId">
 
-                <div class="modal-header bg-primary text-white">
-                    <h5 class="modal-title"><i class="bi bi-calendar-check"></i> 確認預約</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body text-center py-4">
-                    <h4 class="text-primary fw-bold mb-3">{{ course.name }}</h4>
-                    <p class="fs-5">您選擇的時段為：</p>
-                    <div class="bg-light p-3 rounded-3 d-inline-block mb-3">
-                        <strong id="modalTimeStr" class="fs-4"></strong>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="text-muted small">預約課程</label>
+                        <div class="fw-bold fs-5">{{ course.name }}</div>
                     </div>
-                    <p class="text-muted mb-0">確定要預約此時段嗎？</p>
+
+                    <div class="mb-3">
+                        <label class="text-muted small">預約時段</label>
+                        <div class="fw-bold fs-5 text-primary" id="modalTimeStr"></div>
+                    </div>
+
+                    <div class="alert alert-light border small">
+                        <i class="bi bi-info-circle me-1"></i>
+                        預約送出後，我們將盡快與您聯繫確認。
+                    </div>
                 </div>
-                <div class="modal-footer justify-content-center">
-                    <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">再想想</button>
-                    <button type="submit" class="btn btn-primary px-4">確定預約</button>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">取消</button>
+                    {% if session.get('user') %}
+                    <button type="submit" class="btn btn-primary rounded-pill px-4">確認預約</button>
+                    {% else %}
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-warning rounded-pill px-4">請先登入</a>
+                    {% endif %}
                 </div>
             </form>
         </div>
     </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function () {
-        var initialView = window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth'; // 手機預設清單模式
         var calendarEl = document.getElementById('calendar');
-        if (!calendarEl) {
-            console.error("找不到 id='calendar' 的 HTML 元素");
-            return;
-        }
         var calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: initialView, // 使用動態判斷的視圖
+            initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
+            locale: 'zh-tw',
+            height: 'auto',
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'dayGridMonth,timeGridWeek,listWeek'
+                right: 'dayGridMonth,listWeek'
             },
-
             buttonText: {
                 today: '今天',
-                month: '月曆',
-                week: '週曆',
+                month: '月視圖',
                 list: '列表'
             },
-
-            // --- 版面設定 ---
-            allDaySlot: false,        // 移除上方全天欄位
-            slotEventOverlap: false,  // 禁止重疊，確保事件乖乖排好
-
-            // ⭐ 關鍵設定：強制顯示為 1 小時長度
-            // 這會讓所有事件在日曆上看起來都只有 1 小時，不會跨到下一格
-            forceEventDuration: true,
-            defaultTimedEventDuration: '01:00',
-
-            // ⭐ 資料轉換：攔截所有事件，強制修改結束時間
-            // 這樣無論資料庫的課程多長，日曆上永遠只顯示 1 小時
-            eventDataTransform: function (eventData) {
-                // 如果有開始時間，就強制設定結束時間為開始後 1 小時
-                // 這樣在 Month/List 檢視也會顯示正確的 1 小時區間，且不會影響實際預約邏輯
-                if (eventData.start) {
-                    let start = new Date(eventData.start);
-                    let end = new Date(start.getTime() + 60 * 60 * 1000); // +1 hour
-                    eventData.end = end.toISOString();
-                }
-                return eventData;
+            // 設定顯示範圍 (只能看未來 30 天)
+            validRange: {
+                start: new Date().toISOString().split('T')[0],
+                end: new Date(new Date().setDate(new Date().getDate() + 60)).toISOString().split('T')[0]
             },
-            height: 'auto', // 高度自動適應
-            contentHeight: 'auto',
-            locale: 'zh-tw',
-            navLinks: true, // 可以點擊日期進入當天
-            businessHours: { // 強調營業時間
-                daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
-                startTime: '09:00',
-                endTime: '20:00',
-            },
+            // 隱藏非營業時間 (僅顯示 10:00 - 20:00)
+            slotMinTime: '10:00',
+            slotMaxTime: '20:00',
 
-            // 加入視窗縮放監聽
+            // RWD: 視窗縮放時切換視圖
             windowResize: function (view) {
                 if (window.innerWidth < 768) {
                     calendar.changeView('listWeek');
@@ -195,10 +201,10 @@
                 }
             },
 
-            // 資料來源
+            // 資料來源 API
             events: '/api/course/{{ course.id }}/schedule',
 
-            // ⭐ 點擊事件 (修復無法點擊的問題)
+            // 點擊事件
             eventClick: function (info) {
                 // 1. 額滿檢查
                 if (info.event.extendedProps.isFull) {
@@ -216,12 +222,27 @@
 
             // 滑鼠懸停效果
             eventMouseEnter: function (info) {
-                info.el.style.cursor = 'pointer';
-                info.el.style.transform = 'scale(1.05)';
-                info.el.style.transition = '0.2s';
+                if (!info.event.extendedProps.isFull) {
+                    info.el.style.transform = 'scale(1.05)';
+                    info.el.style.transition = '0.2s';
+                }
             },
             eventMouseLeave: function (info) {
-                info.el.style.transform = 'scale(1)';
+                info.el.style.transform = 'scale(1.0)';
+            },
+
+            // 渲染事件內容
+            eventContent: function (arg) {
+                let statusClass = arg.event.extendedProps.isFull ? 'status-full' : 'status-available';
+                let statusText = arg.event.extendedProps.isFull ? '額滿' : '可預約';
+
+                // 簡單的 HTML 結構
+                return {
+                    html: `<div class="fc-event-main-frame ${statusClass} rounded p-1">
+                             <div class="fc-event-time small">${arg.timeText}</div>
+                             <div class="fc-event-title fw-bold">${statusText}</div>
+                           </div>`
+                };
             }
         });
         calendar.render();

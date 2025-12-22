@@ -34,9 +34,8 @@
 
             <div class="col-12 col-lg-4">
                 <form method="GET" action="{{ url_for('main.courses') }}" class="input-group">
-                    <input type="search" name="q" class="form-control" placeholder="搜尋課程名稱..."
-                        value="{{ search_query or '' }}" aria-label="搜尋課程">
-
+                    <input type="text" name="q" class="form-control form-control-sm me-2" placeholder="搜尋課程..."
+                        value="{{ request.args.get('q', '') }}" aria-label="搜尋課程">
                     <button class="btn btn-primary" type="submit">
                         <i class="bi bi-search"></i>
                     </button>
@@ -53,59 +52,57 @@
     </div>
 
     <!-- Course Grid -->
-    <div id="course-list" class="row g-4">
+    <div class="row g-4" id="course-list">
         {% for course in courses %}
         <div class="col-6 col-md-4 col-lg-3">
-            <div class="card h-100 hover-zoom shadow-sm d-flex flex-column">
+            <div class="card h-100 hover-zoom shadow-sm border-0 d-flex flex-column">
 
                 <div data-bs-toggle="modal" data-bs-target="#courseModal{{ course.id }}"
                     class="d-flex flex-column flex-grow-1" style="cursor:pointer;">
 
-                    <div class="ratio ratio-16x9">
-                        {% if course.image %}
-                        <img src="{{ url_for('static', filename=course.image) }}" class="card-img-top object-fit-cover"
-                            alt="{{ course.name }}" loading="lazy"
+                    <div class="ratio ratio-4x3 bg-light rounded-top overflow-hidden">
+                        {% if course.image and course.image.startswith('http') %}
+                        <img src="{{ course.image }}" class="w-100 h-100 object-fit-contain p-2" alt="{{ course.name }}"
+                            loading="lazy"
+                            onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
+                        {% elif course.image %}
+                        <img src="{{ url_for('static', filename='img/' + course.image) }}"
+                            class="w-100 h-100 object-fit-contain p-2" alt="{{ course.name }}" loading="lazy"
                             onerror="this.src='{{ url_for('static', filename='img/default-course.png') }}'">
                         {% else %}
-                        <div class="bg-light d-flex align-items-center justify-content-center">
-                            <i class="bi bi-calendar-check fs-1 text-muted"></i>
+                        <div class="d-flex align-items-center justify-content-center h-100 text-muted">
+                            <i class="bi bi-image fs-1 opacity-25"></i>
                         </div>
                         {% endif %}
                     </div>
 
-                    <div class="card-body d-flex flex-column flex-grow-1">
-                        <h5 class="card-title text-truncate">{{ course.name }}</h5>
-
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <div>
-                                {% if course.experience_price %}
-                                <span class="badge bg-success">首次體驗</span>
-                                <div class="mt-1">
-                                    <span class="text-success fw-bold">NT$ {{ '{:,.0f}'.format(course.experience_price)
-                                        }}</span>
-                                </div>
-                                {% endif %}
-
-                                <p
-                                    class="mb-0 {% if course.experience_price %}text-muted text-decoration-line-through small{% else %}text-primary fw-bold{% endif %}">
-                                    {% if course.regular_price > 0 %}
-                                    NT$ {{ '{:,.0f}'.format(course.regular_price) }}
-                                    {% else %}
-                                    &nbsp;
-                                    {% endif %}
-                                </p>
-                            </div>
+                    <div class="card-body d-flex flex-column p-3">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <span class="badge bg-primary bg-opacity-10 text-primary rounded-pill">
+                                {{ course.category_name or '精選課程' }}
+                            </span>
                             {% if course.duration %}
-                            <span class="text-muted small"><i class="bi bi-clock"></i> {{ course.duration }} 分鐘</span>
+                            <small class="text-muted"><i class="bi bi-clock"></i> {{ course.duration }} min</small>
                             {% endif %}
                         </div>
 
-                        <div class="mt-auto">
-                            {% if course.category_name %}
-                            <span class="badge bg-light text-dark">{{ course.category_name }}</span>
-                            {% else %}
-                            <span class="badge" style="visibility: hidden;">&nbsp;</span>
-                            {% endif %}
+                        <h5 class="card-title fw-bold fs-6 mb-2 text-truncate">{{ course.name }}</h5>
+
+                        <div class="mt-auto pt-2 border-top">
+                            <div class="d-flex align-items-center justify-content-between">
+                                <div>
+                                    {% if course.experience_price %}
+                                    <span class="text-danger fw-bold d-block small">體驗 NT$ {{
+                                        '{:,.0f}'.format(course.experience_price) }}</span>
+                                    <small class="text-decoration-line-through text-muted"
+                                        style="font-size: 0.8rem;">NT$ {{ '{:,.0f}'.format(course.regular_price)
+                                        }}</small>
+                                    {% else %}
+                                    <span class="text-primary fw-bold">NT$ {{ '{:,.0f}'.format(course.regular_price)
+                                        }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -113,90 +110,97 @@
                 <div class="card-footer bg-white border-0 pt-0 pb-3">
                     {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
                     <a href="{{ url_for('main.course_detail', course_id=course.id) }}"
-                        class="btn btn-success btn-sm w-100">
+                        class="btn btn-success btn-sm w-100 rounded-pill">
                         <i class="bi bi-calendar-week"></i> 選擇預約時段
                     </a>
                     {% else %}
-                    <button class="btn btn-secondary btn-sm w-100" disabled>請先登入</button>
+                    <a href="{{ url_for('auth.login') }}"
+                        class="btn btn-outline-secondary btn-sm w-100 rounded-pill">請先登入</a>
                     {% endif %}
                 </div>
 
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12 text-center py-5">
+            <div class="text-muted">
+                <i class="bi bi-search fs-1 d-block mb-3"></i>
+                <p>沒有找到相關課程</p>
             </div>
         </div>
         {% endfor %}
     </div>
 
-    <!-- Loading Indicator -->
-    <div id="loading" class="text-center mt-4" style="display:none;">
-        <div class="spinner-border text-primary" role="status">
-            <span class="visually-hidden">載入中...</span>
-        </div>
-        <p class="text-muted mt-2">載入更多課程...</p>
-    </div>
-
-    <!-- No More Courses -->
-    <div id="no-more" class="text-center text-muted mt-4" style="display:none;">
-        <p>已顯示全部課程</p>
-    </div>
-
-    <!-- Empty State -->
-    {% if courses|length == 0 %}
-    <div class="text-center py-5">
-        <i class="bi bi-inbox fs-1 text-muted"></i>
-        <p class="text-muted mt-3">目前沒有課程</p>
-        <a href="{{ url_for('main.courses') }}" class="btn btn-primary">瀏覽全部課程</a>
-    </div>
-    {% endif %}
-
-    <!-- Modals -->
     {% for course in courses %}
-    <div class="modal fade" id="courseModal{{ course.id }}" tabindex="-1"
-        aria-labelledby="courseModalLabel{{ course.id }}" aria-hidden="true">
+    <div class="modal fade" id="courseModal{{ course.id }}" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="courseModalLabel{{ course.id }}">{{ course.name }}</h5>
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header border-0">
+                    <h5 class="modal-title fw-bold">{{ course.name }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    {% if course.image %}
-                    <img src="{{ url_for('static', filename=course.image) }}" class="img-fluid mb-3"
-                        alt="{{ course.name }}">
-                    {% endif %}
-                    <p><strong>類別：</strong> {{ course.category_name or '無' }}</p>
-                    <p><strong>課程時長：</strong> {{ course.duration or '未知' }} 分鐘</p>
-                    <p><strong>價格：</strong>
-                        {% if course.experience_price %}
-                        <span class="text-success fw-bold">首次體驗 NT$ {{ '{:,.0f}'.format(course.experience_price)
-                            }}</span>
-                        {% if course.regular_price > 0 %}
-                        <span class="text-decoration-line-through text-muted">NT$ {{
-                            '{:,.0f}'.format(course.regular_price) }}</span>
+                    <div class="text-center mb-3 bg-light rounded p-2">
+                        {% if course.image and course.image.startswith('http') %}
+                        <img src="{{ course.image }}" class="img-fluid rounded"
+                            style="max-height: 400px; object-fit: contain;" alt="{{ course.name }}">
+                        {% elif course.image %}
+                        <img src="{{ url_for('static', filename='img/' + course.image) }}" class="img-fluid rounded"
+                            style="max-height: 400px; object-fit: contain;" alt="{{ course.name }}">
                         {% endif %}
-                        {% else %}
-                        {% if course.regular_price > 0 %}
-                        NT$ {{ '{:,.0f}'.format(course.regular_price) }}
+                    </div>
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <p class="mb-1 text-muted small">課程類別</p>
+                            <p class="fw-bold">{{ course.category_name or '一般課程' }}</p>
+                        </div>
+                        <div class="col-md-6">
+                            <p class="mb-1 text-muted small">所需時間</p>
+                            <p class="fw-bold">{{ course.duration or '--' }} 分鐘</p>
+                        </div>
+                        <div class="col-12">
+                            <p class="mb-1 text-muted small">課程價格</p>
+                            {% if course.experience_price %}
+                            <span class="text-danger fw-bold fs-5 me-2">體驗價 NT$ {{
+                                '{:,.0f}'.format(course.experience_price) }}</span>
+                            <span class="text-decoration-line-through text-muted">原價 NT$ {{
+                                '{:,.0f}'.format(course.regular_price) }}</span>
+                            {% else %}
+                            <span class="text-primary fw-bold fs-5">NT$ {{ '{:,.0f}'.format(course.regular_price)
+                                }}</span>
+                            {% endif %}
+                        </div>
+
+                        {% if course.description %}
+                        <div class="col-12">
+                            <hr>
+                            <p class="mb-1 text-muted small">課程介紹</p>
+                            <div class="text-secondary" style="white-space: pre-line;">{{ course.description }}</div>
+                        </div>
                         {% endif %}
-                        {% endif %}
-                    </p>
-                    {% if course.description %}
-                    <hr>
-                    <p>{{ course.description }}</p>
-                    {% endif %}
+                    </div>
                 </div>
-                <div class="modal-footer">
-                    {% if session.get('user', {}).get('role') in ['customer', 'admin', 'staff'] %}
-                    <a href="{{ url_for('main.course_detail', course_id=course.id) }}" class="btn btn-success w-100">
-                        <i class="bi bi-calendar-week"></i> 前往選擇時段
+                <div class="modal-footer border-0">
+                    <button type="button" class="btn btn-light rounded-pill" data-bs-dismiss="modal">關閉</button>
+                    <a href="{{ url_for('main.course_detail', course_id=course.id) }}"
+                        class="btn btn-primary rounded-pill px-4">
+                        前往預約
                     </a>
-                    {% else %}
-                    <button class="btn btn-secondary w-100" disabled>請先登入</button>
-                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
     {% endfor %}
+
+    <div id="loading-indicator" class="text-center py-4" style="display: none;">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+    <div id="no-more-courses" class="text-center py-4 text-muted small" style="display: none;">
+        沒有更多課程了
+    </div>
 
 </div>
 {% endblock %}
@@ -205,42 +209,42 @@
 <script>
     let page = 1;
     let loading = false;
-    let hasMore = {{ 'true' if courses| length >= 15 else 'false' }};
-    const courseList = document.getElementById('course-list');
-    const loadingIndicator = document.getElementById('loading');
-    const noMoreIndicator = document.getElementById('no-more');
-    const currentCategory = {{ current_category| tojson }};
-    const searchQuery = {{ search_query| tojson }};
+    let hasMore = true;
+    const categoryId = "{{ current_category or '' }}";
+    const searchQuery = "{{ request.args.get('q', '') }}";
 
     // Infinite scroll
     function loadMoreCourses() {
         if (loading || !hasMore) return;
 
-        const scrollTop = window.scrollY;
-        const windowHeight = window.innerHeight;
-        const docHeight = document.documentElement.scrollHeight;
-
-        if (scrollTop + windowHeight >= docHeight - 300) {
+        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500) {
             loading = true;
-            page += 1;
-            loadingIndicator.style.display = 'block';
+            document.getElementById('loading-indicator').style.display = 'block';
 
-            let url = `/courses?page=${page}`;
-            if (currentCategory) url += `&category=${currentCategory}`;
-            if (searchQuery) url += `&q=${encodeURIComponent(searchQuery)}`;
+            page++;
+            let url = `{{ url_for('main.courses') }}?page=${page}`;
+            if (categoryId) url += `&category=${categoryId}`;
+            if (searchQuery) url += `&q=${searchQuery}`;
 
             fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-                .then(res => res.text())
+                .then(response => response.text())
                 .then(html => {
+                    const loadingIndicator = document.getElementById('loading-indicator');
+                    const noMoreIndicator = document.getElementById('no-more-courses');
                     loadingIndicator.style.display = 'none';
 
                     if (html.trim()) {
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = html;
-                        const newItems = tempDiv.querySelectorAll('.col-6');
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        // 這裡要注意：要同時抓取新的卡片和新的 Modal
+                        const newItems = doc.querySelectorAll('.col-6');
+                        const newModals = doc.querySelectorAll('.modal');
 
                         if (newItems.length > 0) {
+                            const courseList = document.getElementById('course-list');
                             newItems.forEach(item => courseList.appendChild(item));
+                            // 將新的 Modal 加到 body 或列表後方
+                            newModals.forEach(modal => courseList.appendChild(modal));
                             loading = false;
                         } else {
                             hasMore = false;
@@ -253,7 +257,7 @@
                 })
                 .catch(err => {
                     console.error('載入失敗:', err);
-                    loadingIndicator.style.display = 'none';
+                    document.getElementById('loading-indicator').style.display = 'none';
                     loading = false;
                 });
         }
@@ -262,12 +266,6 @@
     if (hasMore) {
         window.addEventListener('scroll', loadMoreCourses);
     }
-
-    // Hover effect
-    document.querySelectorAll('.hover-zoom').forEach(card => {
-        card.addEventListener('mouseenter', function () { this.style.transform = 'translateY(-5px)'; });
-        card.addEventListener('mouseleave', function () { this.style.transform = 'translateY(0)'; });
-    });
 </script>
 
 <style>
