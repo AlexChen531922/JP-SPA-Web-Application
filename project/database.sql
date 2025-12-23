@@ -455,3 +455,10 @@ FOREIGN KEY (global_schedule_id) REFERENCES shop_schedules(id) ON DELETE SET NUL
 
 -- 建議：為了查詢效能，給新欄位加個索引
 CREATE INDEX idx_booking_global_schedule ON bookings(global_schedule_id);
+
+-- 1. 新增欄位
+ALTER TABLE products ADD COLUMN display_order INT DEFAULT 0;
+
+-- 2. 初始化排序 (讓現有產品依 ID 排序，避免全部都是 0)
+SET @i=0;
+UPDATE products SET display_order = (@i:=@i+1) ORDER BY id ASC;
