@@ -50,6 +50,36 @@
     .fc-day-today {
         background-color: rgba(255, 240, 245, 0.5) !important;
     }
+
+    /* ...保留原本的樣式... */
+
+    /* 1. 強制日期標題不換行 */
+    .fc-col-header-cell-cushion {
+        white-space: nowrap !important;
+        /* 禁止換行 */
+        display: inline-block !important;
+        font-size: 0.95rem;
+        /* 稍微縮小字體以防過寬 */
+        padding: 5px 2px !important;
+    }
+
+    /* 2. 調整事件內容樣式，確保文字居中且不被裁切 */
+    .fc-event-main-frame {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0 !important;
+        /* 移除內距以爭取空間 */
+    }
+
+    .fc-event-title {
+        white-space: nowrap !important;
+        font-size: 1rem;
+        /* 字體大小 */
+        line-height: 1;
+    }
 </style>
 {% endblock %}
 
@@ -236,19 +266,21 @@
             },
 
             // 渲染事件內容
+            // 渲染事件內容
             eventContent: function (arg) {
                 let statusClass = arg.event.extendedProps.isFull ? 'status-full' : 'status-available';
                 let statusText = arg.event.extendedProps.isFull ? '額滿' : '可預約';
 
+                // 針對 "週視圖" (timeGrid) 的顯示優化
                 if (arg.view.type === 'timeGridWeek') {
                     return {
-                        html: `<div class="fc-event-main-frame ${statusClass} rounded p-1 h-100 d-flex flex-column justify-content-center">
-                                 <div class="fc-event-time small text-center">${arg.timeText}</div>
-                                 <div class="fc-event-title fw-bold text-center">${statusText}</div>
+                        html: `<div class="fc-event-main-frame ${statusClass} rounded h-100 w-100 d-flex justify-content-center align-items-center">
+                                 <div class="fc-event-title fw-bold">${statusText}</div>
                                </div>`
                     };
                 }
-                // 簡單的 HTML 結構
+
+                // 針對 "月視圖" 或 "列表" 的顯示 (保持原樣或一併修改)
                 return {
                     html: `<div class="fc-event-main-frame ${statusClass} rounded p-1">
                              <div class="fc-event-time small">${arg.timeText}</div>
