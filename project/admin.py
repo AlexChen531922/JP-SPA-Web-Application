@@ -1282,13 +1282,19 @@ def bulk_update_schedule():
         database.connection.commit()
         cursor.close()
 
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': True, 'message': f'已批次更新 {updated_count} 個時段設定！'})
+
         flash(f'已批次更新 {updated_count} 個時段設定！', 'success')
+        return redirect(url_for('admin.dashboard', tab='courses'))
 
     except Exception as e:
         database.connection.rollback()
-        flash(f'更新失敗: {str(e)}', 'error')
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({'success': False, 'message': str(e)}), 500
 
-    return redirect(url_for('admin.dashboard', tab='bookings'))
+        flash(f'更新失敗: {str(e)}', 'error')
+        return redirect(url_for('admin.dashboard', tab='courses'))
 
 
 @admin_bp.route('/schedule/<int:schedule_id>/update-capacity', methods=['POST'])

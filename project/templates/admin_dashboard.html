@@ -1121,7 +1121,8 @@
         <div class="row g-4">
           <div class="col-lg-4 border-end">
             <h6 class="fw-bold mb-3 text-primary">批次設定工具</h6>
-            <form action="{{ url_for('admin.bulk_update_schedule') }}" method="POST" class="p-3 bg-light rounded-3">
+            <form id="bulkUpdateForm" action="{{ url_for('admin.bulk_update_schedule') }}" method="POST"
+              class="p-3 bg-light rounded-3">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
               <div class="mb-3">
@@ -2099,5 +2100,49 @@
       });
     }
   });
+
+  // ================= 批次更新 (AJAX 不換頁) =================
+  const bulkForm = document.getElementById('bulkUpdateForm');
+  if (bulkForm) {
+    bulkForm.addEventListener('submit', function (e) {
+      e.preventDefault(); // 阻止頁面跳轉
+
+      const submitBtn = this.querySelector('button[type="submit"]');
+      const originalText = submitBtn.innerHTML;
+
+      // 顯示讀取中狀態
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 處理中...';
+
+      fetch(this.action, {
+        method: 'POST',
+        body: new FormData(this),
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest' // 告訴後端這是 AJAX
+        }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            // 1. 顯示成功訊息 (可用 alert 或自訂 Toast)
+            alert(data.message);
+
+            // 2. 重新載入右側清單 (不用關閉 Modal)
+            loadShopSchedules();
+          } else {
+            alert('更新失敗: ' + (data.message || '未知錯誤'));
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          alert('連線錯誤，請稍後再試');
+        })
+        .finally(() => {
+          // 恢復按鈕
+          submitBtn.disabled = false;
+          submitBtn.innerHTML = originalText;
+        });
+    });
+  }
 </script>
 {% endblock %}
