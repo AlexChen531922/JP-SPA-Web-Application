@@ -72,6 +72,19 @@
         width: 100%;
         height: 95%;
     }
+
+    /* 月視圖專用*/
+    .fc-daygrid-event {
+        display: block !important;
+        /* 讓它變成區塊元素，不要並排 */
+        width: auto !important;
+        /* 自動填滿寬度 */
+        margin-left: 4px !important;
+        /* 左側距離格線 4px */
+        margin-right: 4px !important;
+        /* 右側距離格線 4px */
+        margin-bottom: 2px !important;
+        /* 下方留點空隙 */
 </style>
 {% endblock %}
 
@@ -271,7 +284,7 @@
                 }
                 // 簡單的 HTML 結構
                 return {
-                    html: `<div class="fc-event-main-frame ${statusClass} rounded p-1">
+                    html: `<div class="fc-event-main-frame ${statusClass} rounded p-1 w-95 d-block">
                              <div class="fc-event-time small">${arg.timeText}</div>
                              <div class="fc-event-title fw-bold">${statusText}</div>
                            </div>`

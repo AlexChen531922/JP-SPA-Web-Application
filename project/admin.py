@@ -193,7 +193,7 @@ def dashboard():
             p.image, p.description, c.name as category_name
         FROM products p
         LEFT JOIN product_categories c ON p.category_id = c.id
-        ORDER BY p.name
+        ORDER BY p.display_order ASC, p.id DESC
     """)
     inventory_products = cursor.fetchall()
 
