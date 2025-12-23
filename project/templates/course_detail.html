@@ -176,11 +176,12 @@
             headerToolbar: {
                 left: 'prev,next today',
                 center: 'title',
-                right: 'dayGridMonth,listWeek'
+                right: 'dayGridMonth,timeGridWeek,listWeek'
             },
             buttonText: {
                 today: '今天',
-                month: '月視圖',
+                month: '月',
+                week: '週',
                 list: '列表'
             },
             // 設定顯示範圍 (只能看未來 30 天)
@@ -191,13 +192,16 @@
             // 隱藏非營業時間 (僅顯示 10:00 - 20:00)
             slotMinTime: '10:00',
             slotMaxTime: '20:00',
+            allDaySlot: false,
 
             // RWD: 視窗縮放時切換視圖
             windowResize: function (view) {
                 if (window.innerWidth < 768) {
                     calendar.changeView('listWeek');
                 } else {
-                    calendar.changeView('dayGridMonth');
+                    if (view.type === 'listWeek') {
+                        calendar.changeView('dayGridMonth');
+                    }
                 }
             },
 
@@ -236,6 +240,14 @@
                 let statusClass = arg.event.extendedProps.isFull ? 'status-full' : 'status-available';
                 let statusText = arg.event.extendedProps.isFull ? '額滿' : '可預約';
 
+                if (arg.view.type === 'timeGridWeek') {
+                    return {
+                        html: `<div class="fc-event-main-frame ${statusClass} rounded p-1 h-100 d-flex flex-column justify-content-center">
+                                 <div class="fc-event-time small text-center">${arg.timeText}</div>
+                                 <div class="fc-event-title fw-bold text-center">${statusText}</div>
+                               </div>`
+                    };
+                }
                 // 簡單的 HTML 結構
                 return {
                     html: `<div class="fc-event-main-frame ${statusClass} rounded p-1">
