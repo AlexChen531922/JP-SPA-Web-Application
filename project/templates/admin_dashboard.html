@@ -961,7 +961,10 @@
               </select>
             </div>
             <div class="col-md-4"><label>價格</label><input name="price" type="number" class="form-control"></div>
-            <div class="col-md-4"><label>成本</label><input name="cost" type="number" class="form-control"></div>
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <div class="col-md-4"><label class="text-danger">成本</label><input name="cost" type="number"
+                class="form-control"></div>
+            {% endif %}
             <div class="col-md-4"><label>庫存</label><input name="stock" type="number" class="form-control"></div>
             <div class="col-12"><label>描述</label><textarea name="description" class="form-control"></textarea></div>
             <div class="col-12"><label>圖片</label><input type="file" name="image" class="form-control"></div>
@@ -1470,10 +1473,12 @@
               <label class="form-label fw-bold">進貨數量</label>
               <input type="number" name="quantity" class="form-control" min="1" required>
             </div>
+            {% if session.get('user', {}).get('role') == 'admin' %}
             <div class="col-6 mb-3">
-              <label class="form-label">本次進貨成本 (單價)</label>
+              <label class="form-label text-danger">本次進貨成本 (單價)</label>
               <input type="number" name="cost" class="form-control" placeholder="選填，將更新成本">
             </div>
+            {% endif %}
           </div>
           <div class="mb-3">
             <label class="form-label">備註 / 批號</label>
@@ -1671,8 +1676,8 @@
 
   // Edit Product Modal
   function fetchProductData(productId) {
-    // 1. 呼叫 API
-    fetch(`/admin/api/product/${productId}`)
+    // ⭐ 修正：加上時間戳記 (new Date().getTime()) 防止瀏覽器快取舊資料
+    fetch(`/admin/api/product/${productId}?t=${new Date().getTime()}`)
       .then(response => response.json())
       .then(product => {
         if (product.error) {
@@ -1715,8 +1720,10 @@
         // 4. 設定 Form Action
         const formEl = document.getElementById('editProductForm');
         if (formEl) {
-          let url = "{{ url_for('admin.update_product_modal', product_id=0) }}";
-          formEl.action = url.replace('/0/', '/' + productId + '/');
+          // ⭐ 優化：使用 replace 替換 ID 的方式更穩健
+          // 先產生一個帶有佔位符的 URL
+          let urlTemplate = "{{ url_for('admin.update_product_modal', product_id=999999) }}";
+          formEl.action = urlTemplate.replace('999999', productId);
         }
 
         // 5. 顯示 Modal

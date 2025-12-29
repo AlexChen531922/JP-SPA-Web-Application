@@ -97,9 +97,9 @@ def dashboard():
 
     # 2. 營收計算 (Revenue)
     cursor.execute("""
-        SELECT 
+        SELECT
             (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status != 'cancelled') +
-            (SELECT COALESCE(SUM(total_amount), 0) FROM bookings WHERE status != 'cancelled') 
+            (SELECT COALESCE(SUM(total_amount), 0) FROM bookings WHERE status != 'cancelled')
         as total_revenue
     """)
     res = cursor.fetchone()
@@ -187,8 +187,8 @@ def dashboard():
 
     # Inventory
     cursor.execute("""
-        SELECT 
-            p.id, p.name, p.stock_quantity, p.cost, p.price, 
+        SELECT
+            p.id, p.name, p.stock_quantity, p.cost, p.price,
             p.last_purchase_date, p.last_sale_date, p.unit,
             p.image, p.description, c.name as category_name
         FROM products p
@@ -358,8 +358,9 @@ def add_product_modal():
 
         cursor = database.connection.cursor()
         sql = """
-            INSERT INTO products 
-            (name, category_id, price, cost, stock_quantity, description, image, is_active, created_at)
+            INSERT INTO products
+            (name, category_id, price, cost, stock_quantity,
+             description, image, is_active, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         cursor.execute(sql, (name, category_id, price, cost,
@@ -383,26 +384,40 @@ def add_product_modal():
 @staff_required
 def update_product_modal(product_id):
     try:
+        # 1. 先取得資料庫目前的資料 (為了防止 Staff 編輯時將成本誤寫為 0)
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
+        current_prod = cursor.fetchone()
+
+        if not current_prod:
+            flash('找不到該產品', 'error')
+            return redirect(url_for('admin.dashboard', tab='products'))
+
+        # 2. 接收表單資料
         name = request.form.get('name')
         category_id = request.form.get('category_id') or None
         price = request.form.get('price') or 0
-        cost = request.form.get('cost') or 0
         stock = request.form.get('stock') or 0
         description = request.form.get('description')
         is_active = 1 if request.form.get('is_active') else 0
 
+        # ⭐ 關鍵修正：如果是 Staff (表單沒傳 cost)，則使用資料庫舊值
+        if 'cost' in request.form:
+            cost = request.form.get('cost') or 0
+        else:
+            cost = current_prod['cost']  # 保持原樣
+        # 3. 處理圖片
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
             if file and file.filename != '':
                 image_url = upload_to_cloudinary(file)
 
-        cursor = database.connection.cursor()
-
+        # 4. 更新資料庫
         if image_url:
             sql = """
-                UPDATE products 
-                SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s, 
+                UPDATE products
+                SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s,
                     description=%s, is_active=%s, image=%s, updated_at=NOW()
                 WHERE id=%s
             """
@@ -410,8 +425,8 @@ def update_product_modal(product_id):
                            stock, description, is_active, image_url, product_id))
         else:
             sql = """
-                UPDATE products 
-                SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s, 
+                UPDATE products
+                SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s,
                     description=%s, is_active=%s, updated_at=NOW()
                 WHERE id=%s
             """
@@ -426,6 +441,7 @@ def update_product_modal(product_id):
 
     except Exception as e:
         database.connection.rollback()
+        print(f"Update Error: {e}")  # 印出錯誤到後台
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='products'))
