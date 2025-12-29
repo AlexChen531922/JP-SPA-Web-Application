@@ -1737,7 +1737,8 @@
 
   // ================= 課程編輯 (AJAX版) =================
   function fetchCourseData(courseId) {
-    fetch(`/admin/api/course/${courseId}`)
+    // ⭐ 修正 1：加上時間戳記，防止瀏覽器讀取舊資料
+    fetch(`/admin/api/course/${courseId}?t=${new Date().getTime()}`)
       .then(response => response.json())
       .then(course => {
         if (course.error) {
@@ -1764,9 +1765,18 @@
         setVal('edit_course_sessions', course.sessions);
         setVal('edit_course_description', course.description);
 
-        // 圖片
+        // ⭐ 修正 2：圖片路徑判斷 (支援 Cloudinary 網址)
         setVal('edit_course_current_image', course.image);
-        var imgPath = course.image ? ("{{ url_for('static', filename='') }}" + course.image) : "{{ url_for('static', filename='img/placeholder.jpg') }}";
+
+        let imgPath = "{{ url_for('static', filename='img/placeholder.jpg') }}"; // 預設圖
+        if (course.image) {
+          if (course.image.startsWith('http')) {
+            imgPath = course.image; // Cloudinary
+          } else {
+            imgPath = "{{ url_for('static', filename='') }}" + "img/" + course.image; // 本地圖
+          }
+        }
+
         const preview = document.getElementById('editCoursePreview');
         if (preview) preview.src = imgPath;
 
@@ -1776,8 +1786,8 @@
         // 設定 Action
         const formEl = document.getElementById('editCourseForm');
         if (formEl) {
-          let url = "{{ url_for('admin.update_course_modal', course_id=0) }}";
-          formEl.action = url.replace('/0/', '/' + courseId + '/');
+          let urlTemplate = "{{ url_for('admin.update_course_modal', course_id=999999) }}";
+          formEl.action = urlTemplate.replace('999999', courseId);
         }
 
         // 顯示

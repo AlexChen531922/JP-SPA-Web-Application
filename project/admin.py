@@ -569,24 +569,44 @@ def add_course_modal():
 @staff_required
 def update_course_modal(course_id):
     try:
+        # 1. 先取得資料庫目前的資料 (關鍵修正：防止 Staff 編輯時成本被誤寫為 0)
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
+        current_course = cursor.fetchone()
+
+        if not current_course:
+            flash('找不到該課程', 'error')
+            return redirect(url_for('admin.dashboard', tab='courses'))
+
+        # 2. 接收表單資料
         name = request.form.get('name')
         category_id = request.form.get('category_id') or None
         regular_price = request.form.get('regular_price') or 0
         experience_price = request.form.get('experience_price') or 0
-        service_fee = request.form.get('service_fee') or 0
-        product_fee = request.form.get('product_fee') or 0
         duration = request.form.get('duration') or 60
         description = request.form.get('description')
         is_active = 1 if request.form.get('is_active') else 0
 
+        # ⭐ 關鍵修正：判斷成本欄位是否存在於表單中
+        # 如果是 Admin (有欄位)，就用傳來的直；如果是 Staff (無欄位)，就沿用資料庫舊值
+        if 'service_fee' in request.form:
+            service_fee = request.form.get('service_fee') or 0
+        else:
+            service_fee = current_course['service_fee']
+
+        if 'product_fee' in request.form:
+            product_fee = request.form.get('product_fee') or 0
+        else:
+            product_fee = current_course['product_fee']
+
+        # 3. 處理圖片上傳
         image_url = None
         if 'image' in request.files:
             file = request.files['image']
             if file and file.filename != '':
                 image_url = upload_to_cloudinary(file)
 
-        cursor = database.connection.cursor()
-
+        # 4. 更新資料庫
         if image_url:
             sql = """
                 UPDATE courses 
@@ -616,6 +636,7 @@ def update_course_modal(course_id):
 
     except Exception as e:
         database.connection.rollback()
+        print(f"Update Course Error: {e}")
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='courses'))
