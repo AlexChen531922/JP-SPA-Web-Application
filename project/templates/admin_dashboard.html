@@ -889,11 +889,9 @@
                   <td class="small text-muted">{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else
                     '-' }}</td>
 
-                  <td>
-                    <small class="text-muted d-inline-block text-truncate" style="max-width: 150px;"
-                      title="{{ prod.latest_note }}">
-                      {{ prod.latest_note or '-' }}
-                    </small>
+                  <td style="min-width: 200px;">
+                    <div class="text-muted small" style="white-space: pre-wrap; line-height: 1.4;">{{ prod.latest_note
+                      }}</div>
                   </td>
 
                   <td class="text-end">

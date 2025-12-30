@@ -196,7 +196,30 @@ def dashboard():
         LEFT JOIN product_categories c ON p.category_id = c.id
         ORDER BY p.display_order ASC, p.id DESC
     """)
-    inventory_products = cursor.fetchall()
+    # 轉成 list 以便修改內容
+    inventory_products = list(cursor.fetchall())
+
+    # ⭐ 新增：清理備註欄位 (只保留使用者輸入的內容)
+    for prod in inventory_products:
+        note = prod.get('latest_note') or ''
+
+        # 1. 去除進貨時系統自動加上的價格資訊 (截斷 '. 進貨價:' 之後的內容)
+        if '. 進貨價:' in note:
+            note = note.split('. 進貨價:')[0]
+
+        # 2. 去除完全是系統產生的預設文字
+        system_prefixes = ['Admin Manual Order',
+                           'Order Cancelled', 'Order Restored']
+        system_exact = ['Manual Restock']
+
+        # 如果備註是 "Manual Restock" (沒填寫時的預設值)，就清空
+        if note in system_exact:
+            note = ''
+        # 如果備註以 "Admin Manual Order" 開頭 (手動訂單)，就清空
+        elif any(note.startswith(prefix) for prefix in system_prefixes):
+            note = ''
+
+        prod['latest_note'] = note.strip()
 
     # Customers
     cursor.execute(
