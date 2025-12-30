@@ -2165,21 +2165,22 @@
     {% for p in inventory_products %}
   {
     id: { { p.id } },
-    name: { { p.name | tojson } },  // ⭐ 修正：加了 tojson，防止特殊字元報錯
+    name: { { p.name | tojson } },
     price: { { p.price } },
     cost: { { p.cost or 0 } },
     stock: { { p.stock_quantity } }
   },
   {% endfor %}
-    ];
+  ];
 
   // 取得使用者權限
   const userRole = {{ session.get('user', {}).get('role') | tojson }};
 
   // 2. 定義全域函式 (確保按鈕可以呼叫)
   function addOrderItem() {
+    // ... (這部分不用動，保持原樣)
     const tbody = document.getElementById('orderItemsBody');
-    if (!tbody) return; // 防呆
+    if (!tbody) return;
 
     const rowId = 'row_' + new Date().getTime();
 
@@ -2205,7 +2206,7 @@
       <td>
         <input type="number" name="prices[]" class="form-control form-control-sm" required oninput="calcManualTotal()">
       </td>
-      ${userRole === 'admin' ? costField : ''}
+      ${userRole === 'admin' ? costField : ''} 
       ${userRole !== 'admin' ? costField : ''}
       <td>
         <input type="number" name="quantities[]" class="form-control form-control-sm" value="1" min="1" required oninput="calcManualTotal()">
