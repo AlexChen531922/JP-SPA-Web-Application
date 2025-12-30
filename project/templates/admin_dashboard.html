@@ -2158,27 +2158,26 @@
     });
   }
 
-  <script>
   // ================= 多商品補登訂單邏輯 (修正版) =================
 
-    // 1. 準備產品資料 (使用 tojson 防止語法錯誤)
-    const allInventoryProducts = [
+  // 1. 準備產品資料 (使用 tojson 防止語法錯誤)
+  const allInventoryProducts = [
     {% for p in inventory_products %}
-    {
-      id: {{ p.id }},
-    name: {{ p.name | tojson }},  // ⭐ 修正：加了 tojson，防止特殊字元報錯
-    price: {{ p.price }},
-    cost: {{ p.cost or 0 }},
-    stock: {{ p.stock_quantity }} 
-    },
-    {% endfor %}
+  {
+    id: { { p.id } },
+    name: { { p.name | tojson } },  // ⭐ 修正：加了 tojson，防止特殊字元報錯
+    price: { { p.price } },
+    cost: { { p.cost or 0 } },
+    stock: { { p.stock_quantity } }
+  },
+  {% endfor %}
     ];
 
-    // 取得使用者權限
-    const userRole = {{ session.get('user', {}).get('role') | tojson }};
+  // 取得使用者權限
+  const userRole = {{ session.get('user', {}).get('role') | tojson }};
 
-    // 2. 定義全域函式 (確保按鈕可以呼叫)
-    function addOrderItem() {
+  // 2. 定義全域函式 (確保按鈕可以呼叫)
+  function addOrderItem() {
     const tbody = document.getElementById('orderItemsBody');
     if (!tbody) return; // 防呆
 
@@ -2192,12 +2191,12 @@
 
     // 根據權限決定是否顯示成本欄位
     const costField = userRole === 'admin'
-    ? `<td><input type="number" name="costs[]" class="form-control form-control-sm text-muted" placeholder="成本"></td>`
-    : `<input type="hidden" name="costs[]" value="">`;
+      ? `<td><input type="number" name="costs[]" class="form-control form-control-sm text-muted" placeholder="成本"></td>`
+      : `<input type="hidden" name="costs[]" value="">`;
 
-      const tr = document.createElement('tr');
-      tr.id = rowId;
-      tr.innerHTML = `
+    const tr = document.createElement('tr');
+    tr.id = rowId;
+    tr.innerHTML = `
       <td>
         <select name="product_ids[]" class="form-select form-select-sm" onchange="onProductSelect(this)" required>
           ${optionsHtml}
@@ -2239,7 +2238,7 @@
 
       priceInput.value = Math.floor(price);
       if (costInput && costInput.type !== 'hidden') {
-          costInput.value = Math.floor(cost);
+        costInput.value = Math.floor(cost);
       }
     }
     calcManualTotal();
@@ -2263,18 +2262,17 @@
   }
 
   // 3. 初始化監聽器 (Modal 開啟時自動新增第一列)
-  document.addEventListener('DOMContentLoaded', function() {
-      const addOrderModal = document.getElementById('addOrderModal');
-      if (addOrderModal) {
-        addOrderModal.addEventListener('show.bs.modal', function () {
-          const tbody = document.getElementById('orderItemsBody');
-          // 如果是空的才新增，避免重複開啟時一直疊加
-          if (tbody && tbody.children.length === 0) {
-            addOrderItem();
-          }
-        });
-      }
+  document.addEventListener('DOMContentLoaded', function () {
+    const addOrderModal = document.getElementById('addOrderModal');
+    if (addOrderModal) {
+      addOrderModal.addEventListener('show.bs.modal', function () {
+        const tbody = document.getElementById('orderItemsBody');
+        // 如果是空的才新增，避免重複開啟時一直疊加
+        if (tbody && tbody.children.length === 0) {
+          addOrderItem();
+        }
+      });
+    }
   });
-</script>
 </script>
 {% endblock %}
