@@ -2158,39 +2158,46 @@
     });
   }
 
-  // ================= 多商品補登訂單邏輯 =================
+  <script>
+  // ================= 多商品補登訂單邏輯 (修正版) =================
 
-  // 1. 準備產品資料 (供 JS 使用)
-  const allInventoryProducts = [
+    // 1. 準備產品資料 (使用 tojson 防止語法錯誤)
+    const allInventoryProducts = [
     {% for p in inventory_products %}
-  {
-    id: { { p.id } },
-    name: "{{ p.name }}",
-      price: { { p.price } },
-    cost: { { p.cost or 0 } },
-    stock: { { p.stock_quantity } }
-  },
-  {% endfor %}
-  ];
+    {
+      id: {{ p.id }},
+    name: {{ p.name | tojson }},  // ⭐ 修正：加了 tojson，防止特殊字元報錯
+    price: {{ p.price }},
+    cost: {{ p.cost or 0 }},
+    stock: {{ p.stock_quantity }} 
+    },
+    {% endfor %}
+    ];
 
-  const userRole = "{{ session.get('user', {}).get('role') }}";
+    // 取得使用者權限
+    const userRole = {{ session.get('user', {}).get('role') | tojson }};
 
-  function addOrderItem() {
+    // 2. 定義全域函式 (確保按鈕可以呼叫)
+    function addOrderItem() {
     const tbody = document.getElementById('orderItemsBody');
+    if (!tbody) return; // 防呆
+
     const rowId = 'row_' + new Date().getTime();
 
     let optionsHtml = '<option value="">選擇產品...</option>';
     allInventoryProducts.forEach(p => {
+      // 這裡使用單引號包覆屬性，避免衝突
       optionsHtml += `<option value="${p.id}" data-price="${p.price}" data-cost="${p.cost}">${p.name} (庫存:${p.stock})</option>`;
     });
 
+    // 根據權限決定是否顯示成本欄位
     const costField = userRole === 'admin'
-      ? `<td><input type="number" name="costs[]" class="form-control form-control-sm text-muted" placeholder="成本"></td>`
-      : `<input type="hidden" name="costs[]" value="">`; // Staff 隱藏成本
+    ? `<td><input type="number" name="costs[]" class="form-control form-control-sm text-muted" placeholder="成本"></td>`
+    : `<input type="hidden" name="costs[]" value="">`;
 
-    const tr = document.createElement('tr');
-    tr.id = rowId;
-    tr.innerHTML = `
+      const tr = document.createElement('tr');
+      tr.id = rowId;
+      tr.innerHTML = `
       <td>
         <select name="product_ids[]" class="form-select form-select-sm" onchange="onProductSelect(this)" required>
           ${optionsHtml}
@@ -2199,8 +2206,9 @@
       <td>
         <input type="number" name="prices[]" class="form-control form-control-sm" required oninput="calcManualTotal()">
       </td>
-      ${userRole === 'admin' ? costField : ''} 
-      ${userRole !== 'admin' ? costField : ''} <td>
+      ${userRole === 'admin' ? costField : ''}
+      ${userRole !== 'admin' ? costField : ''}
+      <td>
         <input type="number" name="quantities[]" class="form-control form-control-sm" value="1" min="1" required oninput="calcManualTotal()">
       </td>
       <td class="text-end">
@@ -2213,7 +2221,8 @@
   }
 
   function removeOrderItem(rowId) {
-    document.getElementById(rowId).remove();
+    const row = document.getElementById(rowId);
+    if (row) row.remove();
     calcManualTotal();
   }
 
@@ -2224,8 +2233,14 @@
     const costInput = row.querySelector('input[name="costs[]"]');
 
     if (option.value) {
-      priceInput.value = Math.floor(option.getAttribute('data-price'));
-      if (costInput) costInput.value = Math.floor(option.getAttribute('data-cost'));
+      // 讀取 data-attribute
+      const price = parseFloat(option.getAttribute('data-price')) || 0;
+      const cost = parseFloat(option.getAttribute('data-cost')) || 0;
+
+      priceInput.value = Math.floor(price);
+      if (costInput && costInput.type !== 'hidden') {
+          costInput.value = Math.floor(cost);
+      }
     }
     calcManualTotal();
   }
@@ -2234,22 +2249,32 @@
     let total = 0;
     const rows = document.querySelectorAll('#orderItemsBody tr');
     rows.forEach(row => {
-      const price = parseFloat(row.querySelector('input[name="prices[]"]').value) || 0;
-      const qty = parseInt(row.querySelector('input[name="quantities[]"]').value) || 0;
+      const priceInput = row.querySelector('input[name="prices[]"]');
+      const qtyInput = row.querySelector('input[name="quantities[]"]');
+
+      const price = priceInput ? (parseFloat(priceInput.value) || 0) : 0;
+      const qty = qtyInput ? (parseInt(qtyInput.value) || 0) : 0;
+
       total += price * qty;
     });
-    document.getElementById('manualOrderTotal').innerText = total.toLocaleString();
+
+    const totalEl = document.getElementById('manualOrderTotal');
+    if (totalEl) totalEl.innerText = total.toLocaleString();
   }
 
-  // 初始化：開啟 Modal 時自動加一列
-  const addOrderModal = document.getElementById('addOrderModal');
-  if (addOrderModal) {
-    addOrderModal.addEventListener('show.bs.modal', function () {
-      const tbody = document.getElementById('orderItemsBody');
-      if (tbody.children.length === 0) {
-        addOrderItem();
+  // 3. 初始化監聽器 (Modal 開啟時自動新增第一列)
+  document.addEventListener('DOMContentLoaded', function() {
+      const addOrderModal = document.getElementById('addOrderModal');
+      if (addOrderModal) {
+        addOrderModal.addEventListener('show.bs.modal', function () {
+          const tbody = document.getElementById('orderItemsBody');
+          // 如果是空的才新增，避免重複開啟時一直疊加
+          if (tbody && tbody.children.length === 0) {
+            addOrderItem();
+          }
+        });
       }
-    });
-  }
+  });
+</script>
 </script>
 {% endblock %}
