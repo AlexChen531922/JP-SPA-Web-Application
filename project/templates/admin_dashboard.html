@@ -822,6 +822,7 @@
                   <th>描述</th>
                   <th>最後進貨</th>
                   <th>最後銷售</th>
+                  <th>備註</th>
                   <th class="text-end">操作</th>
                 </tr>
               </thead>
@@ -887,6 +888,13 @@
                     prod.last_purchase_date else '-' }}</td>
                   <td class="small text-muted">{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else
                     '-' }}</td>
+
+                  <td>
+                    <small class="text-muted d-inline-block text-truncate" style="max-width: 150px;"
+                      title="{{ prod.latest_note }}">
+                      {{ prod.latest_note or '-' }}
+                    </small>
+                  </td>
 
                   <td class="text-end">
                     <button class="btn btn-sm btn-outline-primary" onclick="openRestockModal({{ prod.id }})">

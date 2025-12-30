@@ -187,10 +187,11 @@ def dashboard():
 
     # Inventory
     cursor.execute("""
-        SELECT
-            p.id, p.name, p.stock_quantity, p.cost, p.price,
+        SELECT 
+            p.id, p.name, p.stock_quantity, p.cost, p.price, 
             p.last_purchase_date, p.last_sale_date, p.unit,
-            p.image, p.description, c.name as category_name
+            p.image, p.description, c.name as category_name,
+            (SELECT notes FROM inventory_logs WHERE product_id = p.id ORDER BY created_at DESC LIMIT 1) as latest_note
         FROM products p
         LEFT JOIN product_categories c ON p.category_id = c.id
         ORDER BY p.display_order ASC, p.id DESC
