@@ -1660,8 +1660,18 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
 
+<div id="inventory-data-source" style="display:none;">
+  {% for p in inventory_products %}
+  <div data-id="{{ p.id }}" data-name="{{ p.name }}" data-price="{{ p.price }}" data-cost="{{ p.cost or 0 }}"
+    data-stock="{{ p.stock_quantity }}">
+  </div>
+  {% endfor %}
+</div>
+
+<div id="user-role-data" data-role="{{ session.get('user', {}).get('role') }}"></div>
+
 <script>
-  // Helper: preview image
+  // ================= 共用 Helper =================
   function previewImage(input, previewId) {
     if (input.files && input.files[0]) {
       const reader = new FileReader();
@@ -1670,9 +1680,8 @@
     }
   }
 
-  // Edit Product Modal
+  // ================= 產品編輯 (AJAX) =================
   function fetchProductData(productId) {
-    // ⭐ 修正：加上時間戳記 (new Date().getTime()) 防止瀏覽器快取舊資料
     fetch(`/admin/api/product/${productId}?t=${new Date().getTime()}`)
       .then(response => response.json())
       .then(product => {
@@ -1681,59 +1690,46 @@
           return;
         }
 
-        // --- 定義安全填值函式 (防止 Staff 找不到 Cost 欄位報錯) ---
         const setVal = (id, val) => {
           const el = document.getElementById(id);
           if (el) el.value = (val === null || val === undefined) ? '' : val;
         };
 
-        // 2. 填入資料 (使用 setVal)
         setVal('edit_product_name', product.name);
         setVal('edit_product_category', product.category_id);
         setVal('edit_product_price', product.price);
-        setVal('edit_product_cost', product.cost); // ⭐ 這樣 Staff 就不會報錯了
+        setVal('edit_product_cost', product.cost);
         setVal('edit_product_stock', product.stock_quantity);
         setVal('edit_product_unit', product.unit);
         setVal('edit_product_description', product.description);
-
-        // 3. 處理圖片與特殊欄位
         setVal('edit_product_current_image', product.image);
 
         const previewEl = document.getElementById('editProductPreview');
         if (previewEl) {
-          // 修正圖片路徑拼接邏輯
+          // 這裡使用字串拼接，通常比較不會被格式化工具破壞
           var staticBase = "{{ url_for('static', filename='') }}";
-          // 如果 API 回傳的 image 已經包含 img/ 前綴，直接接上
-          var imgPath = product.image ? (staticBase + product.image) : (staticBase + 'img/placeholder.jpg');
+          var imgPath = product.image
+            ? (product.image.startsWith('http') ? product.image : staticBase + "img/" + product.image)
+            : (staticBase + 'img/default-product.png');
           previewEl.src = imgPath;
         }
 
         const activeEl = document.getElementById('edit_product_is_active');
-        if (activeEl) {
-          activeEl.checked = (product.is_active == 1 || product.is_active == true);
-        }
+        if (activeEl) activeEl.checked = !!product.is_active;
 
-        // 4. 設定 Form Action
         const formEl = document.getElementById('editProductForm');
         if (formEl) {
-          // ⭐ 優化：使用 replace 替換 ID 的方式更穩健
-          // 先產生一個帶有佔位符的 URL
           let urlTemplate = "{{ url_for('admin.update_product_modal', product_id=999999) }}";
           formEl.action = urlTemplate.replace('999999', productId);
         }
 
-        // 5. 顯示 Modal
         new bootstrap.Modal(document.getElementById('editProductModal')).show();
       })
-      .catch(error => {
-        console.error('JS Error:', error);
-        alert('資料讀取發生錯誤，請查看 Console');
-      });
+      .catch(error => console.error('JS Error:', error));
   }
 
-  // ================= 課程編輯 (AJAX版) =================
+  // ================= 課程編輯 (AJAX) =================
   function fetchCourseData(courseId) {
-    // ⭐ 修正 1：加上時間戳記，防止瀏覽器讀取舊資料
     fetch(`/admin/api/course/${courseId}?t=${new Date().getTime()}`)
       .then(response => response.json())
       .then(course => {
@@ -1742,7 +1738,6 @@
           return;
         }
 
-        // Helper: 安全填值
         const setVal = (id, val) => {
           const el = document.getElementById(id);
           if (el) el.value = (val === null || val === undefined) ? '' : val;
@@ -1752,25 +1747,17 @@
         setVal('edit_course_category', course.category_id);
         setVal('edit_course_regular_price', course.regular_price);
         setVal('edit_course_experience_price', course.experience_price);
-
-        // ⭐ 填入成本 (自動判斷欄位是否存在)
         setVal('edit_course_service_fee', course.service_fee);
         setVal('edit_course_product_fee', course.product_fee);
-
         setVal('edit_course_duration', course.duration);
-        setVal('edit_course_sessions', course.sessions);
         setVal('edit_course_description', course.description);
-
-        // ⭐ 修正 2：圖片路徑判斷 (支援 Cloudinary 網址)
         setVal('edit_course_current_image', course.image);
 
-        let imgPath = "{{ url_for('static', filename='img/placeholder.jpg') }}"; // 預設圖
+        let imgPath = "{{ url_for('static', filename='img/default-course.png') }}";
         if (course.image) {
-          if (course.image.startsWith('http')) {
-            imgPath = course.image; // Cloudinary
-          } else {
-            imgPath = "{{ url_for('static', filename='') }}" + "img/" + course.image; // 本地圖
-          }
+          imgPath = course.image.startsWith('http')
+            ? course.image
+            : "{{ url_for('static', filename='') }}" + "img/" + course.image;
         }
 
         const preview = document.getElementById('editCoursePreview');
@@ -1779,77 +1766,19 @@
         const activeEl = document.getElementById('edit_course_is_active');
         if (activeEl) activeEl.checked = !!course.is_active;
 
-        // 設定 Action
         const formEl = document.getElementById('editCourseForm');
         if (formEl) {
           let urlTemplate = "{{ url_for('admin.update_course_modal', course_id=999999) }}";
           formEl.action = urlTemplate.replace('999999', courseId);
         }
 
-        // 顯示
         new bootstrap.Modal(document.getElementById('editCourseModal')).show();
       })
-      .catch(error => {
-        console.error('JS Error:', error);
-        alert('無法讀取課程資料');
-      });
+      .catch(error => console.error('JS Error:', error));
   }
 
-  // Edit Course Modal
-  // ================= Edit Course Modal (完整修正版) =================
-  function openEditCourseModal(course) {
-    // 確保 course 是個物件，避免 undefined 報錯
-    course = course || {};
-
-    // 1. 填入基本欄位
-    document.getElementById('edit_course_name').value = course.name || '';
-    document.getElementById('edit_course_category').value = course.category_id || '';
-    document.getElementById('edit_course_regular_price').value = course.regular_price || '';
-    document.getElementById('edit_course_experience_price').value = course.experience_price || '';
-    document.getElementById('edit_course_duration').value = course.duration || '';
-    document.getElementById('edit_course_sessions').value = course.sessions || 1;
-    document.getElementById('edit_course_description').value = course.description || '';
-
-    // 2. ⭐ 關鍵修正：填入成本欄位前，先檢查欄位是否存在
-    // 這是為了防止 Staff 登入時 (HTML 沒這欄位) 導致 JS 報錯
-
-    // 服務成本
-    var serviceEl = document.getElementById('edit_course_service_fee');
-    if (serviceEl) {
-      serviceEl.value = course.service_fee || 0;
-    }
-
-    // 產品成本 (這是 Admin 才有的，Staff 會是 null)
-    var productEl = document.getElementById('edit_course_product_fee');
-    if (productEl) {
-      productEl.value = course.product_fee || 0;
-    }
-
-    // 3. 處理圖片預覽與路徑
-    document.getElementById('edit_course_current_image').value = course.image || '';
-
-    // 設定圖片路徑 (如果沒圖就顯示 placeholder)
-    var staticBase = "{{ url_for('static', filename='') }}";
-    var imgPath = course.image ? (staticBase + course.image) : (staticBase + "img/placeholder.jpg");
-    document.getElementById('editCoursePreview').src = imgPath;
-
-    // 4. 設定啟用狀態 (Checkbox)
-    document.getElementById('edit_course_is_active').checked = !!course.is_active;
-
-    // 5. 設定表單提交網址 (Action URL)
-    if (course.id) {
-      let url = "{{ url_for('admin.update_course_modal', course_id=0) }}";
-      document.getElementById('editCourseForm').action = url.replace('/0/', '/' + course.id + '/');
-    }
-
-    // 6. 顯示 Modal
-    new bootstrap.Modal(document.getElementById('editCourseModal')).show();
-  }
-
-  // ================= Schedule Manager (AJAX) =================
-
-  // 修改原本的 openCapacityModal，不再需要 courseId
-  function openCapacityModal() { // 參數移除
+  // ================= 排班與預約管理 =================
+  function openCapacityModal() {
     new bootstrap.Modal(document.getElementById('capacityModal')).show();
     loadShopSchedules();
   }
@@ -1863,25 +1792,16 @@
       .then(data => {
         tbody.innerHTML = '';
         if (data.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">尚未建立排班表，請使用左側工具建立。</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-muted">尚未建立排班表。</td></tr>';
           return;
         }
-
         data.forEach(slot => {
           let isFull = slot.current_bookings >= slot.max_capacity;
           let statusBadge = slot.max_capacity == 0
             ? '<span class="badge bg-secondary">休息</span>'
             : (isFull ? '<span class="badge bg-danger">額滿</span>' : '<span class="badge bg-success">可預約</span>');
 
-          let row = `
-            <tr>
-                <td class="ps-3 fw-bold">${slot.date}</td>
-                <td>${slot.time}</td>
-                <td class="text-center fw-bold">${slot.current_bookings}</td>
-                <td>${slot.max_capacity}</td>
-                <td>${statusBadge}</td>
-            </tr>
-        `;
+          let row = `<tr><td class="ps-3 fw-bold">${slot.date}</td><td>${slot.time}</td><td class="text-center fw-bold">${slot.current_bookings}</td><td>${slot.max_capacity}</td><td>${statusBadge}</td></tr>`;
           tbody.insertAdjacentHTML('beforeend', row);
         });
       })
@@ -1891,13 +1811,11 @@
       });
   }
 
-  // 2. 儲存單一時段設定
   function saveSlotCapacity(scheduleId) {
     const input = document.getElementById(`cap_input_${scheduleId}`);
     const newCap = input.value;
     const btn = input.closest('tr').querySelector('button');
 
-    // UI Loading 狀態
     const originalContent = btn.innerHTML;
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
@@ -1906,7 +1824,7 @@
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-CSRFToken': "{{ csrf_token() }}" // 確保 CSRF Token 存在
+        'X-CSRFToken': "{{ csrf_token() }}"
       },
       body: JSON.stringify({ max_capacity: newCap })
     })
@@ -1914,7 +1832,6 @@
       .then(data => {
         btn.disabled = false;
         if (data.success) {
-          // 成功提示 (變綠勾勾一下)
           btn.classList.remove('btn-outline-primary');
           btn.classList.add('btn-success');
           btn.innerHTML = '<i class="bi bi-check-lg"></i>';
@@ -1935,8 +1852,7 @@
       });
   }
 
-
-  // Order Detail
+  // ================= 詳細資料 Modal =================
   function openOrderDetailModal(order) {
     document.getElementById('order_detail_id').innerText = order.id;
     document.getElementById('order_detail_customer').innerText = order.customer_name;
@@ -1955,7 +1871,6 @@
     new bootstrap.Modal(document.getElementById('orderDetailModal')).show();
   }
 
-  // Booking Detail
   function openBookingDetailModal(bk) {
     document.getElementById('detail_id').innerText = bk.id;
     document.getElementById('detail_customer').innerText = bk.customer_name;
@@ -1971,16 +1886,16 @@
     new bootstrap.Modal(document.getElementById('bookingDetailModal')).show();
   }
 
-  // Adjust Inventory
-  function openAdjustModal(pid) {
-    document.querySelector('select[name="product_id"]').value = pid;
-    new bootstrap.Modal(document.getElementById('adjustInventoryModal')).show();
+  // ================= 其他 Modal =================
+  function openRestockModal(pid) {
+    var modal = new bootstrap.Modal(document.getElementById('restockModal'));
+    modal.show();
+    var select = document.querySelector('#restockModal select[name="product_id"]');
+    if (select) select.value = pid;
   }
 
-  // Edit Event
   function openEditEventModal(evt) {
     document.getElementById('edit_event_title').value = evt.title;
-    // Format date for datetime-local (yyyy-MM-ddThh:mm)
     let format = (d) => d ? d.replace(' ', 'T').substring(0, 16) : '';
     document.getElementById('edit_event_start').value = format(evt.start_date);
     document.getElementById('edit_event_end').value = format(evt.end_date);
@@ -1991,9 +1906,7 @@
     new bootstrap.Modal(document.getElementById('editEventModal')).show();
   }
 
-  // Edit Customer
   function openEditCustomerModal(cust) {
-    // 填入基本資料
     document.getElementById('edit_cust_surname').value = cust.surname || '';
     document.getElementById('edit_cust_firstname').value = cust.firstname || '';
     document.getElementById('edit_cust_email').value = cust.email || '';
@@ -2003,144 +1916,67 @@
     document.getElementById('edit_cust_gender').value = cust.gender || 'female';
     document.getElementById('edit_cust_birth_date').value = cust.birth_date || '';
     document.getElementById('edit_cust_source').value = cust.source_id || '';
-
-    // ⭐ 修正 1：這裡原本寫 data.notes，要改成 cust.notes
     document.getElementById('edit_cust_notes').value = cust.notes || '';
     document.getElementById('edit_cust_address').value = cust.address || '';
 
-    // ⭐ 修正 2：網址替換建議去掉後面的斜線，寫 '/0' 就好，這樣相容性最高
     let url = "{{ url_for('admin.update_customer', customer_id=0) }}";
     document.getElementById('editCustomerForm').action = url.replace('/0', '/' + cust.id);
-
-    // 顯示 Modal
     new bootstrap.Modal(document.getElementById('editCustomerModal')).show();
   }
 
-  function openRestockModal(pid) {
-    var modal = new bootstrap.Modal(document.getElementById('restockModal'));
-    modal.show();
-    var select = document.querySelector('#restockModal select[name="product_id"]');
-    if (select) select.value = pid;
+  function openAdjustModal(pid) {
+    document.querySelector('select[name="product_id"]').value = pid;
+    new bootstrap.Modal(document.getElementById('adjustInventoryModal')).show();
   }
 
-  // --- 訂單價格連動 ---
-  const orderProductSelect = document.getElementById('orderProductSelect');
-  if (orderProductSelect) {
-    orderProductSelect.addEventListener('change', function () {
-      const option = this.options[this.selectedIndex];
-      const price = option.getAttribute('data-price');
-      const cost = option.getAttribute('data-cost');
-
-      // 自動帶入價格與成本
-      if (price) document.getElementById('orderCustomPrice').value = Math.floor(price);
-      if (cost) document.getElementById('orderCustomCost').value = Math.floor(cost);
-    });
-  }
-
-  // --- 預約價格連動 ---
-  const bookingCourse = document.getElementById('bookingCourseSelect');
-  const bookingSessions = document.getElementById('bookingSessions');
-  const isFirstTime = document.getElementById('isFirstTime');
-  const totalAmountInput = document.getElementById('bookingTotalAmount');
-
-  function updateBookingPrice() {
-    if (!bookingCourse || !totalAmountInput) return;
-
-    const option = bookingCourse.options[bookingCourse.selectedIndex];
-    if (!option.value) return;
-
-    const regPrice = parseFloat(option.getAttribute('data-price')) || 0;
-    const expPrice = parseFloat(option.getAttribute('data-exp-price')) || regPrice;
-    const sessions = parseInt(bookingSessions.value) || 1;
-
-    // 判斷單價 (若勾選首次體驗且為第一堂，用體驗價，否則用原價)
-    // 這裡簡化邏輯：若勾選首次，則總金額 = 體驗價 * 堂數 (通常體驗價只適用一堂，這裡讓人工最後確認)
-    let unitPrice = isFirstTime.checked ? expPrice : regPrice;
-
-    // 自動填入計算結果，但允許使用者修改
-    totalAmountInput.value = Math.floor(unitPrice * sessions);
-  }
-
-  if (bookingCourse) {
-    bookingCourse.addEventListener('change', updateBookingPrice);
-    bookingSessions.addEventListener('input', updateBookingPrice);
-    isFirstTime.addEventListener('change', updateBookingPrice);
-  }
-
-  // ================= 庫存拖曳排序 (SortableJS) =================
+  // ================= 庫存拖曳排序 =================
   document.addEventListener('DOMContentLoaded', function () {
     const el = document.getElementById('inventoryTableBody');
-
     if (el) {
       new Sortable(el, {
-        animation: 150,  // 動畫速度
-        handle: '.drag-handle', // ⭐ 限制只能按住手柄圖示才能拖曳
-        ghostClass: 'bg-light', // 拖曳時的殘影樣式
-
-        // 當拖曳結束時觸發
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'bg-light',
         onEnd: function (evt) {
-          // 1. 獲取新的 ID 順序
           let newOrder = [];
           el.querySelectorAll('tr').forEach(function (row) {
             let id = row.getAttribute('data-id');
             if (id) newOrder.push(id);
           });
 
-          // 2. 發送 AJAX 請求到後台 API
-          // 注意：請確保您的 admin.py 已經有 /product/reorder 這個路由
           fetch("{{ url_for('admin.reorder_products') }}", {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-CSRFToken': "{{ csrf_token() }}" // 加入 CSRF Token
+              'X-CSRFToken': "{{ csrf_token() }}"
             },
             body: JSON.stringify({ order: newOrder })
           })
-            .then(response => response.json())
-            .then(data => {
-              if (data.status === 'success') {
-                // 成功時不做特別提示，體驗較流暢，或可在 console 輸出
-                console.log('排序已更新');
-              } else {
-                alert('排序更新失敗：' + data.message);
-              }
-            })
-            .catch(error => {
-              console.error('Error:', error);
-              alert('連線錯誤，排序未能儲存');
-            });
+            .catch(error => console.error('Error:', error));
         }
       });
     }
   });
 
-  // ================= 批次更新 (AJAX 不換頁) =================
+  // ================= 批次更新時段 (AJAX) =================
   const bulkForm = document.getElementById('bulkUpdateForm');
   if (bulkForm) {
     bulkForm.addEventListener('submit', function (e) {
-      e.preventDefault(); // 阻止頁面跳轉
-
+      e.preventDefault();
       const submitBtn = this.querySelector('button[type="submit"]');
       const originalText = submitBtn.innerHTML;
-
-      // 顯示讀取中狀態
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 處理中...';
 
       fetch(this.action, {
         method: 'POST',
         body: new FormData(this),
-        headers: {
-          'X-Requested-With': 'XMLHttpRequest' // 告訴後端這是 AJAX
-        }
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
       })
         .then(res => res.json())
         .then(data => {
           if (data.success) {
-            // 1. 顯示成功訊息 (可用 alert 或自訂 Toast)
             alert(data.message);
-
-            // 2. 重新載入右側清單 (不用關閉 Modal)
             loadShopSchedules();
           } else {
             alert('更新失敗: ' + (data.message || '未知錯誤'));
@@ -2148,37 +1984,33 @@
         })
         .catch(err => {
           console.error(err);
-          alert('連線錯誤，請稍後再試');
+          alert('連線錯誤');
         })
         .finally(() => {
-          // 恢復按鈕
           submitBtn.disabled = false;
           submitBtn.innerHTML = originalText;
         });
     });
   }
 
-  // ================= 多商品補登訂單邏輯 (修正版) =================
+  // ================= 多商品補登訂單邏輯 (修正版：從 HTML 讀取) =================
 
-  // 1. 準備產品資料 (使用 tojson 防止語法錯誤)
-  const allInventoryProducts = [
-    {% for p in inventory_products %}
-  {
-    id: { { p.id } },
-    name: { { p.name | tojson } },
-    price: { { p.price } },
-    cost: { { p.cost or 0 } },
-    stock: { { p.stock_quantity } }
-  },
-  {% endfor %}
-  ];
+  // 1. 從 HTML 屬性讀取資料，避開編輯器格式化問題
+  const allInventoryProducts = Array.from(document.querySelectorAll('#inventory-data-source div')).map(el => {
+    return {
+      id: parseInt(el.dataset.id),
+      name: el.dataset.name,
+      price: parseFloat(el.dataset.price),
+      cost: parseFloat(el.dataset.cost),
+      stock: parseInt(el.dataset.stock)
+    };
+  });
 
-  // 取得使用者權限
-  const userRole = {{ session.get('user', {}).get('role') | tojson }};
+  const userRoleElement = document.getElementById('user-role-data');
+  const userRole = userRoleElement ? userRoleElement.dataset.role : 'staff';
 
-  // 2. 定義全域函式 (確保按鈕可以呼叫)
+  // 2. 定義全域函式
   function addOrderItem() {
-    // ... (這部分不用動，保持原樣)
     const tbody = document.getElementById('orderItemsBody');
     if (!tbody) return;
 
@@ -2186,11 +2018,9 @@
 
     let optionsHtml = '<option value="">選擇產品...</option>';
     allInventoryProducts.forEach(p => {
-      // 這裡使用單引號包覆屬性，避免衝突
       optionsHtml += `<option value="${p.id}" data-price="${p.price}" data-cost="${p.cost}">${p.name} (庫存:${p.stock})</option>`;
     });
 
-    // 根據權限決定是否顯示成本欄位
     const costField = userRole === 'admin'
       ? `<td><input type="number" name="costs[]" class="form-control form-control-sm text-muted" placeholder="成本"></td>`
       : `<input type="hidden" name="costs[]" value="">`;
@@ -2233,7 +2063,6 @@
     const costInput = row.querySelector('input[name="costs[]"]');
 
     if (option.value) {
-      // 讀取 data-attribute
       const price = parseFloat(option.getAttribute('data-price')) || 0;
       const cost = parseFloat(option.getAttribute('data-cost')) || 0;
 
@@ -2262,17 +2091,40 @@
     if (totalEl) totalEl.innerText = total.toLocaleString();
   }
 
-  // 3. 初始化監聽器 (Modal 開啟時自動新增第一列)
+  // 3. 初始化監聽器
   document.addEventListener('DOMContentLoaded', function () {
     const addOrderModal = document.getElementById('addOrderModal');
     if (addOrderModal) {
       addOrderModal.addEventListener('show.bs.modal', function () {
         const tbody = document.getElementById('orderItemsBody');
-        // 如果是空的才新增，避免重複開啟時一直疊加
         if (tbody && tbody.children.length === 0) {
           addOrderItem();
         }
       });
+    }
+
+    // 預約價格連動
+    const bookingCourse = document.getElementById('bookingCourseSelect');
+    const bookingSessions = document.getElementById('bookingSessions');
+    const isFirstTime = document.getElementById('isFirstTime');
+    const totalAmountInput = document.getElementById('bookingTotalAmount');
+
+    function updateBookingPrice() {
+      if (!bookingCourse || !totalAmountInput) return;
+      const option = bookingCourse.options[bookingCourse.selectedIndex];
+      if (!option.value) return;
+
+      const regPrice = parseFloat(option.getAttribute('data-price')) || 0;
+      const expPrice = parseFloat(option.getAttribute('data-exp-price')) || regPrice;
+      const sessions = parseInt(bookingSessions.value) || 1;
+      let unitPrice = isFirstTime.checked ? expPrice : regPrice;
+      totalAmountInput.value = Math.floor(unitPrice * sessions);
+    }
+
+    if (bookingCourse) {
+      bookingCourse.addEventListener('change', updateBookingPrice);
+      bookingSessions.addEventListener('input', updateBookingPrice);
+      isFirstTime.addEventListener('change', updateBookingPrice);
     }
   });
 </script>
