@@ -1507,12 +1507,12 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title"><i class="bi bi-cart-plus"></i> 建立或補登訂單</h5>
+          <h5 class="modal-title"><i class="bi bi-cart-plus"></i> 建立或補登訂單 (多商品)</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
 
         <div class="modal-body">
-          <div class="row g-3">
+          <div class="row g-3 mb-4">
             <div class="col-md-6">
               <label class="form-label fw-bold">客戶</label>
               <select name="customer_id" class="form-select" required>
@@ -1522,52 +1522,42 @@
                 {% endfor %}
               </select>
             </div>
-
             <div class="col-md-6">
               <label class="form-label fw-bold">訂單日期</label>
               <input type="datetime-local" name="created_at" class="form-control" value="{{ now_str }}" required>
               <div class="form-text text-muted">若為補登歷史資料，請選擇過去日期。</div>
             </div>
+          </div>
 
-            <div class="col-12">
-              <label class="form-label fw-bold">產品</label>
-              <select name="product_id" id="orderProductSelect" class="form-select" required>
-                <option value="">請選擇產品...</option>
-                {% for p in inventory_products %}
-                <option value="{{ p.id }}" data-price="{{ p.price }}" data-cost="{{ p.cost or 0 }}">
-                  {{ p.name }} (庫存: {{ p.stock_quantity }})
-                </option>
-                {% endfor %}
-              </select>
-            </div>
+          <label class="form-label fw-bold">訂單內容</label>
+          <div class="table-responsive bg-light p-3 rounded mb-3">
+            <table class="table table-sm table-borderless mb-0" id="orderItemsTable">
+              <thead>
+                <tr>
+                  <th style="width: 40%">產品</th>
+                  <th style="width: 20%">單價</th>
+                  {% if session.get('user', {}).get('role') == 'admin' %}
+                  <th style="width: 15%" class="text-muted small">參考成本</th>
+                  {% endif %}
+                  <th style="width: 15%">數量</th>
+                  <th style="width: 10%"></th>
+                </tr>
+              </thead>
+              <tbody id="orderItemsBody">
+              </tbody>
+            </table>
+            <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addOrderItem()">
+              <i class="bi bi-plus-lg"></i> 加入一項商品
+            </button>
+          </div>
 
-            <div class="col-md-4">
-              <label class="form-label fw-bold">單價 (可修改)</label>
-              <input type="number" name="custom_unit_price" id="orderCustomPrice" class="form-control" required>
-            </div>
+          <div class="text-end">
+            <h5 class="fw-bold">總金額: NT$ <span id="manualOrderTotal">0</span></h5>
+          </div>
 
-            <div class="col-md-4">
-              <label class="form-label text-muted">參考成本 (選填)</label>
-              <input type="number" name="custom_cost" id="orderCustomCost" class="form-control" placeholder="選填">
-            </div>
-
-            <div class="col-md-4">
-              <label class="form-label fw-bold">數量</label>
-              <input type="number" name="quantity" class="form-control" value="1" min="1" required>
-            </div>
-
-            <div class="col-12 mt-4">
-              <div class="form-check form-switch p-3 bg-light rounded border">
-                <input class="form-check-input" type="checkbox" name="send_notification" id="orderNotifSwitch" checked>
-                <label class="form-check-label fw-bold" for="orderNotifSwitch">
-                  <i class="bi bi-bell"></i> 發送確認通知 (LINE/Email)
-                </label>
-                <div class="small text-muted mt-1">
-                  若是「補登歷史資料」，請<strong>取消勾選</strong>以免打擾客戶。<br>
-                  若是「代客下單」，保持勾選，系統將直接發送「已確認」通知。
-                </div>
-              </div>
-            </div>
+          <div class="form-check form-switch mt-3">
+            <input class="form-check-input" type="checkbox" name="send_notification" id="orderNotifSwitch" checked>
+            <label class="form-check-label" for="orderNotifSwitch">發送確認通知 (LINE/Email)</label>
           </div>
         </div>
 
@@ -2165,6 +2155,100 @@
           submitBtn.disabled = false;
           submitBtn.innerHTML = originalText;
         });
+    });
+  }
+
+  // ================= 多商品補登訂單邏輯 =================
+
+  // 1. 準備產品資料 (供 JS 使用)
+  const allInventoryProducts = [
+    {% for p in inventory_products %}
+  {
+    id: { { p.id } },
+    name: "{{ p.name }}",
+      price: { { p.price } },
+    cost: { { p.cost or 0 } },
+    stock: { { p.stock_quantity } }
+  },
+  {% endfor %}
+  ];
+
+  const userRole = "{{ session.get('user', {}).get('role') }}";
+
+  function addOrderItem() {
+    const tbody = document.getElementById('orderItemsBody');
+    const rowId = 'row_' + new Date().getTime();
+
+    let optionsHtml = '<option value="">選擇產品...</option>';
+    allInventoryProducts.forEach(p => {
+      optionsHtml += `<option value="${p.id}" data-price="${p.price}" data-cost="${p.cost}">${p.name} (庫存:${p.stock})</option>`;
+    });
+
+    const costField = userRole === 'admin'
+      ? `<td><input type="number" name="costs[]" class="form-control form-control-sm text-muted" placeholder="成本"></td>`
+      : `<input type="hidden" name="costs[]" value="">`; // Staff 隱藏成本
+
+    const tr = document.createElement('tr');
+    tr.id = rowId;
+    tr.innerHTML = `
+      <td>
+        <select name="product_ids[]" class="form-select form-select-sm" onchange="onProductSelect(this)" required>
+          ${optionsHtml}
+        </select>
+      </td>
+      <td>
+        <input type="number" name="prices[]" class="form-control form-control-sm" required oninput="calcManualTotal()">
+      </td>
+      ${userRole === 'admin' ? costField : ''} 
+      ${userRole !== 'admin' ? costField : ''} <td>
+        <input type="number" name="quantities[]" class="form-control form-control-sm" value="1" min="1" required oninput="calcManualTotal()">
+      </td>
+      <td class="text-end">
+        <button type="button" class="btn btn-sm btn-link text-danger" onclick="removeOrderItem('${rowId}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  function removeOrderItem(rowId) {
+    document.getElementById(rowId).remove();
+    calcManualTotal();
+  }
+
+  function onProductSelect(selectEl) {
+    const option = selectEl.options[selectEl.selectedIndex];
+    const row = selectEl.closest('tr');
+    const priceInput = row.querySelector('input[name="prices[]"]');
+    const costInput = row.querySelector('input[name="costs[]"]');
+
+    if (option.value) {
+      priceInput.value = Math.floor(option.getAttribute('data-price'));
+      if (costInput) costInput.value = Math.floor(option.getAttribute('data-cost'));
+    }
+    calcManualTotal();
+  }
+
+  function calcManualTotal() {
+    let total = 0;
+    const rows = document.querySelectorAll('#orderItemsBody tr');
+    rows.forEach(row => {
+      const price = parseFloat(row.querySelector('input[name="prices[]"]').value) || 0;
+      const qty = parseInt(row.querySelector('input[name="quantities[]"]').value) || 0;
+      total += price * qty;
+    });
+    document.getElementById('manualOrderTotal').innerText = total.toLocaleString();
+  }
+
+  // 初始化：開啟 Modal 時自動加一列
+  const addOrderModal = document.getElementById('addOrderModal');
+  if (addOrderModal) {
+    addOrderModal.addEventListener('show.bs.modal', function () {
+      const tbody = document.getElementById('orderItemsBody');
+      if (tbody.children.length === 0) {
+        addOrderItem();
+      }
     });
   }
 </script>

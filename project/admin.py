@@ -1769,74 +1769,97 @@ def add_order_manual():
     """管理員手動建立/補登訂單"""
     try:
         customer_id = request.form.get('customer_id')
-        product_id = request.form.get('product_id')
-        quantity = int(request.form.get('quantity', 1))
         created_at_str = request.form.get('created_at')  # 格式: YYYY-MM-DDTHH:MM
         send_notification = request.form.get('send_notification') == 'on'
-        custom_unit_price = request.form.get('custom_unit_price', type=float)
-        custom_cost = request.form.get('custom_cost', type=float)
 
-        if not customer_id or not product_id:
-            flash('請選擇客戶與產品', 'error')
+        # 接收陣列資料 (多商品)
+        product_ids = request.form.getlist('product_ids[]')
+        quantities = request.form.getlist('quantities[]')
+        prices = request.form.getlist('prices[]')
+        costs = request.form.getlist('costs[]')
+
+        if not customer_id or not product_ids:
+            flash('請選擇客戶與至少一項產品', 'error')
             return redirect(url_for('admin.dashboard', tab='orders'))
 
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-        # 1. 取得產品資訊 (價格、名稱)
-        cursor.execute(
-            "SELECT name, price, stock_quantity FROM products WHERE id = %s", (product_id,))
-        product = cursor.fetchone()
-
-        # 2. 計算金額
-        unit_price = custom_unit_price if custom_unit_price is not None else float(
-            product['price'])
-        subtotal = unit_price * quantity
-        total_amount = subtotal  # 目前簡易版，單一商品
-
-        # 3. 處理日期 (補登關鍵)
+ # 1. 處理日期
         if created_at_str:
             created_at = datetime.strptime(created_at_str, '%Y-%m-%dT%H:%M')
         else:
             created_at = datetime.now()
 
-        # 4. 寫入訂單 (狀態直接為 confirmed)
-        status = 'confirmed'
+        # 2. 計算總金額 & 準備寫入資料
+        total_amount = 0
+        items_to_process = []
 
+        for i, pid in enumerate(product_ids):
+            if not pid:
+                continue  # 跳過空值
+
+            qty = int(quantities[i])
+            if qty <= 0:
+                continue
+
+            price = float(prices[i])
+            cost = float(costs[i]) if i < len(costs) and costs[i] else None
+
+            subtotal = price * qty
+            total_amount += subtotal
+
+            items_to_process.append({
+                'product_id': pid,
+                'quantity': qty,
+                'price': price,
+                'subtotal': subtotal,
+                'cost': cost
+            })
+
+        if not items_to_process:
+            flash('訂單內容無效', 'error')
+            return redirect(url_for('admin.dashboard', tab='orders'))
+
+        # 3. 寫入訂單主檔
+        status = 'confirmed'
         cursor.execute("""
             INSERT INTO orders (customer_id, total_amount, status, created_at)
             VALUES (%s, %s, %s, %s)
         """, (customer_id, total_amount, status, created_at))
         order_id = cursor.lastrowid
 
-        # 5. 寫入訂單項目
-        cursor.execute("""
-            INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (order_id, product_id, quantity, unit_price, subtotal))
+        # 4. 寫入訂單項目 & 扣庫存 & 寫入 Log
+        for item in items_to_process:
+            # 寫入項目
+            cursor.execute("""
+                INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (order_id, item['product_id'], item['quantity'], item['price'], item['subtotal']))
 
-        # 6. 扣除庫存
-        cursor.execute("""
-            UPDATE products SET stock_quantity = stock_quantity - %s WHERE id = %s
-        """, (quantity, product_id))
+            # 扣除庫存
+            cursor.execute("""
+                UPDATE products SET stock_quantity = stock_quantity - %s WHERE id = %s
+            """, (item['quantity'], item['product_id']))
 
-        # 7. 寫入庫存 Log
-        log_note = 'Admin Manual Order'
-        if custom_cost is not None:
-            log_note += f" (Ref Cost: {custom_cost})"
+            # 庫存 Log
+            log_note = 'Admin Manual Order'
+            if item['cost'] is not None:
+                log_note += f" (Ref Cost: {item['cost']})"
 
-        cursor.execute("""
-            INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by)
-            VALUES (%s, %s, 'sale', %s, %s, %s)
-        """, (product_id, -quantity, order_id, log_note, get_current_user_id()))
+            cursor.execute("""
+                INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by)
+                VALUES (%s, %s, 'sale', %s, %s, %s)
+            """, (item['product_id'], -item['quantity'], order_id, log_note, get_current_user_id()))
 
-        # 8. 取得客戶資料
+        # 5. 取得客戶資料發送通知
         cursor.execute(
             "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
         user = cursor.fetchone()
+
         database.connection.commit()
         cursor.close()
 
-        # 9. 發送通知
+        # 發送通知
         if send_notification and user:
             try:
                 from project.notifications import notify_order_confirmed
@@ -1845,13 +1868,12 @@ def add_order_manual():
                 notify_order_confirmed(order_id, customer_data, total_amount)
                 flash('訂單已建立並發送通知', 'success')
             except Exception as e:
-                print(f"Notification Error: {e}")
                 flash('訂單建立成功，但通知發送失敗', 'warning')
         else:
             flash('訂單已補登', 'success')
 
         log_activity('create', 'order', order_id, {
-                     'type': 'manual_admin', 'price': unit_price})
+                     'type': 'manual_admin', 'amount': total_amount})
 
     except Exception as e:
         database.connection.rollback()
