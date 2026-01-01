@@ -1571,83 +1571,62 @@
 </div>
 
 <div class="modal fade" id="addBookingModal" tabindex="-1">
-  <div class="modal-dialog modal-lg">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <form action="{{ url_for('admin.add_booking_manual') }}" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
         <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立或補登預約</h5>
+          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立或補登預約 (多筆)</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
 
         <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-6">
-              <label class="form-label fw-bold">客戶</label>
-              <select name="customer_id" class="form-select" required>
-                <option value="">請選擇客戶...</option>
-                {% for c in customers %}
-                <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }}</option>
-                {% endfor %}
-              </select>
-            </div>
+          <div class="mb-4">
+            <label class="form-label fw-bold">選擇客戶</label>
+            <select name="customer_id" class="form-select" required>
+              <option value="">請選擇客戶...</option>
+              {% for c in customers %}
+              <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
+              {% endfor %}
+            </select>
+          </div>
 
-            <div class="col-md-6">
-              <label class="form-label fw-bold">課程</label>
-              <select name="course_id" id="bookingCourseSelect" class="form-select" required>
-                <option value="">請選擇課程...</option>
-                {% for c in courses %}
-                <option value="{{ c.id }}" data-price="{{ c.regular_price }}"
-                  data-exp-price="{{ c.experience_price or c.regular_price }}">
-                  {{ c.name }} ({{ c.duration }}分)
-                </option>
-                {% endfor %}
-              </select>
-            </div>
+          <label class="form-label fw-bold">預約內容</label>
+          <div class="table-responsive bg-light p-3 rounded mb-3">
+            <table class="table table-sm table-borderless align-middle mb-0" id="bookingItemsTable">
+              <thead>
+                <tr>
+                  <th style="width: 30%">課程</th>
+                  <th style="width: 25%">預約時間</th>
+                  <th style="width: 10%">堂數</th>
+                  <th style="width: 15%">金額</th>
+                  <th style="width: 15%">首次體驗?</th>
+                  <th style="width: 5%"></th>
+                </tr>
+              </thead>
+              <tbody id="bookingItemsBody">
+              </tbody>
+            </table>
+            <button type="button" class="btn btn-sm btn-outline-primary mt-2" onclick="addBookingItem()">
+              <i class="bi bi-plus-lg"></i> 增加一筆預約
+            </button>
+          </div>
 
-            <div class="col-md-6">
-              <label class="form-label fw-bold">預約時間</label>
-              <input type="datetime-local" name="appointment_time" class="form-control" required>
-              <div class="form-text">可選擇過去時間進行補登。</div>
-            </div>
-
-            <div class="col-md-6">
-              <label class="form-label fw-bold">扣除/購買堂數</label>
-              <input type="number" name="sessions" id="bookingSessions" class="form-control" value="1" min="1" required>
-            </div>
-
-            <div class="col-md-6">
-              <label class="form-label fw-bold">總金額 (可手動修改)</label>
-              <input type="number" name="custom_total_amount" id="bookingTotalAmount" class="form-control" required>
-            </div>
-
-            <div class="col-12">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="is_first_time" id="isFirstTime">
-                <label class="form-check-label" for="isFirstTime">這是該客戶首次體驗 (適用體驗價)</label>
-              </div>
-            </div>
-
-            <div class="col-12 mt-3">
-              <div class="form-check form-switch p-3 bg-light rounded border">
-                <input class="form-check-input" type="checkbox" name="send_notification" id="bookingNotifSwitch"
-                  checked>
-                <label class="form-check-label fw-bold" for="bookingNotifSwitch">
-                  <i class="bi bi-bell"></i> 發送確認通知 (LINE/Email)
-                </label>
-                <div class="small text-muted mt-1">
-                  補登歷史資料請<strong>取消勾選</strong>。<br>
-                  代客預約保持勾選，系統將直接發送「預約成功」通知。
-                </div>
-              </div>
+          <div class="form-check form-switch mt-3">
+            <input class="form-check-input" type="checkbox" name="send_notification" id="bookingNotifSwitch" checked>
+            <label class="form-check-label fw-bold" for="bookingNotifSwitch">
+              <i class="bi bi-bell"></i> 發送確認通知 (LINE/Email)
+            </label>
+            <div class="small text-muted mt-1">
+              補登歷史資料請<strong>取消勾選</strong>。代客預約保持勾選。
             </div>
           </div>
         </div>
 
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-          <button type="submit" class="btn btn-primary">建立預約</button>
+          <button type="submit" class="btn btn-primary">確認建立</button>
         </div>
       </form>
     </div>
@@ -1664,6 +1643,14 @@
   {% for p in inventory_products %}
   <div data-id="{{ p.id }}" data-name="{{ p.name }}" data-price="{{ p.price }}" data-cost="{{ p.cost or 0 }}"
     data-stock="{{ p.stock_quantity }}">
+  </div>
+  {% endfor %}
+</div>
+
+<div id="course-data-source" style="display:none;">
+  {% for c in courses %}
+  <div data-id="{{ c.id }}" data-name="{{ c.name }}" data-duration="{{ c.duration }}" data-price="{{ c.regular_price }}"
+    data-exp-price="{{ c.experience_price or c.regular_price }}">
   </div>
   {% endfor %}
 </div>
@@ -2125,6 +2112,123 @@
       bookingCourse.addEventListener('change', updateBookingPrice);
       bookingSessions.addEventListener('input', updateBookingPrice);
       isFirstTime.addEventListener('change', updateBookingPrice);
+    }
+  });
+
+  // ================= 3. 多筆預約邏輯 (New) =================
+
+  // 從 HTML 讀取課程資料
+  const allCourses = Array.from(document.querySelectorAll('#course-data-source div')).map(el => {
+    return {
+      id: parseInt(el.dataset.id),
+      name: el.dataset.name,
+      duration: parseInt(el.dataset.duration),
+      price: parseFloat(el.dataset.price),
+      expPrice: parseFloat(el.dataset.expPrice)
+    };
+  });
+
+  function addBookingItem() {
+    const tbody = document.getElementById('bookingItemsBody');
+    if (!tbody) return;
+
+    const rowId = 'bk_row_' + new Date().getTime();
+
+    let optionsHtml = '<option value="">選擇課程...</option>';
+    allCourses.forEach(c => {
+      optionsHtml += `<option value="${c.id}" data-price="${c.price}" data-exp="${c.expPrice}">${c.name} (${c.duration}分)</option>`;
+    });
+
+    // 預設時間：當下時間往後整點
+    const now = new Date();
+    now.setMinutes(0);
+    now.setSeconds(0);
+    now.setMilliseconds(0);
+    // 轉換為 datetime-local 格式 (YYYY-MM-DDTHH:mm) - 注意時區問題，這裡簡化處理
+    const timeStr = now.toISOString().slice(0, 16);
+
+    const tr = document.createElement('tr');
+    tr.id = rowId;
+    tr.innerHTML = `
+      <td>
+        <select name="course_ids[]" class="form-select form-select-sm" onchange="onBookingCourseSelect(this)" required>
+          ${optionsHtml}
+        </select>
+      </td>
+      <td>
+        <input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" required>
+      </td>
+      <td>
+        <input type="number" name="sessions_list[]" class="form-control form-control-sm" value="1" min="1" oninput="updateBookingRowPrice(this)">
+      </td>
+      <td>
+        <input type="number" name="amounts[]" class="form-control form-control-sm" required>
+      </td>
+      <td>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" onchange="toggleFirstTime(this)">
+          <input type="hidden" name="is_first_times[]" value="0">
+          <label class="form-check-label small">是</label>
+        </div>
+      </td>
+      <td class="text-end">
+        <button type="button" class="btn btn-sm btn-link text-danger" onclick="removeBookingItem('${rowId}')">
+          <i class="bi bi-trash"></i>
+        </button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  function removeBookingItem(rowId) {
+    const row = document.getElementById(rowId);
+    if (row) row.remove();
+  }
+
+  function onBookingCourseSelect(selectEl) {
+    const row = selectEl.closest('tr');
+    updateBookingRowPrice(selectEl); // 更新價格
+  }
+
+  function toggleFirstTime(checkbox) {
+    const row = checkbox.closest('tr');
+    const hiddenInput = row.querySelector('input[name="is_first_times[]"]');
+    hiddenInput.value = checkbox.checked ? '1' : '0';
+    updateBookingRowPrice(checkbox); // 重新計算價格 (切換體驗價)
+  }
+
+  function updateBookingRowPrice(element) {
+    const row = element.closest('tr');
+    const courseSelect = row.querySelector('select[name="course_ids[]"]');
+    const sessionsInput = row.querySelector('input[name="sessions_list[]"]');
+    const amountInput = row.querySelector('input[name="amounts[]"]');
+    const isFirstTime = row.querySelector('input[type="checkbox"]').checked;
+
+    const option = courseSelect.options[courseSelect.selectedIndex];
+    if (!option.value) return;
+
+    const regPrice = parseFloat(option.getAttribute('data-price')) || 0;
+    const expPrice = parseFloat(option.getAttribute('data-exp')) || regPrice;
+    const sessions = parseInt(sessionsInput.value) || 1;
+
+    // 邏輯：如果是首次體驗，單價用體驗價，否則用原價
+    let unitPrice = isFirstTime ? expPrice : regPrice;
+
+    amountInput.value = Math.floor(unitPrice * sessions);
+  }
+
+  // 初始化：開啟 Modal 時自動加一列
+  document.addEventListener('DOMContentLoaded', function () {
+    // ... 原有的訂單 Modal 監聽 ...
+
+    const addBookingModal = document.getElementById('addBookingModal');
+    if (addBookingModal) {
+      addBookingModal.addEventListener('show.bs.modal', function () {
+        const tbody = document.getElementById('bookingItemsBody');
+        if (tbody && tbody.children.length === 0) {
+          addBookingItem();
+        }
+      });
     }
   });
 </script>

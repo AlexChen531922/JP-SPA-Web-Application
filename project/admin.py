@@ -1885,94 +1885,108 @@ def add_order_manual():
 @admin_bp.route('/booking/add-manual', methods=['POST'])
 @staff_required
 def add_booking_manual():
-    """管理員手動建立/補登預約"""
+    """管理員手動建立/補登預約 (支援多筆)"""
     try:
         customer_id = request.form.get('customer_id')
-        course_id = request.form.get('course_id')
-        appt_time_str = request.form.get('appointment_time')
-        sessions = int(request.form.get('sessions', 1))
-        is_first_time = request.form.get('is_first_time') == 'on'
         send_notification = request.form.get('send_notification') == 'on'
-        custom_total_amount = request.form.get(
-            'custom_total_amount', type=float)
 
-        if not customer_id or not course_id or not appt_time_str:
-            flash('資料不完整', 'error')
+        # 接收陣列資料
+        course_ids = request.form.getlist('course_ids[]')
+        appointment_times = request.form.getlist('appointment_times[]')
+        sessions_list = request.form.getlist('sessions_list[]')
+        amounts = request.form.getlist('amounts[]')
+        # is_first_times 透過前端 JS 處理成 0 或 1 傳送，確保順序正確
+        is_first_times = request.form.getlist('is_first_times[]')
+
+        if not customer_id or not course_ids:
+            flash('請選擇客戶與至少一項課程', 'error')
             return redirect(url_for('admin.dashboard', tab='bookings'))
 
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
-        # 1. 取得課程資訊
-        cursor.execute(
-            "SELECT name, regular_price, experience_price FROM courses WHERE id = %s", (course_id,))
-        course = cursor.fetchone()
-
-        # 2. 計算價格
-        if custom_total_amount is not None:
-            total_amount = custom_total_amount
-        else:
-            price = float(course['experience_price']) if is_first_time and course['experience_price'] else float(
-                course['regular_price'])
-            total_amount = price * sessions
-
-        # 3. 處理時間
-        appt_time = datetime.strptime(appt_time_str, '%Y-%m-%dT%H:%M')
-
-        # 4. 寫入預約 (手動建立通常不綁定 Schedule ID，設為 NULL)
-        cursor.execute("""
-            INSERT INTO bookings 
-            (customer_id, course_id, schedule_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at)
-            VALUES (%s, %s, NULL, %s, %s, %s, %s, 'confirmed', %s)
-        """, (customer_id, course_id, total_amount, is_first_time, sessions, sessions, appt_time))
-
-        booking_id = cursor.lastrowid
-
-        # 4.1 自動建立一個專屬時段 (全店共用模式下，應該寫入 shop_schedules)
-        # 不過為了相容性，這裡我們還是寫入 shop_schedules，並設為已佔用
-        end_time = appt_time + timedelta(minutes=60)
-
-        # 嘗試寫入全店時段，如果該時段已存在，則更新人數
-        cursor.execute("""
-            INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
-            VALUES (%s, %s, 1, 1, 1)
-            ON DUPLICATE KEY UPDATE current_bookings = current_bookings + 1
-        """, (appt_time, end_time))
-
-        # 取得剛插入或更新的 schedule id
-        cursor.execute(
-            "SELECT id FROM shop_schedules WHERE start_time = %s", (appt_time,))
-        schedule_id = cursor.fetchone()['id']
-
-        # 更新 booking 的 global_schedule_id
-        cursor.execute("UPDATE bookings SET global_schedule_id = %s WHERE id = %s",
-                       (schedule_id, booking_id))
-
-        # 5. 取得客戶資料
+        # 1. 取得客戶資料 (發送通知用)
         cursor.execute(
             "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
         user = cursor.fetchone()
 
+        success_count = 0
+
+        # 2. 迴圈處理每一筆預約
+        for i, course_id in enumerate(course_ids):
+            if not course_id:
+                continue
+
+            appt_time_str = appointment_times[i]
+            if not appt_time_str:
+                continue
+
+            sessions = int(sessions_list[i])
+            total_amount = float(amounts[i])
+            # 轉換字串 '1'/'0' 為布林值
+            is_first = True if is_first_times[i] == '1' else False
+
+            # 處理時間
+            appt_time = datetime.strptime(appt_time_str, '%Y-%m-%dT%H:%M')
+
+            # 寫入預約
+            cursor.execute("""
+                INSERT INTO bookings 
+                (customer_id, course_id, schedule_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at)
+                VALUES (%s, %s, NULL, %s, %s, %s, %s, 'confirmed', %s)
+            """, (customer_id, course_id, total_amount, is_first, sessions, sessions, appt_time))
+
+            booking_id = cursor.lastrowid
+
+            # 自動建立對應的 shop_schedule (佔用時段)
+            # 預設先抓1小時，或可從 DB 撈課程長度優化
+            end_time = appt_time + timedelta(minutes=60)
+
+            cursor.execute("""
+                INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
+                VALUES (%s, %s, 1, 1, 1)
+                ON DUPLICATE KEY UPDATE current_bookings = current_bookings + 1
+            """, (appt_time, end_time))
+
+            # 取得 schedule_id
+            cursor.execute(
+                "SELECT id FROM shop_schedules WHERE start_time = %s", (appt_time,))
+            schedule_row = cursor.fetchone()
+            if schedule_row:
+                schedule_id = schedule_row['id']
+                cursor.execute(
+                    "UPDATE bookings SET global_schedule_id = %s WHERE id = %s", (schedule_id, booking_id))
+
+            # 記錄 Log
+            log_activity('create', 'booking', booking_id, {
+                         'type': 'manual_multi', 'time': appt_time_str})
+
+            success_count += 1
+
+            # 發送通知 (逐筆發送，避免漏訊)
+            if send_notification and user:
+                try:
+                    # 取得課程名稱
+                    cursor.execute(
+                        "SELECT name FROM courses WHERE id = %s", (course_id,))
+                    c_row = cursor.fetchone()
+                    course_name = c_row['name'] if c_row else '課程'
+
+                    from project.notifications import notify_booking_confirmed
+                    customer_data = {
+                        'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
+                    time_str = appt_time.strftime('%Y-%m-%d %H:%M')
+                    notify_booking_confirmed(
+                        booking_id, customer_data, course_name, time_str)
+                except Exception as e:
+                    print(f"Notification Error: {e}")
+
         database.connection.commit()
         cursor.close()
 
-        # 6. 發送通知
-        if send_notification and user:
-            try:
-                from project.notifications import notify_booking_confirmed
-                customer_data = {
-                    'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
-                time_str = appt_time.strftime('%Y-%m-%d %H:%M')
-                notify_booking_confirmed(
-                    booking_id, customer_data, course['name'], time_str)
-                flash('預約已建立並發送通知', 'success')
-            except Exception as e:
-                print(e)
-                flash('預約建立成功，但通知失敗', 'warning')
+        if send_notification:
+            flash(f'成功建立 {success_count} 筆預約並發送通知', 'success')
         else:
-            flash('預約已補登 (未發送通知)', 'success')
-
-        log_activity('create', 'booking', booking_id, {
-                     'type': 'manual_admin', 'backdate': appt_time_str})
+            flash(f'成功補登 {success_count} 筆預約', 'success')
 
     except Exception as e:
         database.connection.rollback()
