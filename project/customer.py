@@ -280,18 +280,72 @@ def cancel_booking(booking_id):
 # ==========================================
 
 
+# 在 customer.py 或負責處理會員路由的檔案中
+
 @customer_bp.route('/profile/update', methods=['POST'])
-@customer_required
+@login_required
 def update_profile():
-    user_id = get_current_user_id()
-    new_password = request.form.get('password')
-    if new_password:
-        is_valid, error_msg = validate_password_strength(new_password)
-        if not is_valid:
-            flash(error_msg, 'error')
-            return redirect(request.referrer or url_for('customer.dashboard'))
-    if update_user_profile(user_id, request.form):
-        flash('個人資料已更新', 'success')
-    else:
-        flash('更新失敗，請稍後再試', 'error')
-    return redirect(request.referrer or url_for('customer.dashboard'))
+    # 1. 接收表單資料
+    firstname = request.form.get('firstname')
+    surname = request.form.get('surname')
+    phone = request.form.get('phone')
+    line_id = request.form.get('line_id')  # 新增
+    occupation = request.form.get('occupation')  # 新增
+    address = request.form.get('address')  # 新增
+
+    # 密碼處理 (如果有填寫才更新)
+    password = request.form.get('password')
+
+    cursor = database.connection.cursor()
+
+    try:
+        # 2. 檢查 LINE ID 是否已被其他人使用 (若有填寫且與原值不同)
+        if line_id and line_id != session['user'].get('line_id'):
+            cursor.execute("SELECT id FROM users WHERE line_id = %s AND id != %s",
+                           (line_id, session['user']['id']))
+            if cursor.fetchone():
+                flash('此 LINE ID 已被其他帳號使用', 'warning')
+                return redirect(url_for('customer.dashboard'))
+
+        # 3. 建構 SQL (根據是否有改密碼)
+        if password and len(password) >= 10:
+            # A. 有改密碼
+            from werkzeug.security import generate_password_hash
+            hashed_password = generate_password_hash(password)
+
+            sql = """
+                UPDATE users 
+                SET firstname=%s, surname=%s, phone=%s, line_id=%s, occupation=%s, address=%s, password_hash=%s 
+                WHERE id=%s
+            """
+            cursor.execute(sql, (firstname, surname, phone, line_id,
+                           occupation, address, hashed_password, session['user']['id']))
+        else:
+            # B. 沒改密碼 (只更新基本資料)
+            sql = """
+                UPDATE users 
+                SET firstname=%s, surname=%s, phone=%s, line_id=%s, occupation=%s, address=%s 
+                WHERE id=%s
+            """
+            cursor.execute(sql, (firstname, surname, phone, line_id,
+                           occupation, address, session['user']['id']))
+
+        database.connection.commit()
+
+        # 4. 更新 Session 中的使用者資料 (重要！不然重整後會看到舊資料)
+        cursor.execute("SELECT * FROM users WHERE id = %s",
+                       (session['user']['id'],))
+        updated_user = cursor.fetchone()
+        session['user'] = updated_user  # 更新 session
+
+        flash('個人資料更新成功！', 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        print(f"Update Profile Error: {str(e)}")  # ⭐ 請檢查這裡印出的錯誤
+        flash(f'更新失敗，請稍後再試 ({str(e)})', 'error')
+
+    finally:
+        cursor.close()
+
+    return redirect(url_for('customer.dashboard'))

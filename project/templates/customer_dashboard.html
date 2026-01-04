@@ -131,22 +131,19 @@
                       {% endif %}
                     </td>
                     <td class="text-end pe-4">
-                      {% if course.status == 'pending' %}
-                      <form action="{{ url_for('customer.cancel_booking', booking_id=course.id) }}" method="POST"
-                        onsubmit="return confirm('確定要取消此預約嗎？');">
-                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                        <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill">取消</button>
-                      </form>
-                      {% else %}
-                      <button class="btn btn-sm btn-light rounded-pill" disabled>不可取消</button>
-                      {% endif %}
                     </td>
                   </tr>
+
                   {% else %}
                   <tr>
                     <td colspan="5" class="text-center py-5 text-muted">
-                      <i class="bi bi-calendar-x fs-1 d-block mb-2"></i>
-                      目前沒有進行中的課程
+                      <div class="mb-2">
+                        <i class="bi bi-calendar-x fs-1 opacity-50"></i>
+                      </div>
+                      <p class="mb-0">目前沒有進行中的課程預約</p>
+                      <a href="{{ url_for('main.courses') }}" class="btn btn-sm btn-outline-primary mt-3 rounded-pill">
+                        立即預約
+                      </a>
                     </td>
                   </tr>
                   {% endfor %}
