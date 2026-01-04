@@ -246,6 +246,8 @@
           {% if session.get('logged_in') %}
           {% set role = session.get('user', {}).get('role') %}
           {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
+          {% set line_id = session.get('user', {}).get('line_id') %}
+          {% set is_line_bound = line_id and line_id.startswith('U') %}
 
           {% if role in ['staff', 'admin'] %}
           <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm text-nowrap">
@@ -267,7 +269,7 @@
             <button class="btn btn-dark btn-sm dropdown-toggle text-nowrap" type="button" data-bs-toggle="dropdown">
               {{ username }}
             </button>
-            <ul class="dropdown-menu dropdown-menu-end">
+            <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-3">
 
               {% if role == 'customer' %}
               <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i
@@ -279,6 +281,21 @@
               <li>
                 <hr class="dropdown-divider">
               </li>
+
+              {% if not is_line_bound %}
+              <li>
+                <a class="dropdown-item text-success fw-bold" href="{{ url_for('auth.connect_line') }}">
+                  <i class="bi bi-line"></i> 連結 LINE 帳號
+                </a>
+              </li>
+              {% else %}
+              <li>
+                <span class="dropdown-item text-muted" style="cursor: default;">
+                  <i class="bi bi-check-circle-fill text-success"></i> LINE 已連結
+                </span>
+              </li>
+              {% endif %}
+
               <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i class="bi bi-gear"></i>
                   帳號設定</a></li>
 
@@ -288,8 +305,19 @@
               <li>
                 <hr class="dropdown-divider">
               </li>
-              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-person-gear"></i>
-                  個人設定</a></li>
+
+              {% if not is_line_bound %}
+              <li>
+                <a class="dropdown-item text-success fw-bold" href="{{ url_for('auth.connect_line') }}">
+                  <i class="bi bi-line"></i> 連結 LINE 帳號
+                </a>
+              </li>
+              {% else %}
+              <li>
+                <span class="dropdown-item text-muted" style="cursor: default;">
+                  <i class="bi bi-check-circle-fill text-success"></i> LINE 已連結
+                </span>
+              </li>
               {% endif %}
 
               <li>

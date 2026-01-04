@@ -1632,59 +1632,12 @@
     </div>
   </div>
 </div>
-
-<div class="modal fade" id="adminProfileModal" tabindex="-1">
-  <div class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title fw-bold"><i class="bi bi-person-circle"></i> 個人帳號設定</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-
-        <div class="mb-4">
-          <label class="small text-muted">帳號 (Email)</label>
-          <div class="fw-bold">{{ session.get('user', {}).get('email') }}</div>
-        </div>
-
-        <hr>
-
-        <div class="mb-4">
-          <label class="form-label fw-bold mb-2">社群連結</label>
-
-          <div class="d-flex justify-content-between align-items-center p-3 bg-light rounded border">
-            <div class="d-flex align-items-center">
-              <i class="bi bi-line text-success fs-3 me-3"></i>
-              <div>
-                <div class="fw-bold">LINE 帳號</div>
-                {% if session.get('user', {}).get('line_id') and session.get('user', {}).get('line_id').startswith('U')
-                %}
-                <small class="text-success"><i class="bi bi-check-circle-fill"></i> 已綁定</small>
-                {% else %}
-                <small class="text-muted">未綁定</small>
-                {% endif %}
-              </div>
-            </div>
-
-            <div>
-              {% if session.get('user', {}).get('line_id') and session.get('user', {}).get('line_id').startswith('U') %}
-              <button class="btn btn-sm btn-outline-secondary disabled">已連結</button>
-              {% else %}
-              <a href="{{ url_for('auth.connect_line') }}" class="btn btn-sm btn-success">
-                <i class="bi bi-link-45deg"></i> 立即連結
-              </a>
-              {% endif %}
-            </div>
-          </div>
-          <div class="form-text mt-2">綁定後，您可以使用 LINE 直接登入後台，無需輸入密碼。</div>
-        </div>
-
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
-      </div>
-    </div>
-  </div>
+</div>
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+</div>
+</div>
+</div>
 </div>
 
 {% endblock %}
@@ -2193,9 +2146,9 @@
       optionsHtml += `<option value="${c.id}" data-price="${c.price}" data-exp="${c.expPrice}">${c.name} (${c.duration}分)</option>`;
     });
 
-    // 優化寫法：自動修正為當地時區
+    // 設定預設時間 (台灣時間整點)
     const now = new Date();
-    now.setMinutes(now.getMinutes() - now.getTimezoneOffset()); // 修正時差
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
     now.setSeconds(0);
     now.setMilliseconds(0);
     const timeStr = now.toISOString().slice(0, 16);
@@ -2209,7 +2162,7 @@
         </select>
       </td>
       <td>
-        <input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" required>
+        <input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" value="${timeStr}" required>
       </td>
       <td>
         <input type="number" name="sessions_list[]" class="form-control form-control-sm" value="1" min="1" oninput="updateBookingRowPrice(this)">
