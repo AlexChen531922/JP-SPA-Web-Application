@@ -114,8 +114,8 @@ def register():
             password = form.password.data
             firstname = form.firstname.data
             surname = form.surname.data
-            line_id = form.line_id.data
             role = form.role.data
+            line_id = session.get('binding_line_id') or form.line_id.data
 
             # 1. 驗證密碼強度
             is_valid, error_msg = validate_password_strength(password)
@@ -137,8 +137,9 @@ def register():
             hashed_password = generate_password_hash(password)
 
             sql = """
-                INSERT INTO users 
-                (username, email, password_hash, firstname, surname, phone, line_id, role, created_at)
+                INSERT INTO users
+                (username, email, password_hash, firstname,
+                 surname, phone, line_id, role, created_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
             """
 
@@ -150,18 +151,24 @@ def register():
 
             database.connection.commit()
 
-            flash('註冊成功！請登入。', 'success')
+            # ⭐ 4. 如果有使用到暫存的 LINE 資料，註冊成功後要清除 Session
+            if session.get('binding_line_id'):
+                session.pop('binding_line_id', None)
+                session.pop('binding_line_name', None)
+                flash('註冊成功！您的 LINE 帳號已自動連結。', 'success')
+            else:
+                flash('註冊成功！請登入。', 'success')
+
             return redirect(url_for('auth.login'))
 
         except Exception as e:
+            # ... (錯誤處理邏輯保持不變) ...
             if database.connection:
                 database.connection.rollback()
-
-            # ⭐ 這是重點：在終端機印出詳細錯誤，並在網頁顯示簡短錯誤
             print("================ REGISTER ERROR ================")
+            import traceback
             traceback.print_exc()
             print("================================================")
-
             flash(f'註冊失敗 (系統錯誤): {str(e)}', 'error')
 
         finally:
@@ -330,25 +337,90 @@ def line_callback():
 
     # 4. 資料庫比對
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-    cursor.execute("SELECT * FROM users WHERE line_id = %s", (line_user_id,))
-    user = cursor.fetchone()
-    cursor.close()
+    try:
+        # === 邏輯 A：綁定模式 ===
+        if session.get('is_binding_mode'):
+            session.pop('is_binding_mode', None)
 
-    if user:
-        # A. 找到人 -> 登入
-        session['logged_in'] = True
-        session['user'] = user
-        flash(f'歡迎回來，{user["firstname"]}！', 'success')
+            current_user = session.get('user')
+            if not current_user:
+                return redirect(url_for('auth.login'))
 
-        if user['role'] in ['admin', 'staff']:
+            cursor.execute(
+                "SELECT id FROM users WHERE line_id = %s", (line_user_id,))
+            existing = cursor.fetchone()
+
+            if existing and existing['id'] != current_user['id']:
+                flash('此 LINE 帳號已被其他用戶綁定，無法重複使用。', 'error')
+            else:
+                cursor.execute("UPDATE users SET line_id = %s WHERE id = %s",
+                               (line_user_id, current_user['id']))
+                database.connection.commit()
+
+                # 更新 Session
+                current_user['line_id'] = line_user_id
+                session['user'] = current_user
+                flash('LINE 帳號綁定成功！', 'success')
+
+            # 依角色導向
+            if current_user.get('role') in ['admin', 'staff']:
+                return redirect(url_for('admin.dashboard'))
+            else:
+                return redirect(url_for('customer.dashboard'))
+
+        # === 邏輯 B：登入模式 ===
+        else:
+            cursor.execute(
+                "SELECT * FROM users WHERE line_id = %s", (line_user_id,))
+            user = cursor.fetchone()
+
+            if user:
+                session['logged_in'] = True
+                session['user'] = user
+                flash(f'歡迎回來，{user["firstname"]}！', 'success')
+
+                if user['role'] in ['admin', 'staff']:
+                    return redirect(url_for('admin.dashboard'))
+                return redirect(url_for('main.index'))
+            else:
+                session['binding_line_id'] = line_user_id
+                session['binding_line_name'] = display_name
+                flash('此 LINE 帳號尚未綁定，請完成註冊或登入現有帳號進行連結。', 'info')
+                return redirect(url_for('main.index', open_register='true'))
+
+    except Exception as e:
+        # === 您的錯誤處理 ===
+        if database.connection:
+            database.connection.rollback()
+
+        print(f"LINE Callback Error: {e}")
+        flash(f'操作失敗: {str(e)}', 'error')
+
+        # 嘗試取得角色以決定導向 (使用 session 比較安全，因為 current_user 可能未定義)
+        role = session.get('user', {}).get('role')
+        if role in ['admin', 'staff']:
             return redirect(url_for('admin.dashboard'))
-        return redirect(url_for('main.home'))
+        elif role == 'customer':
+            return redirect(url_for('customer.dashboard'))
+        else:
+            return redirect(url_for('auth.login'))
 
-    else:
-        # B. 沒找到 -> 導向註冊頁面進行綁定
-        session['binding_line_id'] = line_user_id
-        session['binding_line_name'] = display_name
+    finally:
+        # ⭐ 無論上面走哪條路 (try 成功 return, 或 except 失敗 return)
+        # 這裡一定會執行，確保連線關閉
+        if cursor:
+            cursor.close()
 
-        flash('請完成註冊以綁定 LINE 帳號', 'info')
-        # 導回首頁並打開註冊視窗 (需搭配 base.html 的 JS)
-        return redirect(url_for('main.home', open_register='true'))
+
+@auth_bp.route('/connect/line')
+def connect_line():
+    """已登入用戶點擊此連結來綁定 LINE"""
+    if 'user' not in session:
+        flash('請先登入後再進行綁定', 'warning')
+        return redirect(url_for('auth.login'))
+
+    # 設定一個 session 標記，告訴 Callback 這次是來「綁定」不是「登入」
+    session['is_binding_mode'] = True
+
+    # 接著導向原本的 LINE 登入流程 (去取得 UID)
+    return redirect(url_for('auth.line_login'))
