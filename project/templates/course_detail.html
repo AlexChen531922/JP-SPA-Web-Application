@@ -156,7 +156,12 @@
                 {% endif %}
             </div>
 
-            <div id='calendar'></div>
+            <div class="table-responsive" style="overflow-x: auto;">
+                <div id='calendar' style="min-width: 800px;"></div>
+            </div>
+            <div class="d-md-none text-center text-muted small mt-2">
+                <i class="bi bi-arrows-move"></i> 左右滑動以查看完整日曆
+            </div>
         </div>
     </div>
 </div>
@@ -205,7 +210,7 @@
     document.addEventListener('DOMContentLoaded', function () {
         var calendarEl = document.getElementById('calendar');
         var calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: window.innerWidth < 768 ? 'listWeek' : 'dayGridMonth',
+            initialView: 'dayGridMonth',
             locale: 'zh-tw',
             height: 'auto',
             headerToolbar: {
@@ -230,15 +235,7 @@
             allDaySlot: false,
 
             // RWD: 視窗縮放時切換視圖
-            windowResize: function (view) {
-                if (window.innerWidth < 768) {
-                    calendar.changeView('listWeek');
-                } else {
-                    if (view.type === 'listWeek') {
-                        calendar.changeView('dayGridMonth');
-                    }
-                }
-            },
+
 
             // 資料來源 API
             events: '/api/course/{{ course.id }}/schedule',
