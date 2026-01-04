@@ -268,6 +268,7 @@
               {{ username }}
             </button>
             <ul class="dropdown-menu dropdown-menu-end">
+
               {% if role == 'customer' %}
               <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i
                     class="bi bi-person-circle"></i> 會員中心</a></li>
@@ -278,11 +279,27 @@
               <li>
                 <hr class="dropdown-divider">
               </li>
+              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i class="bi bi-gear"></i>
+                  帳號設定</a></li>
+
+              {% elif role in ['admin', 'staff'] %}
+              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-speedometer2"></i>
+                  返回後台</a></li>
+              <li>
+                <hr class="dropdown-divider">
+              </li>
+              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-person-gear"></i>
+                  個人設定</a></li>
               {% endif %}
+
+              <li>
+                <hr class="dropdown-divider">
+              </li>
               <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i
                     class="bi bi-box-arrow-right"></i> 登出</a></li>
             </ul>
           </div>
+
           {% else %}
           <button class="btn btn-spa fw-bold px-4 text-nowrap" data-bs-toggle="modal" data-bs-target="#loginModal">
             <i class="bi bi-person-circle"></i> 會員登入
