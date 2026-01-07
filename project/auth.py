@@ -292,12 +292,12 @@ def line_callback():
     # 1. 驗證 State
     if request.args.get('state') != session.get('oauth_state'):
         flash('登入驗證失敗 (State Mismatch)', 'error')
-        return redirect(url_for('main.home'))
+        return redirect(url_for('main.home'))  # 修正為 main.home
 
     code = request.args.get('code')
     if not code:
         flash('取消登入', 'warning')
-        return redirect(url_for('main.home'))
+        return redirect(url_for('main.home'))  # 修正為 main.home
 
     # 2. 換取 Access Token
     token_url = "https://api.line.me/oauth2/v2.1/token"
@@ -305,7 +305,6 @@ def line_callback():
     payload = {
         'grant_type': 'authorization_code',
         'code': code,
-        # 這裡也要移除 https
         'redirect_uri': url_for('auth.line_callback', _external=True),
         'client_id': current_app.config.get('LINE_CHANNEL_ID'),
         'client_secret': current_app.config.get('LINE_CHANNEL_SECRET')
@@ -317,14 +316,13 @@ def line_callback():
 
         if 'error' in token_data:
             flash(f"LINE 登入錯誤: {token_data.get('error_description')}", 'error')
-            return redirect(url_for('main.home'))
+            return redirect(url_for('main.home'))  # 修正為 main.home
 
         access_token = token_data.get('access_token')
-        # id_token = token_data.get('id_token')
 
     except Exception as e:
         flash(f"連線錯誤: {str(e)}", 'error')
-        return redirect(url_for('main.home'))
+        return redirect(url_for('main.home'))  # 修正為 main.home
 
     # 3. 取得使用者個資 (Profile)
     profile_url = "https://api.line.me/v2/profile"
@@ -338,7 +336,7 @@ def line_callback():
     # 4. 資料庫比對
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        # === 邏輯 A：綁定模式 ===
+        # === 邏輯 A：綁定模式 (使用者已登入，想連結 LINE) ===
         if session.get('is_binding_mode'):
             session.pop('is_binding_mode', None)
 
@@ -346,6 +344,7 @@ def line_callback():
             if not current_user:
                 return redirect(url_for('auth.login'))
 
+            # 檢查此 LINE ID 是否已被其他人使用
             cursor.execute(
                 "SELECT id FROM users WHERE line_id = %s", (line_user_id,))
             existing = cursor.fetchone()
@@ -353,11 +352,12 @@ def line_callback():
             if existing and existing['id'] != current_user['id']:
                 flash('此 LINE 帳號已被其他用戶綁定，無法重複使用。', 'error')
             else:
+                # 執行綁定
                 cursor.execute("UPDATE users SET line_id = %s WHERE id = %s",
                                (line_user_id, current_user['id']))
                 database.connection.commit()
 
-                # 更新 Session
+                # 更新 Session 中的使用者資料
                 current_user['line_id'] = line_user_id
                 session['user'] = current_user
                 flash('LINE 帳號綁定成功！', 'success')
@@ -368,35 +368,40 @@ def line_callback():
             else:
                 return redirect(url_for('customer.dashboard'))
 
-        # === 邏輯 B：登入模式 ===
+        # === 邏輯 B：登入模式 (使用者未登入，想用 LINE 登入) ===
         else:
             cursor.execute(
                 "SELECT * FROM users WHERE line_id = %s", (line_user_id,))
             user = cursor.fetchone()
 
             if user:
+                # 帳號存在 -> 直接登入
                 session['logged_in'] = True
                 session['user'] = user
                 flash(f'歡迎回來，{user["firstname"]}！', 'success')
 
                 if user['role'] in ['admin', 'staff']:
                     return redirect(url_for('admin.dashboard'))
-                return redirect(url_for('main.index'))
+
+                # 一般顧客導向首頁或會員中心
+                return redirect(url_for('main.home'))  # 修正為 main.home
             else:
+                # 帳號不存在 -> 引導去註冊 (並暫存 LINE 資料)
                 session['binding_line_id'] = line_user_id
                 session['binding_line_name'] = display_name
                 flash('此 LINE 帳號尚未綁定，請完成註冊或登入現有帳號進行連結。', 'info')
-                return redirect(url_for('main.index', open_register='true'))
+
+                # 修正為 main.home，並帶參數開啟註冊視窗
+                return redirect(url_for('main.home', open_register='true'))
 
     except Exception as e:
-        # === 您的錯誤處理 ===
         if database.connection:
             database.connection.rollback()
 
         print(f"LINE Callback Error: {e}")
         flash(f'操作失敗: {str(e)}', 'error')
 
-        # 嘗試取得角色以決定導向 (使用 session 比較安全，因為 current_user 可能未定義)
+        # 錯誤發生時的導向
         role = session.get('user', {}).get('role')
         if role in ['admin', 'staff']:
             return redirect(url_for('admin.dashboard'))
@@ -406,8 +411,6 @@ def line_callback():
             return redirect(url_for('auth.login'))
 
     finally:
-        # ⭐ 無論上面走哪條路 (try 成功 return, 或 except 失敗 return)
-        # 這裡一定會執行，確保連線關閉
         if cursor:
             cursor.close()
 

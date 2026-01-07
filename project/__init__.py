@@ -159,4 +159,7 @@ def create_app():
     from project.advanced_reports import reports_bp
     app.register_blueprint(reports_bp)
 
+    from project.webhook import webhook_bp
+    app.register_blueprint(webhook_bp)
+
     return app

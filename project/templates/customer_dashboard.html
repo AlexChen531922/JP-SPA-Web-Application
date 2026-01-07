@@ -212,6 +212,94 @@
         </div>
       </div>
 
+      <div class="tab-pane fade" id="v-pills-booking" role="tabpanel">
+        <div class="card border-0 shadow-sm rounded-4 mb-4">
+          <div class="card-header bg-white border-0 py-3">
+            <div class="d-flex justify-content-between align-items-center">
+              <h5 class="fw-bold mb-0">我的預約紀錄</h5>
+              <a href="{{ url_for('main.courses') }}" class="btn btn-sm btn-primary rounded-pill px-3">
+                <i class="bi bi-plus-lg"></i> 新增預約
+              </a>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-hover align-middle mb-0" style="min-width: 600px;">
+                <thead class="bg-light">
+                  <tr>
+                    <th class="ps-4">課程名稱</th>
+                    <th>預約日期</th>
+                    <th>時段</th>
+                    <th>狀態</th>
+                    <th class="text-end pe-4">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for booking in bookings %}
+                  <tr>
+                    <td class="ps-4">
+                      <div class="fw-bold">{{ booking.course_name }}</div>
+                      <small class="text-muted">{{ booking.duration }} 分鐘</small>
+                    </td>
+                    <td>
+                      {% if booking.start_time %}
+                      {{ booking.start_time.strftime('%Y-%m-%d') }}
+                      {% else %}
+                      <span class="text-muted">未定</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if booking.start_time %}
+                      {{ booking.start_time.strftime('%H:%M') }}
+                      {% else %}
+                      -
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if booking.status == 'pending' %}
+                      <span class="badge bg-warning text-dark">待確認</span>
+                      {% elif booking.status == 'confirmed' %}
+                      <span class="badge bg-info text-dark">已確認</span>
+                      {% elif booking.status == 'completed' %}
+                      <span class="badge bg-success">已完成</span>
+                      {% elif booking.status == 'cancelled' %}
+                      <span class="badge bg-secondary">已取消</span>
+                      {% endif %}
+                    </td>
+                    <td class="text-end pe-4">
+                      {% if booking.status == 'pending' or booking.status == 'confirmed' %}
+                      <form action="{{ url_for('customer.cancel_booking', booking_id=booking.id) }}" method="POST"
+                        class="d-inline" onsubmit="return confirm('確定要取消此預約嗎？');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-sm btn-outline-danger rounded-pill">取消</button>
+                      </form>
+                      {% else %}
+                      <button class="btn btn-sm btn-light rounded-pill" disabled>不可取消</button>
+                      {% endif %}
+                    </td>
+                  </tr>
+
+                  {% else %}
+                  <tr>
+                    <td colspan="5" class="text-center py-5 text-muted">
+                      <div class="mb-3">
+                        <i class="bi bi-calendar-x display-1 text-secondary opacity-25"></i>
+                      </div>
+                      <h5 class="fw-bold text-secondary">尚無預約紀錄</h5>
+                      <p class="mb-4">您目前還沒有任何課程預約紀錄。</p>
+                      <a href="{{ url_for('main.courses') }}" class="btn btn-primary rounded-pill px-4">
+                        立即預約體驗
+                      </a>
+                    </td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="tab-pane fade" id="v-pills-order" role="tabpanel">
         <div class="card border-0 shadow-sm rounded-4 mb-4">
           <div class="card-header bg-white border-0 py-3">

@@ -996,85 +996,101 @@ def booking_success(booking_id):
     return render_template('booking_success.html', booking=booking)
 
 
+# =====================================================
+# COURSE BOOKING (單一且正確的預約入口)
+# =====================================================
+
 @main_bp.route('/course/<int:course_id>/book', methods=['POST'])
 @login_required
 @customer_required
 def book_course(course_id):
-    """Legacy booking method - Redirect to calendar"""
-    return redirect(url_for('main.course_detail', course_id=course_id))
-
-
-# =====================================================
-# COURSE SLOT BOOKING (修復版)
-# =====================================================
-
-@main_bp.route('/course/book_slot', methods=['POST'])
-@login_required
-@customer_required
-def book_course_slot():
+    """
+    處理客戶預約請求
+    對應前端: <form action="{{ url_for('main.book_course', course_id=course.id) }}">
+    """
     user_id = get_current_user_id()
     schedule_id = request.form.get('schedule_id')
-    course_id = request.form.get('course_id')
 
+    # 1. 基本防呆
     if not schedule_id:
-        flash('請選擇預約時段', 'error')
-        return redirect(url_for('main.courses'))
+        flash('預約失敗：無法取得時段 ID，請重新操作', 'error')
+        return redirect(url_for('main.course_detail', course_id=course_id))
 
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     try:
-        # 1. 檢查時段是否存在且有名額
+        # 2. 取得課程資料 (計算價格用)
+        cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
+        course = cursor.fetchone()
+        if not course:
+            raise Exception("課程不存在")
+
+        # 3. 檢查時段是否存在且有名額 (鎖定行以防超賣)
+        # ⭐ 重點修正：查詢 shop_schedules (全店共用時段)，而非 course_schedules
         cursor.execute("""
-            SELECT cs.*, c.name, c.regular_price, c.experience_price
-            FROM course_schedules cs
-            JOIN courses c ON cs.course_id = c.id
-            WHERE cs.id = %s FOR UPDATE
+            SELECT * FROM shop_schedules 
+            WHERE id = %s AND is_active = TRUE 
+            FOR UPDATE
         """, (schedule_id,))
         schedule = cursor.fetchone()
 
         if not schedule:
-            raise Exception("時段不存在")
+            raise Exception("時段不存在或已關閉")
 
         if schedule['current_bookings'] >= schedule['max_capacity']:
-            raise Exception("該時段已額滿，請選擇其他時間")
+            raise Exception("抱歉，該時段剛剛已額滿，請選擇其他時間")
 
-        # 2. 檢查是否首購
+        # 4. 判斷是否為首購 (決定價格)
         cursor.execute(
             "SELECT COUNT(*) as count FROM bookings WHERE customer_id = %s", (user_id,))
-        is_first_time = cursor.fetchone()['count'] == 0
+        booking_count = cursor.fetchone()['count']
+        is_first_time = (booking_count == 0)
 
-        # 判斷價格
-        price = schedule['experience_price'] if (
-            is_first_time and schedule['experience_price']) else schedule['regular_price']
+        # 計算金額
+        if is_first_time and course.get('experience_price') and course['experience_price'] > 0:
+            final_price = course['experience_price']
+        else:
+            final_price = course['regular_price']
 
-        # 3. 建立訂單
+        # 5. 寫入預約 (bookings)
+        # ⭐ 重點修正：寫入 global_schedule_id
         cursor.execute("""
-            INSERT INTO bookings (customer_id, course_id, schedule_id, total_amount, is_first_time, status)
-            VALUES (%s, %s, %s, %s, %s, 'pending')
-        """, (user_id, course_id, schedule_id, price, is_first_time))
+            INSERT INTO bookings 
+            (customer_id, course_id, global_schedule_id, total_amount, 
+             is_first_time, sessions_purchased, sessions_remaining, status, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
+        """, (
+            user_id,
+            course_id,
+            schedule_id,
+            final_price,
+            is_first_time,
+            course['sessions'],  # 購買堂數
+            course['sessions']  # 剩餘堂數
+        ))
         booking_id = cursor.lastrowid
 
-        # 4. 更新時段人數
+        # 6. 更新時段人數 (shop_schedules)
         cursor.execute("""
-            UPDATE course_schedules 
+            UPDATE shop_schedules 
             SET current_bookings = current_bookings + 1 
             WHERE id = %s
         """, (schedule_id,))
 
-        # 5. 獲取用戶資料
+        # 7. 取得用戶資料 (發通知用)
         cursor.execute(
             "SELECT firstname, surname, email FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
 
-        # 提交資料庫
         database.connection.commit()
 
         # ==========================================
-        # 6. 發送通知 (獨立 Try-Catch，避免影響預約結果)
+        # 8. 發送通知 (LINE + Email)
         # ==========================================
         try:
             from .notifications import notify_new_booking_created
 
+            # 格式化時間
             booking_time_str = schedule['start_time'].strftime(
                 '%Y-%m-%d %H:%M')
             customer_name = f"{user['firstname']} {user['surname']}"
@@ -1083,27 +1099,29 @@ def book_course_slot():
                 booking_id,
                 customer_name,
                 user['email'],
-                schedule['name'],
+                course['name'],
                 booking_time_str
             )
         except Exception as e:
             print(f"Notification failed: {e}")
 
         flash('預約申請已送出！待確認後將通知您。', 'success')
+        # 成功後導向會員中心的「我的預約」，讓客戶看到剛剛的單
         return redirect(url_for('customer.bookings'))
 
     except Exception as e:
         database.connection.rollback()
+        print(f"Booking Error: {e}")
         flash(f'預約失敗: {str(e)}', 'error')
         return redirect(url_for('main.course_detail', course_id=course_id))
 
     finally:
         cursor.close()
 
-
 # =====================================================
 # LEGAL PAGES
 # =====================================================
+
 
 @main_bp.route('/privacy-policy')
 def privacy_policy():
