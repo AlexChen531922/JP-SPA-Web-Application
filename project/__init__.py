@@ -65,6 +65,7 @@ def create_app():
         # LINE Configuration
         LINE_CHANNEL_ID=os.environ.get("LINE_CHANNEL_ID"),
         LINE_CHANNEL_SECRET=os.environ.get("LINE_CHANNEL_SECRET"),
+        LINE_BOT_CHANNEL_SECRET=os.environ.get("LINE_BOT_CHANNEL_SECRET"),
         LINE_CHANNEL_ACCESS_TOKEN=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"),
         LINE_ADMIN_USER_ID=os.environ.get("LINE_ADMIN_USER_ID"),
 

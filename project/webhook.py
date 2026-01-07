@@ -19,7 +19,7 @@ def init_line_bot():
     global line_bot_api, handler
     if line_bot_api is None:
         token = current_app.config.get('LINE_CHANNEL_ACCESS_TOKEN')
-        secret = current_app.config.get('LINE_CHANNEL_SECRET')
+        secret = current_app.config.get('LINE_BOT_CHANNEL_SECRET')
         if token and secret:
             line_bot_api = LineBotApi(token)
             handler = WebhookHandler(secret)
@@ -59,7 +59,7 @@ def callback():
 # 我們直接讀取環境變數來建立模組層級的 handler，專門給裝飾器用。
 
 
-_temp_secret = os.environ.get('LINE_CHANNEL_SECRET')
+_temp_secret = os.environ.get('LINE_BOT_CHANNEL_SECRET')
 if _temp_secret:
     handler = WebhookHandler(_temp_secret)
 
