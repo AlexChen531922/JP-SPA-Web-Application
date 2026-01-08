@@ -24,16 +24,26 @@ def callback():
     # ⭐ 2. 瀏覽器測試模式 (GET)
     if request.method == 'GET':
         if not secret:
-            return "❌ 錯誤：Server 抓不到 LINE_BOT_CHANNEL_SECRET", 200
+            return "❌ 錯誤：變數不存在", 200
 
-        # 直接印在網頁上給你看
+        # 使用 repr() 可以把隱藏的空白或換行符號顯示出來 (例如 'xyz\n')
+        secret_repr = repr(secret)
+        length = len(secret)
+
+        status_color = "green" if length == 32 else "red"
+        status_msg = "✅ 長度正確 (32)" if length == 32 else f"❌ 長度錯誤 ({length}) - 請檢查是否多了空白鍵！"
+
         return f"""
-        <h1>Status: Online ✅</h1>
-        <p>您的 LINE_BOT_CHANNEL_SECRET 前五碼是: <strong>[{secret[:5]}]</strong></p>
-        <p>請將這五碼與 LINE Developers 後台的 Channel Secret 比對。</p>
-        <p>如果不同，請去 Railway Variables 修正。</p>
+        <h1>Secret 檢查報告</h1>
+        <ul>
+            <li><strong>前五碼:</strong> {secret[:5]} (應為 3318f)</li>
+            <li><strong>總長度:</strong> <span style="color:{status_color}; font-weight:bold;">{length}</span> (標準應為 32)</li>
+            <li><strong>隱藏字元檢查:</strong> {secret_repr}</li>
+        </ul>
+        <hr>
+        <h3>{status_msg}</h3>
+        <p>如果顯示的字串最後面有 <code>'</code> 以外的空間，或是有 <code>\\n</code>，代表有多餘字元。</p>
         """, 200
-
     # ==========================================
     # 以下是原本的 POST 邏輯 (給 LINE 用的)
     # ==========================================
