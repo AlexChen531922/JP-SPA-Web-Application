@@ -44,8 +44,8 @@ def send_email(to, subject, body, html=None):
         if html:
             msg.attach(MIMEText(html, 'html', 'utf-8'))
 
-        server = smtplib.SMTP(mail_server, mail_port)
-        server.starttls()
+        server = smtplib.SMTP_SSL(mail_server, mail_port)
+
         server.login(mail_username, mail_password)
         server.send_message(msg)
         server.quit()
