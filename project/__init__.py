@@ -68,6 +68,7 @@ def create_app():
         LINE_BOT_CHANNEL_SECRET=os.environ.get("LINE_BOT_CHANNEL_SECRET"),
         LINE_CHANNEL_ACCESS_TOKEN=os.environ.get("LINE_CHANNEL_ACCESS_TOKEN"),
         LINE_ADMIN_USER_ID=os.environ.get("LINE_ADMIN_USER_ID"),
+        LINE_ADMIN_GROUP_ID=os.environ.get("LINE_ADMIN_GROUP_ID"),
 
         # Session Security
         # 1. 改名 v3：讓舊的 v2 或預設 session 餅乾全部作廢，解決登入鬼打牆
