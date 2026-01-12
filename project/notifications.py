@@ -11,8 +11,19 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import threading
-from project.extensions import database
-import MySQLdb.cursors
+import socket
+
+
+_original_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    # 強制指定 family 為 AF_INET (IPv4)
+    return _original_getaddrinfo(host, port, socket.AF_INET, type, proto, flags)
+
+
+# 套用補丁
+socket.getaddrinfo = _ipv4_only_getaddrinfo
 
 # ==========================================
 # 📧 EMAIL 基礎函式
