@@ -36,6 +36,9 @@ def send_email(to, subject, body, html=None):
             print("⚠️ Email config missing, skipping email.")
             return False
 
+        print(
+            f"📧 [Email Debug] 嘗試連線到: {mail_server}:{mail_port} (使用 SSL? {current_app.config.get('MAIL_USE_SSL')})")
+
         msg = MIMEMultipart('alternative')
         msg['From'] = mail_from
         msg['To'] = to
