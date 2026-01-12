@@ -58,11 +58,19 @@ def send_email(to, subject, body, html=None):
         if html:
             msg.attach(MIMEText(html, 'html', 'utf-8'))
 
-        server = smtplib.SMTP_SSL(mail_server, mail_port)
+        server = smtplib.SMTP(mail_server, mail_port)
 
+        print("📧 [Debug] 連線成功，正在啟動 TLS...")
+        server.starttls()  # 加密連線
+
+        print("📧 [Debug] 正在登入...")
         server.login(mail_username, mail_password)
+
+        print("📧 [Debug] 正在寄送...")
         server.send_message(msg)
         server.quit()
+
+        print("✅ Email 發送成功！")
         return True
     except Exception as e:
         print(f"❌ Email failed: {e}")
