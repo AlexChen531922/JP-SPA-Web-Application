@@ -462,3 +462,14 @@ ALTER TABLE products ADD COLUMN display_order INT DEFAULT 0;
 -- 2. 初始化排序 (讓現有產品依 ID 排序，避免全部都是 0)
 SET @i=0;
 UPDATE products SET display_order = (@i:=@i+1) ORDER BY id ASC;
+
+-- 1. 設定 notes 為「可不填 (NULL)」
+-- (這樣程式碼沒傳 notes 也不會報錯)
+ALTER TABLE inventory_logs MODIFY COLUMN notes TEXT NULL;
+
+-- 2. 設定 created_at 為「自動產生時間」
+-- (這樣程式碼沒傳時間，資料庫會自己蓋上時間戳記)
+ALTER TABLE inventory_logs MODIFY COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+
+-- 3. (保險起見) 確保 created_by 欄位格式正確
+ALTER TABLE inventory_logs MODIFY COLUMN created_by INT NULL;
