@@ -622,29 +622,55 @@
             </div>
 
             <div class="tab-pane fade" id="signup">
-              <form method="POST" action="{{ url_for('auth.register') }}">
+              <form method="POST" action="{{ url_for('auth.register') }}" id="registerForm" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
                 {% if session.get('binding_line_name') %}
                 <div class="alert alert-success py-2 mb-3 small"><i class="bi bi-line me-1"></i> 正在綁定 LINE 帳號...</div>
                 {% endif %}
+
                 <div class="mb-3">
                   <label class="form-label">帳號</label>
                   <input type="text" name="username" class="form-control" required>
                 </div>
+
                 <div class="mb-3">
                   <label class="form-label">Email</label>
                   <input type="email" name="email" class="form-control" required>
                 </div>
+
                 <div class="mb-3">
-                  <label class="form-label">密碼</label>
+                  <label class="form-label">設定密碼</label>
                   <div class="input-group password-group">
-                    <input type="password" name="password" id="registerPassword" class="form-control password-input"
+                    <input type="password" name="password" id="reg_password" class="form-control password-input"
                       placeholder="請設定密碼" required>
-                    <button class="btn btn-outline-secondary password-toggle-btn" type="button"
-                      id="toggleRegisterBtn"><i class="bi bi-eye-slash"></i></button>
+                    <button class="btn btn-outline-secondary password-toggle-btn" type="button">
+                      <i class="bi bi-eye-slash"></i>
+                    </button>
                   </div>
-                  <div class="form-text small mt-1">需含大寫、小寫、數字及符號，至少10碼</div>
+                  <ul class="small mt-2 ps-3 mb-0 text-muted" id="password-rules" style="list-style-type: circle;">
+                    <li id="rule-length">長度至少 10 碼</li>
+                    <li id="rule-upper">包含大寫字母 (A-Z)</li>
+                    <li id="rule-lower">包含小寫字母 (a-z)</li>
+                    <li id="rule-number">包含數字 (0-9)</li>
+                    <li id="rule-special">包含特殊符號 (!@#$...)</li>
+                  </ul>
                 </div>
+
+                <div class="mb-3">
+                  <label class="form-label">確認密碼</label>
+                  <div class="input-group password-group">
+                    <input type="password" name="confirm_password" id="reg_confirm_password"
+                      class="form-control password-input" placeholder="請再次輸入密碼" required>
+                    <button class="btn btn-outline-secondary password-toggle-btn" type="button">
+                      <i class="bi bi-eye-slash"></i>
+                    </button>
+                  </div>
+                  <div id="password-match-msg" class="form-text text-danger d-none">
+                    <i class="bi bi-exclamation-circle"></i> 兩次輸入的密碼不一致
+                  </div>
+                </div>
+
                 <div class="row">
                   <div class="col-6 mb-3">
                     <label class="form-label">姓氏</label>
@@ -655,221 +681,337 @@
                     <input type="text" name="firstname" class="form-control" required>
                   </div>
                 </div>
+
                 <div class="mb-3">
                   <label class="form-label">LINE ID <span class="text-muted small">(選填)</span></label>
                   <input type="text" name="line_id" class="form-control"
                     value="{{ session.get('binding_line_id', '') }}">
                 </div>
+
                 <input type="hidden" name="role" value="customer">
-                <button type="submit" class="btn btn-success w-100">註冊</button>
+
+                <button type="submit" id="btn-register-submit" class="btn btn-success w-100" disabled>註冊</button>
               </form>
             </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
 
-  <div class="floating-social-container">
-    <a href="#" class="social-icon back-to-top" title="回到頂部">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-up-circle"
-        viewBox="0 0 16 16">
-        <path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z" />
-        <path fill-rule="evenodd"
-          d="M8 12a.5.5 0 0 0 .5-.5V5.707l1.146 1.147a.5.5 0 0 0 .708-.708l-2-2-.007-.007a.498.498 0 0 0-.7 0l-2 2a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z" />
-      </svg>
-    </a>
+            <div class="floating-social-container">
+              <a href="#" class="social-icon back-to-top" title="回到頂部">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor"
+                  class="bi bi-arrow-up-circle" viewBox="0 0 16 16">
+                  <path fill-rule="evenodd" d="M8 15A7 7 0 1 0 8 1a7 7 0 0 0 0 14zm0 1A8 8 0 1 1 8 0a8 8 0 0 1 0 16z" />
+                  <path fill-rule="evenodd"
+                    d="M8 12a.5.5 0 0 0 .5-.5V5.707l1.146 1.147a.5.5 0 0 0 .708-.708l-2-2-.007-.007a.498.498 0 0 0-.7 0l-2 2a.5.5 0 1 0 .708.708L7.5 5.707V11.5a.5.5 0 0 0 .5.5z" />
+                </svg>
+              </a>
 
-    <div class="social-group" id="socialGroup">
-      <a href="https://line.me/ti/p/~@lhn1950m" target="_blank" class="social-icon line">
-        <i class="bi bi-line"></i><span class="icon-label">LINE</span>
-      </a>
-      <a href="https://facebook.com/j.pin9" target="_blank" class="social-icon facebook">
-        <i class="bi bi-facebook"></i><span class="icon-label">Facebook</span>
-      </a>
-      <a href="https://instagram.com/jpinspa" target="_blank" class="social-icon instagram">
-        <i class="bi bi-instagram"></i><span class="icon-label">Instagram</span>
-      </a>
-      <a href="mailto:jpin20200322@gmail.com" class="social-icon email">
-        <i class="bi bi-envelope-fill"></i><span class="icon-label">Email</span>
-      </a>
-      <a href="https://www.tiktok.com/@j_pin_spa" target="_blank" class="social-icon tiktok">
-        <i class="bi bi-tiktok"></i><span class="icon-label">TikTok</span>
-      </a>
-      <a href="tel:0222777912" class="social-icon phone d-md-none">
-        <i class="bi bi-telephone-fill"></i>
-      </a>
-    </div>
+              <div class="social-group" id="socialGroup">
+                <a href="https://line.me/ti/p/~@lhn1950m" target="_blank" class="social-icon line">
+                  <i class="bi bi-line"></i><span class="icon-label">LINE</span>
+                </a>
+                <a href="https://facebook.com/j.pin9" target="_blank" class="social-icon facebook">
+                  <i class="bi bi-facebook"></i><span class="icon-label">Facebook</span>
+                </a>
+                <a href="https://instagram.com/jpinspa" target="_blank" class="social-icon instagram">
+                  <i class="bi bi-instagram"></i><span class="icon-label">Instagram</span>
+                </a>
+                <a href="mailto:jpin20200322@gmail.com" class="social-icon email">
+                  <i class="bi bi-envelope-fill"></i><span class="icon-label">Email</span>
+                </a>
+                <a href="https://www.tiktok.com/@j_pin_spa" target="_blank" class="social-icon tiktok">
+                  <i class="bi bi-tiktok"></i><span class="icon-label">TikTok</span>
+                </a>
+                <a href="tel:0222777912" class="social-icon phone d-md-none">
+                  <i class="bi bi-telephone-fill"></i>
+                </a>
+              </div>
 
-    <button class="social-icon toggle-btn" id="socialToggleBtn" onclick="toggleSocialMenu()">
-      <i class="bi bi-chat-dots-fill" id="toggleIconOpen"></i>
-      <i class="bi bi-x-lg d-none" id="toggleIconClose"></i>
-    </button>
-  </div>
+              <button class="social-icon toggle-btn" id="socialToggleBtn" onclick="toggleSocialMenu()">
+                <i class="bi bi-line" id="toggleIconOpen"></i>
+                <i class="bi bi-x-lg d-none" id="toggleIconClose"></i>
+              </button>
+            </div>
 
-  <style>
-    .floating-social-container {
-      position: fixed;
-      right: 20px;
-      bottom: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 12px;
-      z-index: 9999;
-    }
+            <style>
+              .floating-social-container {
+                position: fixed;
+                right: 20px;
+                bottom: 20px;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                gap: 12px;
+                z-index: 9999;
+              }
 
-    .social-icon {
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 45px;
-      height: 45px;
-      border-radius: 50%;
-      background-color: #333;
-      color: #FFD700;
-      text-decoration: none;
-      overflow: visible;
-      z-index: 0;
-      transition: transform 0.2s, background 0.3s;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
+              .social-icon {
+                position: relative;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 45px;
+                height: 45px;
+                border-radius: 50%;
+                background-color: #333;
+                color: #FFD700;
+                text-decoration: none;
+                overflow: visible;
+                z-index: 0;
+                transition: transform 0.2s, background 0.3s;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+              }
 
-    .social-icon:hover {
-      transform: scale(1.1);
-    }
+              .social-icon:hover {
+                transform: scale(1.1);
+              }
 
-    .social-icon.back-to-top:hover {
-      background-color: #FFD700;
-      color: white;
-    }
+              .social-icon.back-to-top:hover {
+                background-color: #FFD700;
+                color: white;
+              }
 
-    .social-icon.toggle-btn {
-      background-color: #4B2E39;
-      /* 主色調 */
-      color: #fff;
-      font-size: 1.2rem;
-      z-index: 100;
-    }
+              .social-icon.toggle-btn {
+                background-color: #4B2E39;
+                /* 主色調 */
+                color: #fff;
+                font-size: 1.2rem;
+                z-index: 100;
+              }
 
-    .social-icon.toggle-btn:hover {
-      background-color: #2F1B24;
-    }
+              .social-icon.toggle-btn:hover {
+                background-color: #2F1B24;
+              }
 
-    .social-icon.line:hover {
-      background-color: #00C300;
-    }
+              .social-icon.line:hover {
+                background-color: #00C300;
+              }
 
-    .social-icon.facebook:hover {
-      background-color: #1877F2;
-    }
+              .social-icon.facebook:hover {
+                background-color: #1877F2;
+              }
 
-    .social-icon.instagram:hover {
-      background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);
-    }
+              .social-icon.instagram:hover {
+                background: radial-gradient(circle at 30% 107%, #fdf497 0%, #fdf497 5%, #fd5949 45%, #d6249f 60%, #285AEB 90%);
+              }
 
-    .social-icon.phone {
-      background-color: #28a745;
-      color: white;
-    }
+              .social-icon.phone {
+                background-color: #28a745;
+                color: white;
+              }
 
-    /* 收合群組樣式 */
-    .social-group {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      /* 隱藏狀態 */
-      opacity: 0;
-      transform: translateY(20px) scale(0.8);
-      pointer-events: none;
-      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
-      position: absolute;
-      bottom: 60px;
-      /* 在 Toggle 按鈕上方 */
-    }
+              /* 收合群組樣式 */
+              .social-group {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+                /* 隱藏狀態 */
+                opacity: 0;
+                transform: translateY(20px) scale(0.8);
+                pointer-events: none;
+                transition: all 0.3s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+                position: absolute;
+                bottom: 60px;
+                /* 在 Toggle 按鈕上方 */
+              }
 
-    /* 展開狀態 class */
-    .social-group.show {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      pointer-events: auto;
-    }
+              /* 展開狀態 class */
+              .social-group.show {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+                pointer-events: auto;
+              }
 
-    .icon-label {
-      position: absolute;
-      right: 110%;
-      top: 50%;
-      transform: translateY(-50%);
-      background: rgba(0, 0, 0, 0.7);
-      color: white;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 0.8rem;
-      white-space: nowrap;
-      opacity: 0;
-      transition: opacity 0.2s;
-      pointer-events: none;
-    }
+              .icon-label {
+                position: absolute;
+                right: 110%;
+                top: 50%;
+                transform: translateY(-50%);
+                background: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 4px 8px;
+                border-radius: 4px;
+                font-size: 0.8rem;
+                white-space: nowrap;
+                opacity: 0;
+                transition: opacity 0.2s;
+                pointer-events: none;
+              }
 
-    .social-icon:hover .icon-label {
-      opacity: 1;
-    }
+              .social-icon:hover .icon-label {
+                opacity: 1;
+              }
 
-    @media (max-width: 768px) {
-      .icon-label {
-        display: none;
-      }
+              @media (max-width: 768px) {
+                .icon-label {
+                  display: none;
+                }
 
-      .social-icon {
-        width: 40px;
-        height: 40px;
-      }
-    }
-  </style>
+                .social-icon {
+                  width: 40px;
+                  height: 40px;
+                }
+              }
+            </style>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
-  {% block scripts %}{% endblock %}
+            {% block scripts %}{% endblock %}
 
-  <script>
-    document.addEventListener('DOMContentLoaded', function () {
-      document.body.addEventListener('click', function (e) {
-        const btn = e.target.closest('.password-toggle-btn');
-        if (!btn) return;
-        e.preventDefault(); e.stopPropagation();
-        const inputGroup = btn.closest('.input-group');
-        const input = inputGroup.querySelector('input.password-input');
-        const icon = btn.querySelector('i');
-        if (input) {
-          if (input.getAttribute('type') === 'password') {
-            input.setAttribute('type', 'text');
-            icon.classList.replace('bi-eye-slash', 'bi-eye');
-          } else {
-            input.setAttribute('type', 'password');
-            icon.classList.replace('bi-eye', 'bi-eye-slash');
-          }
-        }
-      });
-    });
+            <script>
+              document.addEventListener('DOMContentLoaded', function () {
+                document.body.addEventListener('click', function (e) {
+                  const btn = e.target.closest('.password-toggle-btn');
+                  if (!btn) return;
+                  e.preventDefault(); e.stopPropagation();
+                  const inputGroup = btn.closest('.input-group');
+                  const input = inputGroup.querySelector('input.password-input');
+                  const icon = btn.querySelector('i');
+                  if (input) {
+                    if (input.getAttribute('type') === 'password') {
+                      input.setAttribute('type', 'text');
+                      icon.classList.replace('bi-eye-slash', 'bi-eye');
+                    } else {
+                      input.setAttribute('type', 'password');
+                      icon.classList.replace('bi-eye', 'bi-eye-slash');
+                    }
+                  }
+                });
+              });
 
-    // 2. 社交按鈕收合切換功能
-    function toggleSocialMenu() {
-      const group = document.getElementById('socialGroup');
-      const openIcon = document.getElementById('toggleIconOpen');
-      const closeIcon = document.getElementById('toggleIconClose');
+              // ==========================================
+              // ⭐ 新增：註冊表單即時驗證 (Real-time Validation)
+              // ==========================================
+              const regPwd = document.getElementById('reg_password');
+              const regConfirm = document.getElementById('reg_confirm_password');
+              const submitBtn = document.getElementById('btn-register-submit');
+              const matchMsg = document.getElementById('password-match-msg');
 
-      group.classList.toggle('show');
+              // 規則元素
+              const rules = {
+                length: document.getElementById('rule-length'),
+                upper: document.getElementById('rule-upper'),
+                lower: document.getElementById('rule-lower'),
+                number: document.getElementById('rule-number'),
+                special: document.getElementById('rule-special')
+              };
 
-      if (group.classList.contains('show')) {
-        openIcon.classList.add('d-none');
-        closeIcon.classList.remove('d-none');
-      } else {
-        openIcon.classList.remove('d-none');
-        closeIcon.classList.add('d-none');
-      }
-    }
-  </script>
+              // 驗證主函式
+              function validateRegistration() {
+                if (!regPwd || !regConfirm) return; // 防呆
+
+                const val = regPwd.value;
+                const valConfirm = regConfirm.value;
+                let allValid = true;
+
+                // 1. 檢查規則 (Regex 對應 auth.py 的 validate_password_strength)
+                const checks = {
+                  length: val.length >= 10,
+                  upper: /[A-Z]/.test(val),
+                  lower: /[a-z]/.test(val),
+                  number: /\d/.test(val),
+                  special: /[ !@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(val)
+                };
+
+                // 更新規則列表 UI (綠色打勾 / 紅色一般)
+                for (const key in checks) {
+                  if (checks[key]) {
+                    rules[key].classList.remove('text-muted', 'text-danger');
+                    rules[key].classList.add('text-success', 'fw-bold');
+                    rules[key].innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + rules[key].innerText.replace('✓ ', '').replace('✗ ', '');
+                  } else {
+                    allValid = false;
+                    rules[key].classList.remove('text-success', 'fw-bold');
+                    // 如果已經輸入內容但不符，顯示紅色；若為空則顯示灰色
+                    if (val.length > 0) {
+                      rules[key].classList.add('text-danger');
+                    } else {
+                      rules[key].classList.add('text-muted');
+                      rules[key].classList.remove('text-danger');
+                    }
+                    // 復原文字 (避免重複加 icon)
+                    const cleanText = rules[key].innerText.replace('✓ ', '').replace('✗ ', '');
+                    rules[key].innerText = cleanText;
+                  }
+                }
+
+                // 2. 檢查確認密碼是否一致
+                let isMatch = false;
+                if (valConfirm.length > 0) {
+                  if (val === valConfirm) {
+                    isMatch = true;
+                    regConfirm.classList.remove('is-invalid');
+                    regConfirm.classList.add('is-valid');
+                    matchMsg.classList.add('d-none');
+                  } else {
+                    allValid = false;
+                    regConfirm.classList.remove('is-valid');
+                    regConfirm.classList.add('is-invalid'); // Bootstrap 紅框
+                    matchMsg.classList.remove('d-none');
+                  }
+                } else {
+                  // 還沒輸入確認密碼時，不顯示錯誤，但不能送出
+                  allValid = false;
+                  regConfirm.classList.remove('is-invalid', 'is-valid');
+                  matchMsg.classList.add('d-none');
+                }
+
+                // 3. 控制按鈕狀態
+                if (allValid && isMatch) {
+                  submitBtn.removeAttribute('disabled');
+                } else {
+                  submitBtn.setAttribute('disabled', 'true');
+                }
+              }
+
+              // 綁定監聽事件
+              if (regPwd && regConfirm) {
+                regPwd.addEventListener('input', validateRegistration);
+                regConfirm.addEventListener('input', validateRegistration);
+              }
+
+              // ==========================================
+              // 讓網址帶參數時自動開啟 Modal
+              // ==========================================
+              const urlParams = new URLSearchParams(window.location.search);
+              const loginModalEl = document.getElementById('loginModal');
+
+              if (loginModalEl) {
+                const loginModal = new bootstrap.Modal(loginModalEl);
+                const loginTab = document.querySelector('button[data-bs-target="#signin"]');
+                const registerTab = document.querySelector('button[data-bs-target="#signup"]');
+
+                if (urlParams.has('open_login')) {
+                  loginModal.show();
+                  if (loginTab) {
+                    const tab = new bootstrap.Tab(loginTab);
+                    tab.show();
+                  }
+                } else if (urlParams.has('open_register')) {
+                  loginModal.show();
+                  if (registerTab) {
+                    const tab = new bootstrap.Tab(registerTab);
+                    tab.show();
+                  }
+                }
+              }
+
+
+              // 2. 社交按鈕收合切換功能
+              function toggleSocialMenu() {
+                const group = document.getElementById('socialGroup');
+                const openIcon = document.getElementById('toggleIconOpen');
+                const closeIcon = document.getElementById('toggleIconClose');
+
+                group.classList.toggle('show');
+
+                if (group.classList.contains('show')) {
+                  openIcon.classList.add('d-none');
+                  closeIcon.classList.remove('d-none');
+                } else {
+                  openIcon.classList.remove('d-none');
+                  closeIcon.classList.add('d-none');
+                }
+              }
+            </script>
 </body>
 
 </html>

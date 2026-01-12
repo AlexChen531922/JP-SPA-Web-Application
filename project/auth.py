@@ -121,7 +121,7 @@ def register():
             is_valid, error_msg = validate_password_strength(password)
             if not is_valid:
                 flash(error_msg, 'error')
-                return render_template('register.html', form=form)
+                return redirect(url_for('main.home', open_register='true'))
 
             # 2. 檢查帳號是否重複
             cursor = database.connection.cursor()
@@ -131,7 +131,7 @@ def register():
 
             if account:
                 flash('帳號或 Email 已被註冊', 'error')
-                return render_template('register.html', form=form)
+                return redirect(url_for('main.home', open_register='true'))
 
             # 3. 建立新帳號
             hashed_password = generate_password_hash(password)
@@ -162,20 +162,26 @@ def register():
             return redirect(url_for('auth.login'))
 
         except Exception as e:
-            # ... (錯誤處理邏輯保持不變) ...
-            if database.connection:
-                database.connection.rollback()
-            print("================ REGISTER ERROR ================")
-            import traceback
-            traceback.print_exc()
-            print("================================================")
+            # ... (rollback 與 print 錯誤保持不變) ...
             flash(f'註冊失敗 (系統錯誤): {str(e)}', 'error')
+            # ⭕ 這裡也要改成導回首頁
+            return redirect(url_for('main.home', open_register='true'))
 
         finally:
             if cursor:
                 cursor.close()
 
-    return render_template('register.html', form=form)
+    # 如果表單驗證失敗 (例如密碼不一致)
+    if form.errors:
+        for field, errors in form.errors.items():
+            for error in errors:
+                # 嘗試取得欄位名稱
+                label = getattr(form, field).label.text if hasattr(
+                    form, field) else field
+                flash(f'{label}: {error}', 'error')
+
+    # ❌ 最後這一行非常重要，絕對不能是 render_template
+    return redirect(url_for('main.home', open_register='true'))
 
 # ==========================================
 # 🔑 忘記密碼 & 重設密碼

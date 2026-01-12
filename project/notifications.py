@@ -34,11 +34,12 @@ def send_email(to, subject, body, html=None):
     """發送 Email 的通用函式"""
     try:
         mail_server = current_app.config.get('MAIL_SERVER')
-        mail_port = current_app.config.get('MAIL_PORT')  # 這裡應該是 465
+        mail_port = current_app.config.get('MAIL_PORT')  # 應該是 587
         mail_username = current_app.config.get('MAIL_USERNAME')
         mail_password = current_app.config.get('MAIL_PASSWORD')
         mail_from = current_app.config.get('MAIL_DEFAULT_SENDER')
 
+        # 處理 tuple 格式的 sender
         if isinstance(mail_from, tuple):
             mail_from = f"{mail_from[0]} <{mail_from[1]}>"
 
@@ -46,7 +47,7 @@ def send_email(to, subject, body, html=None):
             print("⚠️ Email config missing, skipping email.")
             return False
 
-        print(f"📧 [Debug] 準備連線 (SSL): {mail_server}:{mail_port}")
+        print(f"📧 [Debug] 準備連線 (TLS): {mail_server}:{mail_port}")
 
         msg = MIMEMultipart('alternative')
         msg['From'] = mail_from
@@ -56,11 +57,16 @@ def send_email(to, subject, body, html=None):
         if html:
             msg.attach(MIMEText(html, 'html', 'utf-8'))
 
-        # ⭐ 重點修改：使用 SMTP_SSL (配合 Port 465)
-        # 這種方式一開始就是加密的，不需要 starttls()
-        server = smtplib.SMTP_SSL(mail_server, mail_port)
+        # ⭐ 使用一般 SMTP (非 SSL)，並設定 30 秒逾時
+        server = smtplib.SMTP(mail_server, mail_port, timeout=30)
 
-        print("📧 [Debug] 連線成功，正在登入...")
+        # 顯示連線層級除錯訊息 (會印出更多底層資訊)
+        server.set_debuglevel(1)
+
+        print("📧 [Debug] 連線成功，正在啟動 StartTLS...")
+        server.starttls()  # 升級為加密連線
+
+        print("📧 [Debug] 正在登入...")
         server.login(mail_username, mail_password)
 
         print("📧 [Debug] 正在寄送...")

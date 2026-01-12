@@ -22,7 +22,11 @@ class RegisterForm(FlaskForm):
     ])
     password = PasswordField('密碼', validators=[
         DataRequired(message='請輸入密碼'),
-        Length(min=6, message='密碼至少需要 6 個字元')
+        Length(min=10, message='密碼至少需要 10 個字元')  # 配合您的後端規則改為 10
+    ])
+    confirm_password = PasswordField('確認密碼', validators=[
+        DataRequired(message='請再次輸入密碼'),
+        EqualTo('password', message='兩次輸入的密碼不一致')
     ])
     firstname = StringField('名字', validators=[
         DataRequired(message='請輸入名字')
