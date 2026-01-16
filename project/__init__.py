@@ -55,13 +55,8 @@ def create_app():
         MYSQL_INIT_COMMAND="SET time_zone = '+08:00'",
 
         # Email configuration
-        MAIL_SERVER="smtp.gmail.com",
-        MAIL_PORT=587,
-        MAIL_USE_TLS=True,
-        MAIL_USE_SSL=False,
-        MAIL_USERNAME=os.environ.get("MAIL_USERNAME"),
-        MAIL_PASSWORD=os.environ.get("MAIL_PASSWORD"),
-        MAIL_DEFAULT_SENDER=("晶品芳療", os.environ.get("MAIL_USERNAME")),
+        SENDGRID_API_KEY=os.environ.get("SENDGRID_API_KEY"),
+        MAIL_DEFAULT_SENDER=os.environ.get("MAIL_DEFAULT_SENDER"),
 
         # LINE Configuration
         LINE_CHANNEL_ID=os.environ.get("LINE_CHANNEL_ID"),

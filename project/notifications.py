@@ -12,6 +12,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import threading
 import socket
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
 
 
 _original_getaddrinfo = socket.getaddrinfo
@@ -31,59 +33,55 @@ socket.getaddrinfo = _ipv4_only_getaddrinfo
 
 
 def send_email(to, subject, body, html=None):
-    """發送 Email 的通用函式"""
+    """使用 SendGrid API 發送 Email (不會被防火牆擋)"""
     try:
-        mail_server = current_app.config.get('MAIL_SERVER')
-        mail_port = current_app.config.get('MAIL_PORT')  # 應該是 587
-        mail_username = current_app.config.get('MAIL_USERNAME')
-        mail_password = current_app.config.get('MAIL_PASSWORD')
-        mail_from = current_app.config.get('MAIL_DEFAULT_SENDER')
+        api_key = current_app.config.get('SENDGRID_API_KEY')
+        sender = current_app.config.get('MAIL_DEFAULT_SENDER')
 
-        # 處理 tuple 格式的 sender
-        if isinstance(mail_from, tuple):
-            mail_from = f"{mail_from[0]} <{mail_from[1]}>"
-
-        if not all([mail_server, mail_username, mail_password]):
-            print("⚠️ Email config missing, skipping email.")
+        if not api_key:
+            print("⚠️ SendGrid API Key missing, skipping email.")
             return False
 
-        print(f"📧 [Debug] 準備連線 (TLS): {mail_server}:{mail_port}")
+        # 處理 tuple 格式的 sender (name, email) -> 只取 email
+        # SendGrid 建議直接用 email 字串，或者用 From(email, name) 物件
+        if isinstance(sender, tuple):
+            sender_email = sender[1]
+        else:
+            sender_email = sender
 
-        msg = MIMEMultipart('alternative')
-        msg['From'] = mail_from
-        msg['To'] = to
-        msg['Subject'] = subject
-        msg.attach(MIMEText(body, 'plain', 'utf-8'))
-        if html:
-            msg.attach(MIMEText(html, 'html', 'utf-8'))
+        print(f"📧 [Debug] 準備透過 API 寄信給: {to}")
 
-        # ⭐ 使用一般 SMTP (非 SSL)，並設定 30 秒逾時
-        server = smtplib.SMTP(mail_server, mail_port, timeout=30)
+        # 建立郵件物件
+        message = Mail(
+            from_email=sender_email,
+            to_emails=to,
+            subject=subject,
+            plain_text_content=body,
+            html_content=html if html else None
+        )
 
-        # 顯示連線層級除錯訊息 (會印出更多底層資訊)
-        server.set_debuglevel(1)
+        # 初始化客戶端並發送
+        sg = SendGridAPIClient(api_key)
+        response = sg.send(message)
 
-        print("📧 [Debug] 連線成功，正在啟動 StartTLS...")
-        server.starttls()  # 升級為加密連線
+        # 檢查回應狀態碼 (2xx 代表成功)
+        if 200 <= response.status_code < 300:
+            print(f"✅ Email 發送成功！Status Code: {response.status_code}")
+            return True
+        else:
+            print(f"❌ Email 發送失敗，API 回應: {response.status_code}")
+            print(response.body)
+            return False
 
-        print("📧 [Debug] 正在登入...")
-        server.login(mail_username, mail_password)
-
-        print("📧 [Debug] 正在寄送...")
-        server.send_message(msg)
-        server.quit()
-
-        print("✅ Email 發送成功！")
-        return True
     except Exception as e:
-        print(f"❌ Email failed: {e}")
+        print(f"❌ Email failed (API Error): {str(e)}")
         return False
 
 
 def send_email_async(app, to, subject, body, html=None):
+    """非同步發送 wrapper"""
     with app.app_context():
         send_email(to, subject, body, html)
-
 # ==========================================
 # 💬 LINE MESSAGING API 基礎函式
 # ==========================================
