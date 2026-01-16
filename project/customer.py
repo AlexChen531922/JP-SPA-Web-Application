@@ -2,8 +2,9 @@ from flask import Blueprint, render_template, request, session, flash, redirect,
 from .decorators import login_required, customer_required
 from project.extensions import database, mail
 from .db import get_current_user_id, get_user_details, update_user_profile
-from flask_mail import Message
+from project.notifications import send_email
 import MySQLdb.cursors
+import threading
 import re
 
 customer_bp = Blueprint('customer', __name__, url_prefix='/customer')
@@ -31,7 +32,7 @@ def validate_password_strength(password):
 def send_cancel_notification(type_name, item_id, reason="顧客自行取消"):
     """發送取消通知給管理員"""
     try:
-        admin_email = current_app.config.get('MAIL_USERNAME')
+        admin_email = current_app.config.get('MAIL_DEFAULT_SENDER')
         if not admin_email:
             return
 
@@ -48,10 +49,12 @@ def send_cancel_notification(type_name, item_id, reason="顧客自行取消"):
         備註：{reason}
         請至後台確認詳情。
         """
-        msg = Message(subject, recipients=[admin_email], body=body)
-        mail.send(msg)
+        app = current_app._get_current_object()
+        threading.Thread(target=send_email, args=(
+            admin_email, subject, body)).start()
+
     except Exception as e:
-        print(f"❌ Email 發送失敗: {e}")
+        print(f"❌ 取消通知 Email 發送失敗: {e}")
 
 # ==========================================
 # 📊 Dashboard (儀表板)
