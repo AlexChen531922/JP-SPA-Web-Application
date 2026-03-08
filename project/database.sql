@@ -298,7 +298,7 @@ INSERT INTO courses (name, category_id, regular_price, experience_price, duratio
 ('深層紓壓精油按摩', 2, 2500.00, 1800.00, 90, '使用頂級精油進行全身深層肌肉放鬆。');
 
 -- 自動生成未來 30 天的時段 (09:00 - 17:00)
-INSERT INTO course_schedules (course_id, start_time, end_time, max_capacity, current_bookings, is_active)
+INSEINSERT INTO course_schedules (course_id, start_time, end_time, max_capacity, current_bookings, is_active)
 WITH RECURSIVE 
 DateRange AS (
     SELECT CURDATE() AS date_val
@@ -308,14 +308,22 @@ DateRange AS (
     WHERE date_val < CURDATE() + INTERVAL 30 DAY
 ),
 TimeSlots AS (
-    SELECT 10 AS h UNION ALL SELECT 11 UNION ALL SELECT 12 UNION ALL
-    SELECT 13 UNION ALL SELECT 14 UNION ALL SELECT 15 UNION ALL
-    SELECT 16 UNION ALL SELECT 17 UNION ALL SELECT 18 UNION ALL
-    SELECT 19 UNION ALL SELECT 20
+    -- ⭐ 修正：直接給定完整的時間字串，並命名為 start_t
+    SELECT '10:00:00' AS start_t UNION ALL 
+    SELECT '11:00:00' UNION ALL 
+    SELECT '12:00:00' UNION ALL
+    SELECT '13:00:00' UNION ALL 
+    SELECT '14:00:00' UNION ALL 
+    SELECT '15:00:00' UNION ALL
+    SELECT '16:00:00' UNION ALL 
+    SELECT '17:00:00' UNION ALL 
+    SELECT '18:00:00' UNION ALL
+    SELECT '19:00:00' UNION ALL 
+    SELECT '20:00:00'
 )
 SELECT 
     c.id, 
-    CONCAT(d.date_val, ' ', t.start_t) AS start_time,
+    CONCAT(d.date_val, ' ', t.start_t) AS start_time, -- ⭐ 現在 t.start_t 存在了，組合後為 'YYYY-MM-DD HH:00:00'
     DATE_ADD(CONCAT(d.date_val, ' ', t.start_t), INTERVAL c.duration MINUTE) AS end_time,
     1, 
     0, 
@@ -473,3 +481,14 @@ ALTER TABLE inventory_logs MODIFY COLUMN created_at TIMESTAMP DEFAULT CURRENT_TI
 
 -- 3. (保險起見) 確保 created_by 欄位格式正確
 ALTER TABLE inventory_logs MODIFY COLUMN created_by INT NULL;
+
+ALTER DATABASE railway CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+
+-- 1. 修改文章資料表 (讓文章標題與內容可以存 Emoji)
+ALTER TABLE blog_posts CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 2. 修改聯絡訊息資料表 (讓客人傳送的表單可以包含 Emoji)
+ALTER TABLE contact_messages CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 3. 修改產品資料表 (讓您的產品敘述可以放 Emoji)
+ALTER TABLE products CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

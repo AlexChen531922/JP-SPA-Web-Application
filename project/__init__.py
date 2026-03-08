@@ -50,6 +50,7 @@ def create_app():
         MYSQL_PASSWORD=os.environ.get("MYSQL_PASSWORD"),
         MYSQL_DB=os.environ.get("MYSQL_DB", "ecommerce_booking_system"),
         MYSQL_CURSORCLASS="DictCursor",
+        MYSQL_CHARSET='utf8mb4',
 
         # 時區台灣時間
         MYSQL_INIT_COMMAND="SET time_zone = '+08:00'",
