@@ -262,9 +262,9 @@
     }
 
     .btn-spa {
-      font-size: 1.05rem;
-      padding: 0.55rem 1.8rem;
-      margin-right: 10px;
+      font-size: 1rem;
+      padding: 0.45rem 1.2rem;
+      margin-right: 5px;
       background-color: #F7D9E3;
       color: #4B2E39;
       border-radius: 50px;
@@ -278,10 +278,10 @@
     }
 
     .navbar-nav .nav-link {
-      font-size: 1.15rem;
+      font-size: 1.05rem;
       font-weight: 500;
-      padding: 0.6rem 1.2rem;
-      margin-right: 10px;
+      padding: 0.5rem 0.7rem;
+      margin-right: 0px;
       border-radius: 50px;
       transition: all 0.3s;
       color: #54484d !important;
@@ -296,8 +296,8 @@
 
     .d-flex .btn {
       border-radius: 50px;
-      font-size: 1.05rem;
-      padding: 0.55rem 1.8rem;
+      font-size: 1rem;
+      padding: 0.45rem 1.2rem;
       transition: 0.3s;
     }
 
@@ -396,6 +396,37 @@
       .user-menu-container .dropdown-toggle {
         width: 100%;
         text-align: center;
+      }
+    }
+
+    /* 🌟 新增 A：強制隱藏網頁最底部的橫向捲軸 (終極保險) */
+    body {
+      overflow-x: hidden;
+    }
+
+    /* 🌟 新增 B：針對中大型螢幕 (1200px~1400px) 的極限壓縮 */
+    @media (min-width: 1200px) and (max-width: 1400px) {
+      .navbar-nav .nav-link {
+        font-size: 0.95rem;
+        /* 進一步縮小字體 */
+        padding: 0.4rem 0.5rem;
+        /* 極限壓縮間距 */
+      }
+
+      .btn-spa,
+      .d-flex .btn {
+        font-size: 0.95rem;
+        padding: 0.4rem 0.8rem;
+      }
+
+      .header-hero-text {
+        max-width: 18%;
+        /* 讓出更多空間給左右兩側膨脹的英文按鈕 */
+      }
+
+      .navbar-brand img {
+        height: 90px !important;
+        /* 稍微縮小 Logo 高度來爭取水平空間 */
       }
     }
   </style>
