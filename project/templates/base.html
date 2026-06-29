@@ -210,155 +210,45 @@
     .input-group:focus-within .btn {
       border-color: #86b7fe !important;
     }
-  </style>
-</head>
 
-<body>
-  <header class="sticky-top border-bottom bg-white py-2 shadow-sm">
-    <nav class="navbar navbar-expand-lg container-fluid">
-      <a href="{{ url_for('main.home') }}" class="navbar-brand d-flex align-items-center">
-        <img src="{{ url_for('static', filename='img/logo.JPG') }}" alt="LOGO" style="height:110px;width:auto;"
-          class="me-3">
-      </a>
-
-      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
-        <span class="navbar-toggler-icon"></span>
-      </button>
-
-      <div class="collapse navbar-collapse justify-content-end" id="navbarMain">
-        <ul class="navbar-nav mb-2 mb-lg-0">
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.home') }}">首頁</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.about') }}">關於晶品</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.products') }}">產品介紹</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.courses') }}">課程介紹</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.blog') }}">美麗知識</a></li>
-        </ul>
-
-        <section class="header-hero-text">
-          <p class="lead text-muted mb-4">專業精進不止，感恩之心常存；健康與美麗內外相映</p>
-        </section>
-
-        <div class="d-flex align-items-center gap-2 user-menu-container ms-lg-2">
-
-          <a href="{{ url_for('main.courses') }}" class="btn btn-spa fw-bold px-4 text-nowrap">
-            <i class="bi bi-calendar-check"></i> 預約課程
-          </a>
-
-          {% if session.get('logged_in') %}
-          {% set role = session.get('user', {}).get('role') %}
-          {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
-          {% set line_id = session.get('user', {}).get('line_id') %}
-          {% set is_line_bound = line_id and line_id.startswith('U') %}
-
-          {% if role in ['staff', 'admin'] %}
-          <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm text-nowrap">
-            <i class="bi bi-speedometer2"></i> 後台
-          </a>
-          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative text-nowrap">
-            <i class="bi bi-cart3"></i> 購物車
-          </a>
-          {% elif role == 'customer' %}
-          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative text-nowrap">
-            <i class="bi bi-cart3"></i> 購物車
-          </a>
-          <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-sm text-nowrap">
-            <i class="bi bi-person"></i> 會員
-          </a>
-          {% endif %}
-
-          <div class="dropdown">
-            <button class="btn btn-dark btn-sm dropdown-toggle text-nowrap" type="button" data-bs-toggle="dropdown">
-              {{ username }}
-            </button>
-            <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-3">
-
-              {% if role == 'customer' %}
-              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i
-                    class="bi bi-person-circle"></i> 會員中心</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('customer.bookings') }}"><i
-                    class="bi bi-calendar-check"></i> 我的預約</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('customer.orders') }}"><i class="bi bi-bag-check"></i>
-                  我的訂單</a></li>
-              <li>
-                <hr class="dropdown-divider">
-              </li>
-
-              {% if not is_line_bound %}
-              <li>
-                <a class="dropdown-item text-success fw-bold" href="{{ url_for('auth.connect_line') }}">
-                  <i class="bi bi-line"></i> 連結 LINE 帳號
-                </a>
-              </li>
-              {% else %}
-              <li>
-                <span class="dropdown-item text-muted" style="cursor: default;">
-                  <i class="bi bi-check-circle-fill text-success"></i> LINE 已連結
-                </span>
-              </li>
-              {% endif %}
-
-              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i class="bi bi-gear"></i>
-                  帳號設定</a></li>
-
-              {% elif role in ['admin', 'staff'] %}
-              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-speedometer2"></i>
-                  返回後台</a></li>
-              <li>
-                <hr class="dropdown-divider">
-              </li>
-
-              {% if not is_line_bound %}
-              <li>
-                <a class="dropdown-item text-success fw-bold" href="{{ url_for('auth.connect_line') }}">
-                  <i class="bi bi-line"></i> 連結 LINE 帳號
-                </a>
-              </li>
-              {% else %}
-              <li>
-                <span class="dropdown-item text-muted" style="cursor: default;">
-                  <i class="bi bi-check-circle-fill text-success"></i> LINE 已連結
-                </span>
-              </li>
-              {% endif %}
-
-              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-person-gear"></i>
-                  個人設定</a></li>
-              {% endif %}
-
-              <li>
-                <hr class="dropdown-divider">
-              </li>
-              <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i
-                    class="bi bi-box-arrow-right"></i> 登出</a></li>
-            </ul>
-          </div>
-
-          {% else %}
-          <button class="btn btn-spa fw-bold px-4 text-nowrap" data-bs-toggle="modal" data-bs-target="#loginModal">
-            <i class="bi bi-person-circle"></i> 會員登入
-          </button>
-          {% endif %}
-        </div>
-      </div>
-    </nav>
-  </header>
-
-  <style>
     .navbar {
       position: relative;
     }
 
+    /* 1. 修改：微調中央標語的限制，移除 nowrap 並補上刪節號規則 */
     .header-hero-text {
       font-family: 'Noto Serif TC', serif;
       font-style: italic;
       margin: 0 auto;
-      white-space: nowrap;
+      /* white-space: nowrap;  <--- ❌ 請刪除或註釋掉這行 */
       font-size: 1.05rem;
       color: #6c6c6c;
       letter-spacing: 1px;
       opacity: 0;
       animation: fadeInOpacity 1.5s ease-in-out forwards;
       padding: 0 20px;
+
+      /* 👇 補上這段：限制寬度並在超出時自動呈現 ... */
+      max-width: 35%;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+      -webkit-box-orient: vertical;
+    }
+
+    /* 2. 新增：防止選單英文單字在膠囊內尷尬地垂直換行 */
+    .navbar-nav .nav-link {
+      white-space: nowrap;
+    }
+
+    /* 3. 新增：當螢幕小於 1200px 空間不足時，自動隱藏標語確保導覽列不擠爆 */
+    @media (min-width: 992px) and (max-width: 1199.98px) {
+      .header-hero-text {
+        display: none !important;
+      }
     }
 
     @keyframes fadeInOpacity {
@@ -509,6 +399,141 @@
       }
     }
   </style>
+</head>
+
+<body>
+  <header class="sticky-top border-bottom bg-white py-2 shadow-sm">
+    <nav class="navbar navbar-expand-lg container-fluid">
+      <a href="{{ url_for('main.home') }}" class="navbar-brand d-flex align-items-center">
+        <img src="{{ url_for('static', filename='img/logo.JPG') }}" alt="LOGO" style="height:110px;width:auto;"
+          class="me-3">
+      </a>
+
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse justify-content-end" id="navbarMain">
+        <ul class="navbar-nav mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.home') }}">首頁</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.about') }}">關於晶品</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.products') }}">產品介紹</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.courses') }}">課程介紹</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('main.blog') }}">美麗知識</a></li>
+        </ul>
+
+        <section class="header-hero-text">
+          <p class="lead text-muted mb-4" data-bs-toggle="tooltip" data-bs-placement="bottom"
+            title="專業精進不止，感恩之心常存；健康與美麗內外相映">
+            專業精進不止，感恩之心常存；健康與美麗內外相映
+          </p>
+        </section>
+
+        <div class="d-flex align-items-center gap-2 user-menu-container ms-lg-2">
+
+          <a href="{{ url_for('main.courses') }}" class="btn btn-spa fw-bold px-4 text-nowrap">
+            <i class="bi bi-calendar-check"></i> 預約課程
+          </a>
+
+          {% if session.get('logged_in') %}
+          {% set role = session.get('user', {}).get('role') %}
+          {% set username = session.get('user', {}).get('firstname') or session.get('user', {}).get('username') %}
+          {% set line_id = session.get('user', {}).get('line_id') %}
+          {% set is_line_bound = line_id and line_id.startswith('U') %}
+
+          {% if role in ['staff', 'admin'] %}
+          <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm text-nowrap">
+            <i class="bi bi-speedometer2"></i> 後台
+          </a>
+          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative text-nowrap">
+            <i class="bi bi-cart3"></i> 購物車
+          </a>
+          {% elif role == 'customer' %}
+          <a href="{{ url_for('main.cart') }}" class="btn btn-outline-primary btn-sm position-relative text-nowrap">
+            <i class="bi bi-cart3"></i> 購物車
+          </a>
+          <a href="{{ url_for('customer.dashboard') }}" class="btn btn-outline-secondary btn-sm text-nowrap">
+            <i class="bi bi-person"></i> 會員
+          </a>
+          {% endif %}
+
+          <div class="dropdown">
+            <button class="btn btn-dark btn-sm dropdown-toggle text-nowrap" type="button" data-bs-toggle="dropdown">
+              {{ username }}
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end shadow border-0 rounded-3">
+
+              {% if role == 'customer' %}
+              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i
+                    class="bi bi-person-circle"></i> 會員中心</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('customer.bookings') }}"><i
+                    class="bi bi-calendar-check"></i> 我的預約</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('customer.orders') }}"><i class="bi bi-bag-check"></i>
+                  我的訂單</a></li>
+              <li>
+                <hr class="dropdown-divider">
+              </li>
+
+              {% if not is_line_bound %}
+              <li>
+                <a class="dropdown-item text-success fw-bold" href="{{ url_for('auth.connect_line') }}">
+                  <i class="bi bi-line"></i> 連結 LINE 帳號
+                </a>
+              </li>
+              {% else %}
+              <li>
+                <span class="dropdown-item text-muted" style="cursor: default;">
+                  <i class="bi bi-check-circle-fill text-success"></i> LINE 已連結
+                </span>
+              </li>
+              {% endif %}
+
+              <li><a class="dropdown-item" href="{{ url_for('customer.dashboard') }}"><i class="bi bi-gear"></i>
+                  帳號設定</a></li>
+
+              {% elif role in ['admin', 'staff'] %}
+              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-speedometer2"></i>
+                  返回後台</a></li>
+              <li>
+                <hr class="dropdown-divider">
+              </li>
+
+              {% if not is_line_bound %}
+              <li>
+                <a class="dropdown-item text-success fw-bold" href="{{ url_for('auth.connect_line') }}">
+                  <i class="bi bi-line"></i> 連結 LINE 帳號
+                </a>
+              </li>
+              {% else %}
+              <li>
+                <span class="dropdown-item text-muted" style="cursor: default;">
+                  <i class="bi bi-check-circle-fill text-success"></i> LINE 已連結
+                </span>
+              </li>
+              {% endif %}
+
+              <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-person-gear"></i>
+                  個人設定</a></li>
+              {% endif %}
+
+              <li>
+                <hr class="dropdown-divider">
+              </li>
+              <li><a class="dropdown-item text-danger" href="{{ url_for('auth.logout') }}"><i
+                    class="bi bi-box-arrow-right"></i> 登出</a></li>
+            </ul>
+          </div>
+
+          {% else %}
+          <button class="btn btn-spa fw-bold px-4 text-nowrap" data-bs-toggle="modal" data-bs-target="#loginModal">
+            <i class="bi bi-person-circle"></i> 會員登入
+          </button>
+          {% endif %}
+        </div>
+      </div>
+    </nav>
+  </header>
+
 
   {% with messages = get_flashed_messages(with_categories=True) %}
   {% if messages %}
@@ -880,6 +905,8 @@
           }
         }
       });
+      const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+      const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => new bootstrap.Tooltip(tooltipTriggerEl));
     });
 
     // ==========================================
