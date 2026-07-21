@@ -425,7 +425,7 @@ def update_product_modal(product_id):
         description = request.form.get('description')
         is_active = 1 if request.form.get('is_active') else 0
 
-        # ⭐ 關鍵修正：如果是 Staff (表單沒傳 cost)，則使用資料庫舊值
+        # 如果是 Staff (表單沒傳 cost)，則使用資料庫舊值
         if 'cost' in request.form:
             cost = request.form.get('cost') or 0
         else:
@@ -1594,6 +1594,29 @@ def customer_detail(customer_id):
         """, (customer_id,))
         product_orders = cursor.fetchall()
 
+        # 取得訂單「購買明細 (Order Items)」並依照訂單 ID 打包
+        order_items_map = {}
+        if product_orders:
+            # 抽出所有訂單的 ID
+            order_ids = [str(o['id']) for o in product_orders]
+            format_strings = ','.join(['%s'] * len(order_ids))
+
+            # 一次性撈出這些訂單底下的所有產品
+            cursor.execute(f"""
+                SELECT oi.order_id, oi.quantity, p.name as product_name
+                FROM order_items oi
+                JOIN products p ON oi.product_id = p.id
+                WHERE oi.order_id IN ({format_strings})
+            """, tuple(order_ids))
+            all_items = cursor.fetchall()
+
+            # 把產品分類塞回對應的訂單 ID 字典裡
+            for item in all_items:
+                oid = item['order_id']
+                if oid not in order_items_map:
+                    order_items_map[oid] = []
+                order_items_map[oid].append(item)
+
         # 3. 取得課程預約紀錄 (關聯課程名稱與預約時間)
         cursor.execute("""
             SELECT b.id, b.total_amount, b.status, b.created_at, 
@@ -1617,6 +1640,7 @@ def customer_detail(customer_id):
         'admin_customer_detail.html',
         customer=customer,
         product_orders=product_orders,
+        order_items_map=order_items_map,
         course_bookings=course_bookings,
         customer_sources=customer_sources
     )

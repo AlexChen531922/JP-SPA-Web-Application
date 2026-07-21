@@ -104,6 +104,7 @@
                         <tr>
                             <th>訂單編號</th>
                             <th>購買日期</th>
+                            <th>購買內容</th>
                             <th>總金額</th>
                             <th>狀態</th>
                         </tr>
@@ -113,6 +114,19 @@
                         <tr>
                             <td>#{{ order.id }}</td>
                             <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                {% set items = order_items_map.get(order.id, []) %}
+                                {% if items %}
+                                <ul class="list-unstyled mb-0 small">
+                                    {% for item in items %}
+                                    <li>- {{ item.product_name }} <span class="text-muted ms-1">x{{ item.quantity
+                                            }}</span></li>
+                                    {% endfor %}
+                                </ul>
+                                {% else %}
+                                <span class="text-muted small">無明細紀錄</span>
+                                {% endif %}
+                            </td>
                             <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
                             <td>
                                 {% set status_map = {'pending': '待確認', 'confirmed': '已確認', 'completed': '已完成',
