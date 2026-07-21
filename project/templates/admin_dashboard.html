@@ -469,244 +469,498 @@
     </div>
   </div>
 
+  <!-- ================= 訂單管理 Tab ================= -->
   <div class="tab-pane fade {% if tab == 'orders' %}show active{% endif %}" id="orders">
-    <h4 class="fw-bold mb-3"><i class="bi bi-cart"></i> 訂單管理</h4>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addOrderModal">
-      <i class="bi bi-plus-circle"></i> 建立/補登訂單
-    </button>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-cart"></i> 訂單管理</h4>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addOrderModal">
+          <i class="bi bi-plus-circle"></i> 建立/補登訂單
+        </button>
+      </div>
 
-    <div class="d-flex gap-2">
-      <input type="date" id="orderDateFilter" class="form-control" onchange="filterOrders()">
-      <input type="text" id="orderSearchFilter" class="form-control" placeholder="搜尋客戶或產品名稱..." onkeyup="filterOrders()"
-        style="min-width: 250px;">
+      <div class="d-flex gap-2">
+        <input type="date" id="orderDateFilter" class="form-control" onchange="filterOrders()">
+        <input type="text" id="orderSearchFilter" class="form-control" placeholder="搜尋客戶或產品名稱..."
+          onkeyup="filterOrders()" style="min-width: 250px;">
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>客戶</th>
+              <th>金額</th>
+              <th>狀態</th>
+              <th>日期</th>
+              <th class="text-end">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for order in orders %}
+            {% set items = order_items_map.get(order.id, []) %}
+            {% set product_names = items | map(attribute='product_name') | join(',') %}
+            <tr class="order-row" data-customer="{{ order.firstname }} {{ order.surname }}"
+              data-date="{{ order.created_at.strftime('%Y-%m-%d') }}" data-products="{{ product_names }}">
+              <td>{{ order.id }}</td>
+              <td>{{ order.firstname }} {{ order.surname }}</td>
+              <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
+              <td>
+                <form method="POST" action="{{ url_for('admin.update_order_status', order_id=order.id) }}"
+                  class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <select name="status" class="form-select form-select-sm d-inline-block w-auto"
+                    onchange="this.form.submit()">
+                    <option value="pending" {% if order.status=='pending' %}selected{% endif %}>待確認</option>
+                    <option value="confirmed" {% if order.status=='confirmed' %}selected{% endif %}>已確認</option>
+                    <option value="completed" {% if order.status=='completed' %}selected{% endif %}>已完成</option>
+                    <option value="cancelled" {% if order.status=='cancelled' %}selected{% endif %}>已取消</option>
+                  </select>
+                </form>
+              </td>
+              <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
+              <td class="text-end">
+                {% set safe_order_data = {
+                'id': order.id,
+                'customer_name': order.firstname ~ ' ' ~ order.surname,
+                'email': order.email,
+                'phone': order.phone,
+                'total_amount': order.total_amount,
+                'status': order.status,
+                'created_at': order.created_at.strftime('%Y-%m-%d %H:%M'),
+                'items': items
+                } %}
+                <button type="button" class="btn btn-sm btn-outline-info"
+                  onclick="openOrderDetailModal({{ safe_order_data | tojson | forceescape }})">
+                  <i class="bi bi-eye"></i>
+                </button>
+                <form method="POST" action="{{ url_for('admin.delete_order', order_id=order.id) }}" class="d-inline"
+                  onsubmit="return confirm('警告：確定要永久刪除這筆訂單嗎？\n(注意：直接刪除不會退回庫存，若需退庫存請先將狀態改為「已取消」)');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-danger" title="刪除訂單"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 
-  <div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-      <table class="table table-hover mb-0">
-        <thead class="table-light">
-          <tr>
-            <th>#</th>
-            <th>客戶</th>
-            <th>金額</th>
-            <th>狀態</th>
-            <th>日期</th>
-            <th class="text-end">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for order in orders %}
-          {% set items = order_items_map.get(order.id, []) %}
-          {% set product_names = items | map(attribute='product_name') | join(',') %}
-          <tr class="order-row" data-customer="{{ order.firstname }} {{ order.surname }}"
-            data-date="{{ order.created_at.strftime('%Y-%m-%d') }}" data-products="{{ product_names }}">
-            <td>{{ order.id }}</td>
-            <td>{{ order.firstname }} {{ order.surname }}</td>
-            <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
-            <td>
-              <form method="POST" action="{{ url_for('admin.update_order_status', order_id=order.id) }}"
-                class="d-inline">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <select name="status" class="form-select form-select-sm d-inline-block w-auto"
-                  onchange="this.form.submit()">
-                  <option value="pending" {% if order.status=='pending' %}selected{% endif %}>待確認</option>
-                  <option value="confirmed" {% if order.status=='confirmed' %}selected{% endif %}>已確認</option>
-                  <option value="completed" {% if order.status=='completed' %}selected{% endif %}>已完成</option>
-                  <option value="cancelled" {% if order.status=='cancelled' %}selected{% endif %}>已取消</option>
-                </select>
-              </form>
-            </td>
-            <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
-            <td class="text-end">
-              {% set items = order_items_map.get(order.id, []) %}
-              {% set safe_order_data = {
-              'id': order.id,
-              'customer_name': order.firstname ~ ' ' ~ order.surname,
-              'email': order.email,
-              'phone': order.phone,
-              'total_amount': order.total_amount,
-              'status': order.status,
-              'created_at': order.created_at.strftime('%Y-%m-%d %H:%M'),
-              'items': items
-              } %}
-              <button type="button" class="btn btn-sm btn-outline-info"
-                onclick="openOrderDetailModal({{ safe_order_data | tojson | forceescape }})">
-                <i class="bi bi-eye"></i>
-              </button>
-              <form method="POST" action="{{ url_for('admin.delete_order', order_id=order.id) }}" class="d-inline"
-                onsubmit="return confirm('警告：確定要永久刪除這筆訂單嗎？\n(注意：直接刪除不會退回庫存，若需退庫存請先將狀態改為「已取消」)');">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-danger" title="刪除訂單"><i class="bi bi-trash"></i></button>
-              </form>
-            </td>
-          </tr>
+  <!-- ================= 預約管理 Tab ================= -->
+  <div class="tab-pane fade {% if tab == 'bookings' %}show active{% endif %}" id="bookings">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
+        <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookingModal">
+          <i class="bi bi-plus-circle"></i> 建立/補登預約
+        </button>
+      </div>
+      <div class="d-flex gap-2">
+        <input type="date" id="bookingDateFilter" class="form-control" onchange="filterBookings()">
+        <input type="text" id="bookingSearchFilter" class="form-control" placeholder="搜尋客戶或課程名稱..."
+          onkeyup="filterBookings()" style="min-width: 250px;">
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>客戶</th>
+              <th>課程</th>
+              <th>時段</th>
+              <th>狀態</th>
+              <th class="text-end">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for booking in bookings %}
+            <tr class="booking-row" data-customer="{{ booking.firstname }} {{ booking.surname }}"
+              data-date="{{ booking.start_time.strftime('%Y-%m-%d') if booking.start_time else '' }}"
+              data-course="{{ booking.course_name }}">
+
+              <td>{{ booking.id }}</td>
+              <td>{{ booking.firstname }} {{ booking.surname }}</td>
+              <td>{{ booking.course_name }}</td>
+              <td>
+                {% if booking.start_time %}
+                {{ booking.start_time.strftime('%Y-%m-%d %H:%M') }}
+                {% else %}無{% endif %}
+              </td>
+              <td>
+                <form method="POST" action="{{ url_for('admin.update_booking_status', booking_id=booking.id) }}"
+                  class="d-inline">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <select name="status" class="form-select form-select-sm d-inline-block w-auto"
+                    onchange="this.form.submit()">
+                    <option value="pending" {% if booking.status=='pending' %}selected{% endif %}>待確認</option>
+                    <option value="confirmed" {% if booking.status=='confirmed' %}selected{% endif %}>已確認</option>
+                    <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>已完成</option>
+                    <option value="cancelled" {% if booking.status=='cancelled' %}selected{% endif %}>已取消</option>
+                  </select>
+                </form>
+              </td>
+              <td class="text-end">
+                {% set safe_booking_data = {
+                'id': booking.id,
+                'customer_name': booking.firstname ~ ' ' ~ booking.surname,
+                'phone': booking.phone,
+                'email': booking.email,
+                'line_id': booking.line_id,
+                'course_name': booking.course_name,
+                'time_str': booking.start_time.strftime('%Y-%m-%d %H:%M') if booking.start_time else '無',
+                'duration': booking.duration,
+                'sessions_purchased': booking.sessions_purchased,
+                'sessions_remaining': booking.sessions_remaining,
+                'total_amount': booking.total_amount,
+                'is_first_time': booking.is_first_time
+                } %}
+                <button type="button" class="btn btn-sm btn-outline-info"
+                  onclick="openBookingDetailModal({{ safe_booking_data | tojson | forceescape }})">
+                  <i class="bi bi-eye"></i>
+                </button>
+                <form method="POST" action="{{ url_for('admin.delete_booking', booking_id=booking.id) }}"
+                  class="d-inline" onsubmit="return confirm('確定要永久刪除這筆預約紀錄嗎？');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-sm btn-outline-danger" title="刪除預約"><i class="bi bi-trash"></i></button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane fade {% if tab == 'customers' %}show active{% endif %}" id="customers">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="fw-bold mb-0"><i class="bi bi-people"></i> 客戶管理</h4>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCustomerModal">
+        <i class="bi bi-person-plus"></i> 新增客戶
+      </button>
+    </div>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0" style="min-width: 1000px;">
+            <thead class="table-light">
+              <tr>
+                <th>姓名</th>
+                <th>性別/年齡</th>
+                <th>LINE ID</th>
+                <th>電話</th>
+                <th>職業</th>
+                <th>備註</th>
+                <th>消費次數</th>
+                <th class="text-end">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for customer in customers_list %}
+              <tr>
+                <td>
+                  <div class="fw-bold">{{ customer.surname }}{{ customer.firstname }}</div>
+                  <small class="text-muted" style="font-size:0.8em;">{{ customer.username }}</small>
+                </td>
+                <td>
+                  {% if customer.gender == 'female' %}<i class="bi bi-gender-female text-danger"></i>
+                  {% elif customer.gender == 'male' %}<i class="bi bi-gender-male text-primary"></i>
+                  {% else %}<i class="bi bi-gender-ambiguous"></i>{% endif %}
+                  {{ customer.age }}歲
+                </td>
+                <td>
+                  {% if customer.line_id %}
+                  <span class="text-success"><i class="bi bi-line"></i> {{ customer.line_id }}</span>
+                  {% else %}
+                  <span class="text-muted">-</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if customer.phone %}
+                  {{ customer.phone }}
+                  {% else %}
+                  <span class="text-muted">-</span>
+                  {% endif %}
+                </td>
+                <td><small>{{ customer.occupation or '-' }}</small></td>
+                <td>
+                  <small class="text-muted text-truncate d-inline-block" style="max-width: 150px;"
+                    title="{{ customer.notes }}">
+                    {{ customer.notes or '' }}
+                  </small>
+                </td>
+                <td>
+                  <span class="badge bg-primary">{{ customer.order_count }}訂</span>
+                  <span class="badge bg-success">{{ customer.booking_count }}約</span>
+                </td>
+                <td class="text-end">
+                  <a href="{{ url_for('admin.customer_detail', customer_id=customer.id) }}"
+                    class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-eye"></i> 檢視與紀錄
+                  </a>
+
+                  {% if session.get('user', {}).get('role') == 'admin' %}
+                  <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
+                    class="d-inline" onsubmit="return confirm('確定要刪除？');">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane fade {% if tab == 'categories' %}show active{% endif %}" id="categories">
+    <h4 class="fw-bold mb-4"><i class="bi bi-tags"></i> 分類管理</h4>
+    <div class="row">
+      <div class="col-md-6">
+        <h5>產品分類</h5>
+        <form method="POST" action="{{ url_for('admin.add_product_category') }}" class="input-group mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input name="name" class="form-control" placeholder="新增分類..." required>
+          <button class="btn btn-primary">新增</button>
+        </form>
+        <ul class="list-group">
+          {% for cat in product_categories %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            {{ cat.name }}
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <form method="POST" action="{{ url_for('admin.delete_product_category', category_id=cat.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+            {% endif %}
+          </li>
           {% endfor %}
-        </tbody>
-      </table>
+        </ul>
+      </div>
+      <div class="col-md-6">
+        <h5>課程分類</h5>
+        <form method="POST" action="{{ url_for('admin.add_course_category') }}" class="input-group mb-3">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input name="name" class="form-control" placeholder="新增分類..." required>
+          <button class="btn btn-success">新增</button>
+        </form>
+        <ul class="list-group">
+          {% for cat in course_categories %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            {{ cat.name }}
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <form method="POST" action="{{ url_for('admin.delete_course_category', category_id=cat.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
     </div>
   </div>
-</div>
 
-<div class="tab-pane fade {% if tab == 'bookings' %}show active{% endif %}" id="bookings">
-  <h4 class="fw-bold mb-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
-  <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookingModal">
-    <i class="bi bi-plus-circle"></i> 建立/補登預約
-  </button>
-  <div class="d-flex gap-2">
-    <input type="date" id="bookingDateFilter" class="form-control" onchange="filterBookings()">
-    <input type="text" id="bookingSearchFilter" class="form-control" placeholder="搜尋客戶或課程名稱..."
-      onkeyup="filterBookings()" style="min-width: 250px;">
-  </div>
-</div>
-<div class="card border-0 shadow-sm">
-  <div class="card-body p-0">
-    <table class="table table-hover mb-0">
-      <thead class="table-light">
+  <div class="tab-pane fade {% if tab == 'events' %}show active{% endif %}" id="events">
+    <div class="d-flex justify-content-between mb-3">
+      <h4>活動管理</h4>
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">新增活動</button>
+    </div>
+    <table class="table table-hover">
+      <thead>
         <tr>
-          <th>#</th>
-          <th>客戶</th>
-          <th>課程</th>
-          <th>時段</th>
-          <th>狀態</th>
-          <th class="text-end">操作</th>
+          <th>標題</th>
+          <th>時間</th>
+          <th>操作</th>
         </tr>
       </thead>
       <tbody>
-        {% for booking in bookings %}
-        <tr class="booking-row" data-customer="{{ booking.firstname }} {{ booking.surname }}"
-          data-date="{{ booking.start_time.strftime('%Y-%m-%d') if booking.start_time else '' }}"
-          data-course="{{ booking.course_name }}">
-
-          <td>{{ booking.id }}</td>
-          <td>{{ booking.firstname }} {{ booking.surname }}</td>
-          <td>{{ booking.course_name }}</td>
+        {% for event in events %}
+        <tr>
+          <td>{{ event.title }}</td>
+          <td>{{ event.start_date }}</td>
           <td>
-            {% if booking.start_time %}
-            {{ booking.start_time.strftime('%Y-%m-%d %H:%M') }}
-            {% else %}無{% endif %}
-          </td>
-          <td>
-            <form method="POST" action="{{ url_for('admin.update_booking_status', booking_id=booking.id) }}"
-              class="d-inline">
+            {% set safe_event = {'id': event.id, 'title': event.title, 'description': event.description,
+            'customer_id': event.customer_id, 'start_date': event.start_date|string, 'end_date':
+            event.end_date|string,
+            'duration': event.duration} %}
+            <button class="btn btn-sm btn-outline-primary"
+              onclick="openEditEventModal({{ safe_event | tojson | forceescape }})"><i
+                class="bi bi-pencil"></i></button>
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <form method="POST" action="{{ url_for('admin.delete_event', event_id=event.id) }}" class="d-inline"
+              onsubmit="return confirm('刪除？')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <select name="status" class="form-select form-select-sm d-inline-block w-auto"
-                onchange="this.form.submit()">
-                <option value="pending" {% if booking.status=='pending' %}selected{% endif %}>待確認</option>
-                <option value="confirmed" {% if booking.status=='confirmed' %}selected{% endif %}>已確認</option>
-                <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>已完成</option>
-                <option value="cancelled" {% if booking.status=='cancelled' %}selected{% endif %}>已取消</option>
-              </select>
+              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
             </form>
-          </td>
-          <td class="text-end">
-            {% set safe_booking_data = {
-            'id': booking.id,
-            'customer_name': booking.firstname ~ ' ' ~ booking.surname,
-            'phone': booking.phone,
-            'email': booking.email,
-            'line_id': booking.line_id,
-            'course_name': booking.course_name,
-            'time_str': booking.start_time.strftime('%Y-%m-%d %H:%M') if booking.start_time else '無',
-            'duration': booking.duration,
-            'sessions_purchased': booking.sessions_purchased,
-            'sessions_remaining': booking.sessions_remaining,
-            'total_amount': booking.total_amount,
-            'is_first_time': booking.is_first_time
-            } %}
-            <button type="button" class="btn btn-sm btn-outline-info"
-              onclick="openBookingDetailModal({{ safe_booking_data | tojson | forceescape }})">
-              <i class="bi bi-eye"></i>
-            </button>
-            <form method="POST" action="{{ url_for('admin.delete_booking', booking_id=booking.id) }}" class="d-inline"
-              onsubmit="return confirm('確定要永久刪除這筆預約紀錄嗎？');">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-outline-danger" title="刪除預約"><i class="bi bi-trash"></i></button>
-            </form>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
-</div>
-</div>
 
-<div class="tab-pane fade {% if tab == 'customers' %}show active{% endif %}" id="customers">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="fw-bold mb-0"><i class="bi bi-people"></i> 客戶管理</h4>
-    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCustomerModal">
-      <i class="bi bi-person-plus"></i> 新增客戶
-    </button>
+  <div class="tab-pane fade {% if tab == 'inventory' %}show active{% endif %}" id="inventory">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h4 class="fw-bold mb-0"><i class="bi bi-boxes"></i> 庫存管理</h4>
+      <div>
+        <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#addProductModal">
+          <i class="bi bi-plus-lg"></i> 建立新產品
+        </button>
+        <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#restockModal">
+          <i class="bi bi-box-arrow-in-down"></i> 進貨入庫
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
+          data-bs-target="#adjustInventoryModal">
+          <i class="bi bi-pencil-square"></i> 盤點調整
+        </button>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0 align-middle text-nowrap">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 40px;"></th>
+                <th style="width: 60px;">圖片</th>
+                <th>產品名稱</th>
+                <th>類別</th> {% if session.get('user', {}).get('role') == 'admin' %}
+                <th class="text-danger">成本價</th>
+                {% endif %}
+                <th>售價</th>
+                <th>庫存</th>
+                <th>描述</th>
+                <th>最後進貨</th>
+                <th>最後銷售</th>
+                <th>備註</th>
+                <th class="text-end">操作</th>
+              </tr>
+            </thead>
+
+            <tbody id="inventoryTableBody">
+              {% for prod in inventory_products %}
+              <tr data-id="{{ prod.id }}">
+                <td style="cursor: move;" class="text-center text-muted drag-handle">
+                  <i class="bi bi-grip-vertical fs-5"></i>
+                </td>
+
+                <td>
+                  {% if prod.image and prod.image.startswith('http') %}
+                  <img src="{{ prod.image }}" alt="Product" class="rounded object-fit-cover"
+                    style="width: 40px; height: 40px;"
+                    onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                  {% elif prod.image %}
+                  <img src="{{ url_for('static', filename='img/' + prod.image) }}" alt="Product"
+                    class="rounded object-fit-cover" style="width: 40px; height: 40px;"
+                    onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
+                  {% else %}
+                  <div class="bg-light rounded d-flex align-items-center justify-content-center text-muted"
+                    style="width: 40px; height: 40px;">
+                    <i class="bi bi-image"></i>
+                  </div>
+                  {% endif %}
+                </td>
+                <td class="fw-bold">{{ prod.name }}</td>
+
+                <td>
+                  {% if prod.category_name %}
+                  <span class="badge bg-secondary bg-opacity-10 text-dark border">
+                    {{ prod.category_name }}
+                  </span>
+                  {% else %}
+                  <span class="text-muted small">-</span>
+                  {% endif %}
+                </td>
+
+                {% if session.get('user', {}).get('role') == 'admin' %}
+                <td class="text-danger">NT$ {{ '{:,.0f}'.format(prod.cost or 0) }}</td>
+                {% endif %}
+
+                <td>NT$ {{ '{:,.0f}'.format(prod.price) }} / {{ prod.unit or '件' }}</td>
+
+                <td>
+                  {% if prod.stock_quantity <= 0 %} <span class="badge bg-danger">缺貨</span>
+                    {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark">{{
+                      prod.stock_quantity }} (緊張)</span>
+                      {% else %}
+                      <span class="badge bg-success">{{ prod.stock_quantity }}</span>
+                      {% endif %}
+                </td>
+
+                <td>
+                  <small class="text-muted d-inline-block text-truncate" style="max-width: 150px;"
+                    title="{{ prod.description }}">
+                    {{ prod.description or '-' }}
+                  </small>
+                </td>
+
+                <td class="small text-muted">{{ prod.last_purchase_date.strftime('%Y-%m-%d') if
+                  prod.last_purchase_date else '-' }}</td>
+                <td class="small text-muted">{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else
+                  '-' }}</td>
+
+                <td style="min-width: 200px;">
+                  <div class="text-muted small" style="white-space: pre-wrap; line-height: 1.4;">{{ prod.latest_note
+                    }}</div>
+                </td>
+
+                <td class="text-end">
+                  <button class="btn btn-sm btn-outline-primary" onclick="openRestockModal({{ prod.id }})">
+                    <i class="bi bi-plus-lg"></i> 進貨
+                  </button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-      <div class="table-responsive">
-        <table class="table table-hover align-middle mb-0" style="min-width: 1000px;">
+
+  {% if session.get('user', {}).get('role') == 'admin' %}
+  <div class="tab-pane fade {% if tab == 'logs' %}show active{% endif %}" id="logs">
+    <h4 class="fw-bold mb-3"><i class="bi bi-clock-history"></i> 操作紀錄</h4>
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-0">
+        <table class="table table-striped table-hover mb-0">
           <thead class="table-light">
             <tr>
-              <th>姓名</th>
-              <th>性別/年齡</th>
-              <th>LINE ID</th>
-              <th>電話</th>
-              <th>職業</th>
-              <th>備註</th>
-              <th>消費次數</th>
-              <th class="text-end">操作</th>
+              <th>時間</th>
+              <th>操作者</th>
+              <th>動作</th>
+              <th>目標</th>
+              <th>詳情</th>
+              <th>IP</th>
             </tr>
           </thead>
           <tbody>
-            {% for customer in customers_list %}
+            {% for log in audit_logs %}
             <tr>
-              <td>
-                <div class="fw-bold">{{ customer.surname }}{{ customer.firstname }}</div>
-                <small class="text-muted" style="font-size:0.8em;">{{ customer.username }}</small>
-              </td>
-              <td>
-                {% if customer.gender == 'female' %}<i class="bi bi-gender-female text-danger"></i>
-                {% elif customer.gender == 'male' %}<i class="bi bi-gender-male text-primary"></i>
-                {% else %}<i class="bi bi-gender-ambiguous"></i>{% endif %}
-                {{ customer.age }}歲
-              </td>
-              <td>
-                {% if customer.line_id %}
-                <span class="text-success"><i class="bi bi-line"></i> {{ customer.line_id }}</span>
-                {% else %}
-                <span class="text-muted">-</span>
-                {% endif %}
-              </td>
-              <td>
-                {% if customer.phone %}
-                {{ customer.phone }}
-                {% else %}
-                <span class="text-muted">-</span>
-                {% endif %}
-              </td>
-              <td><small>{{ customer.occupation or '-' }}</small></td>
-              <td>
-                <small class="text-muted text-truncate d-inline-block" style="max-width: 150px;"
-                  title="{{ customer.notes }}">
-                  {{ customer.notes or '' }}
-                </small>
-              </td>
-              <td>
-                <span class="badge bg-primary">{{ customer.order_count }}訂</span>
-                <span class="badge bg-success">{{ customer.booking_count }}約</span>
-              </td>
-              <td class="text-end">
-                <a href="{{ url_for('admin.customer_detail', customer_id=customer.id) }}"
-                  class="btn btn-sm btn-outline-primary">
-                  <i class="bi bi-eye"></i> 檢視與紀錄
-                </a>
-
-                {% if session.get('user', {}).get('role') == 'admin' %}
-                <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
-                  class="d-inline" onsubmit="return confirm('確定要刪除？');">
-                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-                </form>
-                {% endif %}
-              </td>
+              <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td>{{ log.operator_name }}</td>
+              <td><span class="badge bg-secondary">{{ log.action }}</span></td>
+              <td>{{ log.target_type }} #{{ log.target_id }}</td>
+              <td><small class="text-muted">{{ log.details }}</small></td>
+              <td>{{ log.ip_address }}</td>
+            </tr>
+            {% else %}
+            <tr>
+              <td colspan="6" class="text-center p-4">無紀錄</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -714,252 +968,7 @@
       </div>
     </div>
   </div>
-</div>
-
-<div class="tab-pane fade {% if tab == 'categories' %}show active{% endif %}" id="categories">
-  <h4 class="fw-bold mb-4"><i class="bi bi-tags"></i> 分類管理</h4>
-  <div class="row">
-    <div class="col-md-6">
-      <h5>產品分類</h5>
-      <form method="POST" action="{{ url_for('admin.add_product_category') }}" class="input-group mb-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input name="name" class="form-control" placeholder="新增分類..." required>
-        <button class="btn btn-primary">新增</button>
-      </form>
-      <ul class="list-group">
-        {% for cat in product_categories %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          {{ cat.name }}
-          {% if session.get('user', {}).get('role') == 'admin' %}
-          <form method="POST" action="{{ url_for('admin.delete_product_category', category_id=cat.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-          </form>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-    <div class="col-md-6">
-      <h5>課程分類</h5>
-      <form method="POST" action="{{ url_for('admin.add_course_category') }}" class="input-group mb-3">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input name="name" class="form-control" placeholder="新增分類..." required>
-        <button class="btn btn-success">新增</button>
-      </form>
-      <ul class="list-group">
-        {% for cat in course_categories %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          {{ cat.name }}
-          {% if session.get('user', {}).get('role') == 'admin' %}
-          <form method="POST" action="{{ url_for('admin.delete_course_category', category_id=cat.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-          </form>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-</div>
-
-<div class="tab-pane fade {% if tab == 'events' %}show active{% endif %}" id="events">
-  <div class="d-flex justify-content-between mb-3">
-    <h4>活動管理</h4>
-    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addEventModal">新增活動</button>
-  </div>
-  <table class="table table-hover">
-    <thead>
-      <tr>
-        <th>標題</th>
-        <th>時間</th>
-        <th>操作</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for event in events %}
-      <tr>
-        <td>{{ event.title }}</td>
-        <td>{{ event.start_date }}</td>
-        <td>
-          {% set safe_event = {'id': event.id, 'title': event.title, 'description': event.description,
-          'customer_id': event.customer_id, 'start_date': event.start_date|string, 'end_date':
-          event.end_date|string,
-          'duration': event.duration} %}
-          <button class="btn btn-sm btn-outline-primary"
-            onclick="openEditEventModal({{ safe_event | tojson | forceescape }})"><i class="bi bi-pencil"></i></button>
-          {% if session.get('user', {}).get('role') == 'admin' %}
-          <form method="POST" action="{{ url_for('admin.delete_event', event_id=event.id) }}" class="d-inline"
-            onsubmit="return confirm('刪除？')">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-<div class="tab-pane fade {% if tab == 'inventory' %}show active{% endif %}" id="inventory">
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <h4 class="fw-bold mb-0"><i class="bi bi-boxes"></i> 庫存管理</h4>
-    <div>
-      <button type="button" class="btn btn-success me-2" data-bs-toggle="modal" data-bs-target="#addProductModal">
-        <i class="bi bi-plus-lg"></i> 建立新產品
-      </button>
-      <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#restockModal">
-        <i class="bi bi-box-arrow-in-down"></i> 進貨入庫
-      </button>
-      <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
-        data-bs-target="#adjustInventoryModal">
-        <i class="bi bi-pencil-square"></i> 盤點調整
-      </button>
-    </div>
-  </div>
-
-  <div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-      <div class="table-responsive">
-        <table class="table table-hover mb-0 align-middle text-nowrap">
-          <thead class="table-light">
-            <tr>
-              <th style="width: 40px;"></th>
-              <th style="width: 60px;">圖片</th>
-              <th>產品名稱</th>
-              <th>類別</th> {% if session.get('user', {}).get('role') == 'admin' %}
-              <th class="text-danger">成本價</th>
-              {% endif %}
-              <th>售價</th>
-              <th>庫存</th>
-              <th>描述</th>
-              <th>最後進貨</th>
-              <th>最後銷售</th>
-              <th>備註</th>
-              <th class="text-end">操作</th>
-            </tr>
-          </thead>
-
-          <tbody id="inventoryTableBody">
-            {% for prod in inventory_products %}
-            <tr data-id="{{ prod.id }}">
-              <td style="cursor: move;" class="text-center text-muted drag-handle">
-                <i class="bi bi-grip-vertical fs-5"></i>
-              </td>
-
-              <td>
-                {% if prod.image and prod.image.startswith('http') %}
-                <img src="{{ prod.image }}" alt="Product" class="rounded object-fit-cover"
-                  style="width: 40px; height: 40px;"
-                  onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
-                {% elif prod.image %}
-                <img src="{{ url_for('static', filename='img/' + prod.image) }}" alt="Product"
-                  class="rounded object-fit-cover" style="width: 40px; height: 40px;"
-                  onerror="this.src='{{ url_for('static', filename='img/default-product.png') }}'">
-                {% else %}
-                <div class="bg-light rounded d-flex align-items-center justify-content-center text-muted"
-                  style="width: 40px; height: 40px;">
-                  <i class="bi bi-image"></i>
-                </div>
-                {% endif %}
-              </td>
-              <td class="fw-bold">{{ prod.name }}</td>
-
-              <td>
-                {% if prod.category_name %}
-                <span class="badge bg-secondary bg-opacity-10 text-dark border">
-                  {{ prod.category_name }}
-                </span>
-                {% else %}
-                <span class="text-muted small">-</span>
-                {% endif %}
-              </td>
-
-              {% if session.get('user', {}).get('role') == 'admin' %}
-              <td class="text-danger">NT$ {{ '{:,.0f}'.format(prod.cost or 0) }}</td>
-              {% endif %}
-
-              <td>NT$ {{ '{:,.0f}'.format(prod.price) }} / {{ prod.unit or '件' }}</td>
-
-              <td>
-                {% if prod.stock_quantity <= 0 %} <span class="badge bg-danger">缺貨</span>
-                  {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark">{{
-                    prod.stock_quantity }} (緊張)</span>
-                    {% else %}
-                    <span class="badge bg-success">{{ prod.stock_quantity }}</span>
-                    {% endif %}
-              </td>
-
-              <td>
-                <small class="text-muted d-inline-block text-truncate" style="max-width: 150px;"
-                  title="{{ prod.description }}">
-                  {{ prod.description or '-' }}
-                </small>
-              </td>
-
-              <td class="small text-muted">{{ prod.last_purchase_date.strftime('%Y-%m-%d') if
-                prod.last_purchase_date else '-' }}</td>
-              <td class="small text-muted">{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else
-                '-' }}</td>
-
-              <td style="min-width: 200px;">
-                <div class="text-muted small" style="white-space: pre-wrap; line-height: 1.4;">{{ prod.latest_note
-                  }}</div>
-              </td>
-
-              <td class="text-end">
-                <button class="btn btn-sm btn-outline-primary" onclick="openRestockModal({{ prod.id }})">
-                  <i class="bi bi-plus-lg"></i> 進貨
-                </button>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-</div>
-
-{% if session.get('user', {}).get('role') == 'admin' %}
-<div class="tab-pane fade {% if tab == 'logs' %}show active{% endif %}" id="logs">
-  <h4 class="fw-bold mb-3"><i class="bi bi-clock-history"></i> 操作紀錄</h4>
-  <div class="card border-0 shadow-sm">
-    <div class="card-body p-0">
-      <table class="table table-striped table-hover mb-0">
-        <thead class="table-light">
-          <tr>
-            <th>時間</th>
-            <th>操作者</th>
-            <th>動作</th>
-            <th>目標</th>
-            <th>詳情</th>
-            <th>IP</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for log in audit_logs %}
-          <tr>
-            <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-            <td>{{ log.operator_name }}</td>
-            <td><span class="badge bg-secondary">{{ log.action }}</span></td>
-            <td>{{ log.target_type }} #{{ log.target_id }}</td>
-            <td><small class="text-muted">{{ log.details }}</small></td>
-            <td>{{ log.ip_address }}</td>
-          </tr>
-          {% else %}
-          <tr>
-            <td colspan="6" class="text-center p-4">無紀錄</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-{% endif %}
+  {% endif %}
 
 </div>
 </div>
