@@ -2077,6 +2077,74 @@ def fix_db_order():
     except Exception as e:
         return f"❌ 更新失敗: {str(e)}"
 
+
+# =====================================================
+# DELETE ORDERS & BOOKINGS (刪除功能)
+# =====================================================
+
+@admin_bp.route('/order/<int:order_id>/delete', methods=['POST'])
+@staff_required
+def delete_order(order_id):
+    """永久刪除訂單"""
+    try:
+        cursor = database.connection.cursor()
+
+        # 1. 為了確保資料庫關聯不報錯，必須先刪除訂單底下的「購買項目 (order_items)」
+        cursor.execute(
+            "DELETE FROM order_items WHERE order_id = %s", (order_id,))
+
+        # 2. 刪除訂單主檔
+        cursor.execute("DELETE FROM orders WHERE id = %s", (order_id,))
+
+        database.connection.commit()
+        cursor.close()
+
+        # 3. 寫入審計日誌
+        log_activity('delete', 'order', order_id)
+        flash('訂單已永久刪除', 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'刪除訂單失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='orders'))
+
+
+@admin_bp.route('/booking/<int:booking_id>/delete', methods=['POST'])
+@staff_required
+def delete_booking(booking_id):
+    """永久刪除預約紀錄"""
+    try:
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+        # 1. 查詢該預約是否有佔用「全店共用排班表 (shop_schedules)」
+        cursor.execute(
+            "SELECT global_schedule_id FROM bookings WHERE id = %s", (booking_id,))
+        booking = cursor.fetchone()
+
+        # 2. 如果有綁定時段，把該時段的「已預約人數」扣回來，釋放名額
+        if booking and booking.get('global_schedule_id'):
+            cursor.execute("""
+                UPDATE shop_schedules 
+                SET current_bookings = GREATEST(0, current_bookings - 1) 
+                WHERE id = %s
+            """, (booking['global_schedule_id'],))
+
+        # 3. 永久刪除預約紀錄
+        cursor.execute("DELETE FROM bookings WHERE id = %s", (booking_id,))
+
+        database.connection.commit()
+        cursor.close()
+
+        log_activity('delete', 'booking', booking_id)
+        flash('預約紀錄已永久刪除', 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'刪除預約失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='bookings'))
+
     # ==========================================
 # 🔄 產品排序 API
 # ==========================================
