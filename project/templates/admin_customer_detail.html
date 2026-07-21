@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}客戶詳情 - {{ customer.firstname }} {{ customer.surname }} {% endblock %}
+
+{% block content %}
+<div class="container-fluid py-4">
+    <!-- 頁面標題與返回按鈕 -->
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="fw-bold">
+            <i class="bi bi-person-lines-fill"></i> 客戶詳情：{{ customer.surname }}{{ customer.firstname }}
+        </h2>
+        <a href="{{ url_for('admin.dashboard', tab='customers') }}" class="btn btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i> 返回客戶列表
+        </a>
+    </div>
+
+    <!-- 頁籤導覽列 -->
+    <ul class="nav nav-tabs mb-4" id="customerTab" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#info">
+                <i class="bi bi-person-badge"></i> 基本資料與編輯
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#products">
+                <i class="bi bi-bag-check text-success"></i> 產品購買紀錄 <span class="badge bg-secondary ms-1">{{
+                    product_orders|length }}</span>
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#courses">
+                <i class="bi bi-calendar-check text-primary"></i> 課程預約紀錄 <span class="badge bg-secondary ms-1">{{
+                    course_bookings|length }}</span>
+            </button>
+        </li>
+    </ul>
+
+    <!-- 頁籤內容區 -->
+    <div class="tab-content bg-white p-4 border border-top-0 rounded-bottom shadow-sm mt-n4">
+
+        <!-- 1. 基本資料與編輯表單 -->
+        <div class="tab-pane fade show active" id="info">
+            <form method="POST" action="{{ url_for('admin.update_customer', customer_id=customer.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div class="row g-3">
+                    <div class="col-md-6"><label class="form-label">帳號</label><input class="form-control bg-light"
+                            value="{{ customer.username }}" readonly></div>
+                    <div class="col-md-6"><label class="form-label">Email</label><input name="email"
+                            class="form-control" value="{{ customer.email }}"></div>
+
+                    <div class="col-md-6"><label class="form-label">姓</label><input name="surname" class="form-control"
+                            value="{{ customer.surname }}"></div>
+                    <div class="col-md-6"><label class="form-label">名</label><input name="firstname"
+                            class="form-control" value="{{ customer.firstname }}"></div>
+
+                    <div class="col-md-6"><label class="form-label">電話</label><input name="phone" class="form-control"
+                            value="{{ customer.phone }}"></div>
+                    <div class="col-md-6"><label class="form-label">Line ID</label><input name="line_id"
+                            class="form-control" value="{{ customer.line_id }}"></div>
+
+                    <div class="col-md-4"><label class="form-label">職業</label><input name="occupation"
+                            class="form-control" value="{{ customer.occupation }}"></div>
+                    <div class="col-md-4"><label class="form-label">性別</label>
+                        <select name="gender" class="form-select">
+                            <option value="female" {% if customer.gender=='female' %}selected{% endif %}>女</option>
+                            <option value="male" {% if customer.gender=='male' %}selected{% endif %}>男</option>
+                            <option value="other" {% if customer.gender=='other' %}selected{% endif %}>其他</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4"><label class="form-label">生日</label><input name="birth_date" type="date"
+                            class="form-control" value="{{ customer.birth_date }}"></div>
+
+                    <div class="col-md-6"><label class="form-label">來源</label>
+                        <select name="source_id" class="form-select">
+                            <option value="">無</option>
+                            {% for s in customer_sources %}
+                            <option value="{{ s.id }}" {% if customer.source_id==s.id %}selected{% endif %}>{{ s.name }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-6"><label class="form-label">地址</label><input name="address" class="form-control"
+                            value="{{ customer.address }}"></div>
+
+                    <div class="col-12">
+                        <label class="form-label">備註</label>
+                        <textarea name="notes" class="form-control" rows="3">{{ customer.notes }}</textarea>
+                    </div>
+                </div>
+
+                {% if session.get('user', {}).get('role') == 'admin' %}
+                <div class="mt-4 text-end">
+                    <button type="submit" class="btn btn-primary"><i class="bi bi-save"></i> 儲存修改</button>
+                </div>
+                {% endif %}
+            </form>
+        </div>
+
+        <!-- 2. 產品購買紀錄 -->
+        <div class="tab-pane fade" id="products">
+            {% if product_orders %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>訂單編號</th>
+                            <th>購買日期</th>
+                            <th>總金額</th>
+                            <th>狀態</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for order in product_orders %}
+                        <tr>
+                            <td>#{{ order.id }}</td>
+                            <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
+                            <td>
+                                <span
+                                    class="badge {% if order.status == 'completed' %}bg-success{% elif order.status == 'cancelled' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                                    {{ order.status }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-box fs-1"></i>
+                <p class="mt-2">尚無產品購買紀錄</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 3. 課程預約紀錄 -->
+        <div class="tab-pane fade" id="courses">
+            {% if course_bookings %}
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-light">
+                        <tr>
+                            <th>預約編號</th>
+                            <th>課程名稱</th>
+                            <th>預約時段</th>
+                            <th>總金額</th>
+                            <th>狀態</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for booking in course_bookings %}
+                        <tr>
+                            <td>#{{ booking.id }}</td>
+                            <td class="fw-bold">{{ booking.course_name }}</td>
+                            <td>
+                                {% if booking.start_time %}
+                                {{ booking.start_time.strftime('%Y-%m-%d %H:%M') }}
+                                {% else %}
+                                <span class="text-muted">未設定</span>
+                                {% endif %}
+                            </td>
+                            <td>NT$ {{ '{:,.0f}'.format(booking.total_amount) }}</td>
+                            <td>
+                                <span
+                                    class="badge {% if booking.status == 'completed' %}bg-success{% elif booking.status == 'cancelled' %}bg-danger{% else %}bg-primary{% endif %}">
+                                    {{ booking.status }}
+                                </span>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="text-center py-5 text-muted">
+                <i class="bi bi-calendar-x fs-1"></i>
+                <p class="mt-2">尚無課程預約紀錄</p>
+            </div>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+{% endblock %}

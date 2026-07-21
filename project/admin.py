@@ -1564,6 +1564,64 @@ def update_customer(customer_id):
     return redirect(url_for('admin.dashboard', tab='customers'))
 
 
+@admin_bp.route('/customer/<int:customer_id>/detail')
+@staff_required
+def customer_detail(customer_id):
+    """檢視客戶詳細資料與歷史紀錄"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+
+    try:
+        # 1. 取得客戶基本資料與來源名稱
+        cursor.execute("""
+            SELECT u.*, cs.name as source_name, 
+                   TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age 
+            FROM users u
+            LEFT JOIN customer_sources cs ON u.source_id = cs.id
+            WHERE u.id = %s AND u.role = 'customer'
+        """, (customer_id,))
+        customer = cursor.fetchone()
+
+        if not customer:
+            flash('找不到該客戶', 'error')
+            return redirect(url_for('admin.dashboard', tab='customers'))
+
+        # 2. 取得產品訂單紀錄 (依時間新到舊排序)
+        cursor.execute("""
+            SELECT id, total_amount, status, created_at
+            FROM orders
+            WHERE customer_id = %s
+            ORDER BY created_at DESC
+        """, (customer_id,))
+        product_orders = cursor.fetchall()
+
+        # 3. 取得課程預約紀錄 (關聯課程名稱與預約時間)
+        cursor.execute("""
+            SELECT b.id, b.total_amount, b.status, b.created_at, 
+                   c.name as course_name, s.start_time
+            FROM bookings b
+            JOIN courses c ON b.course_id = c.id
+            LEFT JOIN shop_schedules s ON b.global_schedule_id = s.id
+            WHERE b.customer_id = %s
+            ORDER BY b.created_at DESC
+        """, (customer_id,))
+        course_bookings = cursor.fetchall()
+
+        # 4. 取得來源列表 (供編輯表單的下拉選單使用)
+        cursor.execute("SELECT * FROM customer_sources ORDER BY id")
+        customer_sources = cursor.fetchall()
+
+    finally:
+        cursor.close()
+
+    return render_template(
+        'admin_customer_detail.html',
+        customer=customer,
+        product_orders=product_orders,
+        course_bookings=course_bookings,
+        customer_sources=customer_sources
+    )
+
+
 @admin_bp.route('/customer/<int:customer_id>/delete', methods=['POST'])
 @admin_required
 def delete_customer(customer_id):

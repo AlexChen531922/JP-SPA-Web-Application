@@ -664,24 +664,10 @@
                   <span class="badge bg-success">{{ customer.booking_count }}約</span>
                 </td>
                 <td class="text-end">
-                  {% set safe_customer_data = {
-                  'id': customer.id,
-                  'firstname': customer.firstname,
-                  'surname': customer.surname,
-                  'email': customer.email,
-                  'phone': customer.phone,
-                  'line_id': customer.line_id,
-                  'gender': customer.gender,
-                  'birth_date': customer.birth_date | string,
-                  'occupation': customer.occupation,
-                  'address': customer.address,
-                  'source_id': customer.source_id,
-                  'notes': customer.notes
-                  } %}
-                  <button type="button" class="btn btn-sm btn-outline-primary"
-                    onclick="openEditCustomerModal({{ safe_customer_data | tojson | forceescape }})">
-                    <i class="bi bi-pencil"></i> 檢視
-                  </button>
+                  <a href="{{ url_for('admin.customer_detail', customer_id=customer.id) }}"
+                    class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-eye"></i> 檢視與紀錄
+                  </a>
 
                   {% if session.get('user', {}).get('role') == 'admin' %}
                   <form method="POST" action="{{ url_for('admin.delete_customer', customer_id=customer.id) }}"
