@@ -115,9 +115,11 @@
                             <td>{{ order.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
                             <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
                             <td>
+                                {% set status_map = {'pending': '待確認', 'confirmed': '已確認', 'completed': '已完成',
+                                'cancelled': '已取消'} %}
                                 <span
                                     class="badge {% if order.status == 'completed' %}bg-success{% elif order.status == 'cancelled' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
-                                    {{ order.status }}
+                                    {{ status_map.get(order.status, order.status) }}
                                 </span>
                             </td>
                         </tr>
@@ -161,9 +163,11 @@
                             </td>
                             <td>NT$ {{ '{:,.0f}'.format(booking.total_amount) }}</td>
                             <td>
+                                {% set status_map = {'pending': '待確認', 'confirmed': '已確認', 'completed': '已完成',
+                                'cancelled': '已取消'} %}
                                 <span
                                     class="badge {% if booking.status == 'completed' %}bg-success{% elif booking.status == 'cancelled' %}bg-danger{% else %}bg-primary{% endif %}">
-                                    {{ booking.status }}
+                                    {{ status_map.get(booking.status, booking.status) }}
                                 </span>
                             </td>
                         </tr>
