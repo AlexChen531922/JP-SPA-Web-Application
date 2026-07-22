@@ -1528,6 +1528,8 @@ def update_customer(customer_id):
         occupation = request.form.get('occupation', '').strip()
         source_id = request.form.get('source_id', type=int) or None
 
+        notes = request.form.get('notes', '').strip()
+
         if not firstname or not email:
             flash('姓名與 Email 為必填', 'error')
             return redirect(url_for('admin.dashboard', tab='customers'))
@@ -1545,9 +1547,9 @@ def update_customer(customer_id):
         cursor.execute("""
             UPDATE users 
             SET firstname=%s, surname=%s, email=%s, phone=%s, line_id=%s, 
-                gender=%s, birth_date=%s, occupation=%s, source_id=%s
+                gender=%s, birth_date=%s, occupation=%s, source_id=%s, notes=%s
             WHERE id=%s AND role='customer'
-        """, (firstname, surname, email, phone, line_id, gender, birth_date, occupation, source_id, customer_id))
+        """, (firstname, surname, email, phone, line_id, gender, birth_date, occupation, source_id, notes, customer_id))
 
         database.connection.commit()
         cursor.close()
@@ -1561,7 +1563,7 @@ def update_customer(customer_id):
         database.connection.rollback()
         flash(f'更新失敗: {str(e)}', 'error')
 
-    return redirect(url_for('admin.dashboard', tab='customers'))
+    return redirect(url_for('admin.customer_detail', customer_id=customer_id))
 
 
 @admin_bp.route('/customer/<int:customer_id>/detail')
