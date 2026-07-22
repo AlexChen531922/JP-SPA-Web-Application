@@ -270,8 +270,8 @@ def get_course_schedule(course_id):
         # 務必確保 timedelta 已在檔案開頭 import
         now = datetime.now() + timedelta(hours=8)
 
-        # 設定「最早可預約時間」為後天 00:00
-        start_limit = (now + timedelta(days=2)).replace(hour=0,
+        # 設定「最早可預約時間」為明天 00:00
+        start_limit = (now + timedelta(days=1)).replace(hour=0,
                                                         minute=0, second=0, microsecond=0)
 
         # 2. 解析前端傳來的日期 (增加防呆)
