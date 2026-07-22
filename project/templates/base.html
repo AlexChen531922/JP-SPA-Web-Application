@@ -691,13 +691,20 @@
                 </div>
 
                 <div class="mb-3">
-                  <label class="form-label">Email</label>
-                  <input type="email" name="email" class="form-control" required>
+                  <label class="form-label">Email <span class="text-danger">*</span></label>
+                  <input type="email" name="email" id="reg_email" class="form-control" required>
+                  <div id="email-error-msg" class="form-text text-danger d-none">
+                    <i class="bi bi-exclamation-circle"></i> 請輸入有效的 Email 格式 (需包含 @ 與 .)
+                  </div>
                 </div>
 
                 <div class="mb-3">
-                  <label class="form-label">手機號碼</label>
-                  <input type="tel" name="phone" class="form-control" required>
+                  <label class="form-label">手機號碼 <span class="text-danger">*</span></label>
+                  <input type="tel" name="phone" id="reg_phone" class="form-control" placeholder="例如: 0912345678"
+                    required>
+                  <div id="phone-error-msg" class="form-text text-danger d-none">
+                    <i class="bi bi-exclamation-circle"></i> 請輸入正確的手機號碼格式 (09 開頭共 10 碼)
+                  </div>
                 </div>
 
                 <div class="mb-3">
@@ -950,8 +957,12 @@
     // ==========================================
     const regPwd = document.getElementById('reg_password');
     const regConfirm = document.getElementById('reg_confirm_password');
+    const regEmail = document.getElementById('reg_email');
+    const regPhone = document.getElementById('reg_phone');
     const submitBtn = document.getElementById('btn-register-submit');
     const matchMsg = document.getElementById('password-match-msg');
+    const emailMsg = document.getElementById('email-error-msg');
+    const phoneMsg = document.getElementById('phone-error-msg');
 
     // 規則元素
     const rules = {
@@ -1002,6 +1013,7 @@
       }
 
       // 2. 檢查確認密碼是否一致
+      const valConfirm = regConfirm.value;
       let isMatch = false;
       if (valConfirm.length > 0) {
         if (val === valConfirm) {
@@ -1012,11 +1024,10 @@
         } else {
           allValid = false;
           regConfirm.classList.remove('is-valid');
-          regConfirm.classList.add('is-invalid'); // Bootstrap 紅框
+          regConfirm.classList.add('is-invalid');
           matchMsg.classList.remove('d-none');
         }
       } else {
-        // 還沒輸入確認密碼時，不顯示錯誤，但不能送出
         allValid = false;
         regConfirm.classList.remove('is-invalid', 'is-valid');
         matchMsg.classList.add('d-none');
@@ -1035,6 +1046,8 @@
       regPwd.addEventListener('input', validateRegistration);
       regConfirm.addEventListener('input', validateRegistration);
     }
+    if (regEmail) regEmail.addEventListener('input', validateRegistration);
+    if (regPhone) regPhone.addEventListener('input', validateRegistration);
 
     // ==========================================
     // 讓網址帶參數時自動開啟 Modal
