@@ -799,7 +799,8 @@
     </div>
 
     <button class="social-icon toggle-btn" id="socialToggleBtn" onclick="toggleSocialMenu()">
-      <i class="bi bi-line" id="toggleIconOpen"></i>
+      <i class="bi bi-chat-dots-fill" id="toggleIconOpen"></i>
+
       <i class="bi bi-x-lg d-none" id="toggleIconClose"></i>
     </button>
   </div>
@@ -964,7 +965,6 @@
     const emailMsg = document.getElementById('email-error-msg');
     const phoneMsg = document.getElementById('phone-error-msg');
 
-    // 規則元素
     const rules = {
       length: document.getElementById('rule-length'),
       upper: document.getElementById('rule-upper'),
@@ -973,15 +973,54 @@
       special: document.getElementById('rule-special')
     };
 
-    // 驗證主函式
     function validateRegistration() {
-      if (!regPwd || !regConfirm) return; // 防呆
-
-      const val = regPwd.value;
-      const valConfirm = regConfirm.value;
+      if (!regPwd || !regConfirm) return;
       let allValid = true;
 
-      // 1. 檢查規則 (Regex 對應 auth.py 的 validate_password_strength)
+      // 1. Email 格式驗證
+      if (regEmail && regEmail.value.length > 0) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (emailRegex.test(regEmail.value)) {
+          regEmail.classList.remove('is-invalid');
+          regEmail.classList.add('is-valid');
+          emailMsg.classList.add('d-none');
+        } else {
+          allValid = false;
+          regEmail.classList.remove('is-valid');
+          regEmail.classList.add('is-invalid');
+          emailMsg.classList.remove('d-none');
+        }
+      } else {
+        allValid = false;
+        if (regEmail) {
+          regEmail.classList.remove('is-invalid', 'is-valid');
+          emailMsg.classList.add('d-none');
+        }
+      }
+
+      // 2. 手機號碼驗證 (09 開頭 10 碼)
+      if (regPhone && regPhone.value.length > 0) {
+        const phoneRegex = /^09\d{8}$/;
+        if (phoneRegex.test(regPhone.value)) {
+          regPhone.classList.remove('is-invalid');
+          regPhone.classList.add('is-valid');
+          phoneMsg.classList.add('d-none');
+        } else {
+          allValid = false;
+          regPhone.classList.remove('is-valid');
+          regPhone.classList.add('is-invalid');
+          phoneMsg.classList.remove('d-none');
+        }
+      } else {
+        allValid = false;
+        if (regPhone) {
+          regPhone.classList.remove('is-invalid', 'is-valid');
+          phoneMsg.classList.add('d-none');
+        }
+      }
+
+      // 3. 檢查密碼規則
+      const val = regPwd.value;
       const checks = {
         length: val.length >= 10,
         upper: /[A-Z]/.test(val),
@@ -990,29 +1029,28 @@
         special: /[ !@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(val)
       };
 
-      // 更新規則列表 UI (綠色打勾 / 紅色一般)
       for (const key in checks) {
         if (checks[key]) {
           rules[key].classList.remove('text-muted', 'text-danger');
           rules[key].classList.add('text-success', 'fw-bold');
-          rules[key].innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + rules[key].innerText.replace('✓ ', '').replace('✗ ', '');
+          if (!rules[key].innerHTML.includes('bi-check-circle-fill')) {
+            rules[key].innerHTML = '<i class="bi bi-check-circle-fill"></i> ' + rules[key].innerText.replace('✓ ', '').replace('✗ ', '');
+          }
         } else {
           allValid = false;
           rules[key].classList.remove('text-success', 'fw-bold');
-          // 如果已經輸入內容但不符，顯示紅色；若為空則顯示灰色
           if (val.length > 0) {
             rules[key].classList.add('text-danger');
           } else {
             rules[key].classList.add('text-muted');
             rules[key].classList.remove('text-danger');
           }
-          // 復原文字 (避免重複加 icon)
           const cleanText = rules[key].innerText.replace('✓ ', '').replace('✗ ', '');
           rules[key].innerText = cleanText;
         }
       }
 
-      // 2. 檢查確認密碼是否一致
+      // 4. 檢查確認密碼是否一致
       const valConfirm = regConfirm.value;
       let isMatch = false;
       if (valConfirm.length > 0) {
@@ -1033,7 +1071,6 @@
         matchMsg.classList.add('d-none');
       }
 
-      // 3. 控制按鈕狀態
       if (allValid && isMatch) {
         submitBtn.removeAttribute('disabled');
       } else {
@@ -1041,7 +1078,6 @@
       }
     }
 
-    // 綁定監聽事件
     if (regPwd && regConfirm) {
       regPwd.addEventListener('input', validateRegistration);
       regConfirm.addEventListener('input', validateRegistration);
@@ -1049,8 +1085,9 @@
     if (regEmail) regEmail.addEventListener('input', validateRegistration);
     if (regPhone) regPhone.addEventListener('input', validateRegistration);
 
+
     // ==========================================
-    // 讓網址帶參數時自動開啟 Modal
+    // ⭐ 恢復：讓網址帶參數時自動開啟 Modal
     // ==========================================
     const urlParams = new URLSearchParams(window.location.search);
     const loginModalEl = document.getElementById('loginModal');
@@ -1075,8 +1112,9 @@
       }
     }
 
-
-    // 2. 社交按鈕收合切換功能
+    // ==========================================
+    // ⭐ 恢復：社交按鈕收合切換功能
+    // ==========================================
     function toggleSocialMenu() {
       const group = document.getElementById('socialGroup');
       const openIcon = document.getElementById('toggleIconOpen');
