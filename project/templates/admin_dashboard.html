@@ -346,6 +346,10 @@
         <button type="button" class="btn btn-info text-white me-2" onclick="openCapacityModal()">
           <i class="bi bi-calendar-range"></i> 預約人數管理
         </button>
+        <!-- ⭐ 新增：匯出 Excel 按鈕 -->
+        <button type="button" class="btn btn-success me-2" onclick="exportCourses()">
+          <i class="bi bi-file-earmark-excel"></i> 匯出 Excel
+        </button>
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCourseModal">
           <i class="bi bi-plus-circle"></i> 新增課程
         </button>
@@ -357,6 +361,9 @@
           <table class="table table-hover mb-0">
             <thead class="table-light">
               <tr>
+                <!-- ⭐ 新增：全選勾選框 -->
+                <th style="width: 40px;"><input type="checkbox" id="selectAllCourses" class="form-check-input"
+                    onclick="toggleAll('course')"></th>
                 <th style="width: 80px;">圖片</th>
                 <th>課程名稱</th>
                 <th>分類</th>
@@ -369,6 +376,12 @@
             <tbody>
               {% for course in courses %}
               <tr>
+                <!-- ⭐ 新增：單列勾選框與隱藏資料 -->
+                <td>
+                  <input type="checkbox" class="form-check-input course-checkbox" value="{{ course.id }}"
+                    data-name="{{ course.name }}" data-category="{{ course.category_name or '未分類' }}"
+                    data-price="{{ course.regular_price }}" data-duration="{{ course.duration }}">
+                </td>
                 <td>
                   {% if course.image and course.image.startswith('http') %}
                   <img src="{{ course.image }}" width="50" class="rounded object-fit-cover" alt="Course"
@@ -822,6 +835,10 @@
         <button type="button" class="btn btn-primary me-2" data-bs-toggle="modal" data-bs-target="#restockModal">
           <i class="bi bi-box-arrow-in-down"></i> 進貨入庫
         </button>
+        <!-- ⭐ 新增：匯出 Excel 按鈕 -->
+        <button type="button" class="btn btn-outline-success me-2" onclick="exportInventory()">
+          <i class="bi bi-file-earmark-excel"></i> 匯出 Excel
+        </button>
         <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal"
           data-bs-target="#adjustInventoryModal">
           <i class="bi bi-pencil-square"></i> 盤點調整
@@ -836,6 +853,9 @@
             <thead class="table-light">
               <tr>
                 <th style="width: 40px;"></th>
+                <!-- ⭐ 新增：全選勾選框 -->
+                <th style="width: 40px;"><input type="checkbox" id="selectAllInventory" class="form-check-input"
+                    onclick="toggleAll('inventory')"></th>
                 <th style="width: 60px;">圖片</th>
                 <th>產品名稱</th>
                 <th>類別</th> {% if session.get('user', {}).get('role') == 'admin' %}
@@ -858,6 +878,18 @@
                   <i class="bi bi-grip-vertical fs-5"></i>
                 </td>
 
+                <!-- ⭐ 新增：單列勾選框與隱藏資料 -->
+                <td>
+                  <input type="checkbox" class="form-check-input inventory-checkbox" value="{{ prod.id }}"
+                    data-name="{{ prod.name }}" data-category="{{ prod.category_name or '未分類' }}" {% if
+                    session.get('user', {}).get('role')=='admin' %}data-cost="{{ prod.cost or 0 }}" {% endif %}
+                    data-price="{{ prod.price }}" data-stock="{{ prod.stock_quantity }}"
+                    data-desc="{{ prod.description or '' }}"
+                    data-last-purchase="{{ prod.last_purchase_date.strftime('%Y-%m-%d') if prod.last_purchase_date else '' }}"
+                    data-last-sale="{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else '' }}"
+                    data-note="{{ prod.latest_note or '' }}">
+                </td>
+
                 <td>
                   {% if prod.image and prod.image.startswith('http') %}
                   <img src="{{ prod.image }}" alt="Product" class="rounded object-fit-cover"
@@ -874,50 +906,37 @@
                   </div>
                   {% endif %}
                 </td>
+                <!-- 下方的欄位 td 保持不變即可 -->
                 <td class="fw-bold">{{ prod.name }}</td>
-
                 <td>
                   {% if prod.category_name %}
-                  <span class="badge bg-secondary bg-opacity-10 text-dark border">
-                    {{ prod.category_name }}
-                  </span>
+                  <span class="badge bg-secondary bg-opacity-10 text-dark border">{{ prod.category_name }}</span>
                   {% else %}
                   <span class="text-muted small">-</span>
                   {% endif %}
                 </td>
-
                 {% if session.get('user', {}).get('role') == 'admin' %}
                 <td class="text-danger">NT$ {{ '{:,.0f}'.format(prod.cost or 0) }}</td>
                 {% endif %}
-
                 <td>NT$ {{ '{:,.0f}'.format(prod.price) }} / {{ prod.unit or '件' }}</td>
-
                 <td>
                   {% if prod.stock_quantity <= 0 %} <span class="badge bg-danger">缺貨</span>
-                    {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark">{{
-                      prod.stock_quantity }} (緊張)</span>
-                      {% else %}
-                      <span class="badge bg-success">{{ prod.stock_quantity }}</span>
-                      {% endif %}
+                    {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark">{{ prod.stock_quantity
+                      }} (緊張)</span>
+                      {% else %}<span class="badge bg-success">{{ prod.stock_quantity }}</span>{% endif %}
                 </td>
-
                 <td>
                   <small class="text-muted d-inline-block text-truncate" style="max-width: 150px;"
-                    title="{{ prod.description }}">
-                    {{ prod.description or '-' }}
-                  </small>
+                    title="{{ prod.description }}">{{ prod.description or '-' }}</small>
                 </td>
-
-                <td class="small text-muted">{{ prod.last_purchase_date.strftime('%Y-%m-%d') if
-                  prod.last_purchase_date else '-' }}</td>
-                <td class="small text-muted">{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else
-                  '-' }}</td>
-
+                <td class="small text-muted">{{ prod.last_purchase_date.strftime('%Y-%m-%d') if prod.last_purchase_date
+                  else '-' }}</td>
+                <td class="small text-muted">{{ prod.last_sale_date.strftime('%Y-%m-%d') if prod.last_sale_date else '-'
+                  }}</td>
                 <td style="min-width: 200px;">
-                  <div class="text-muted small" style="white-space: pre-wrap; line-height: 1.4;">{{ prod.latest_note
-                    }}</div>
+                  <div class="text-muted small" style="white-space: pre-wrap; line-height: 1.4;">{{ prod.latest_note }}
+                  </div>
                 </td>
-
                 <td class="text-end">
                   <button class="btn btn-sm btn-outline-primary" onclick="openRestockModal({{ prod.id }})">
                     <i class="bi bi-plus-lg"></i> 進貨
@@ -1669,6 +1688,7 @@
 {% block scripts %}
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
 <div id="inventory-data-source" style="display:none;">
   {% for p in inventory_products %}
@@ -2304,6 +2324,72 @@
         row.style.display = 'none';
       }
     });
+  }
+
+  // ================= Excel 匯出與全選功能 =================
+  function toggleAll(type) {
+    const selectAll = document.getElementById(type === 'course' ? 'selectAllCourses' : 'selectAllInventory');
+    const checkboxes = document.querySelectorAll(`.${type}-checkbox`);
+    checkboxes.forEach(cb => { cb.checked = selectAll.checked; });
+  }
+
+  function exportCourses() {
+    const checkboxes = document.querySelectorAll('.course-checkbox');
+    let selected = Array.from(checkboxes).filter(cb => cb.checked);
+
+    // 如果都沒勾，預設為「匯出全部」
+    if (selected.length === 0) selected = Array.from(checkboxes);
+
+    const data = selected.map(cb => ({
+      '課程名稱': cb.getAttribute('data-name'),
+      '分類': cb.getAttribute('data-category'),
+      '價格': parseFloat(cb.getAttribute('data-price') || 0),
+      '時長(分鐘)': parseInt(cb.getAttribute('data-duration') || 0)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "課程列表");
+    const today = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `晶品芳療_課程管理_${today}.xlsx`);
+  }
+
+  function exportInventory() {
+    const userRoleEl = document.getElementById('user-role-data');
+    const isAdmin = userRoleEl ? userRoleEl.dataset.role === 'admin' : false;
+
+    const checkboxes = document.querySelectorAll('.inventory-checkbox');
+    let selected = Array.from(checkboxes).filter(cb => cb.checked);
+
+    // 如果都沒勾，預設為「匯出全部」
+    if (selected.length === 0) selected = Array.from(checkboxes);
+
+    const data = selected.map(cb => {
+      let row = {
+        '產品名稱': cb.getAttribute('data-name'),
+        '類別': cb.getAttribute('data-category')
+      };
+
+      // 只有 Admin 權限才會匯出「成本價」欄位
+      if (isAdmin) {
+        row['成本價'] = parseFloat(cb.getAttribute('data-cost') || 0);
+      }
+
+      row['售價'] = parseFloat(cb.getAttribute('data-price') || 0);
+      row['庫存'] = parseInt(cb.getAttribute('data-stock') || 0);
+      row['描述'] = cb.getAttribute('data-desc');
+      row['最後進貨'] = cb.getAttribute('data-last-purchase');
+      row['最後銷售'] = cb.getAttribute('data-last-sale');
+      row['備註'] = cb.getAttribute('data-note');
+
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "庫存列表");
+    const today = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `晶品芳療_庫存管理_${today}.xlsx`);
   }
 </script>
 {% endblock %}
