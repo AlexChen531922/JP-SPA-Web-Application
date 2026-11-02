@@ -238,7 +238,8 @@ def dashboard():
 
     # Wallet balances for customer selection; missing rows mean zero credit.
     cursor.execute('SELECT customer_id,balance FROM customer_stored_balances')
-    stored_balances = {r['customer_id']: str(r['balance']) for r in cursor.fetchall()}
+    stored_balances = {r['customer_id']: str(
+        r['balance']) for r in cursor.fetchall()}
 
     # Orders full list
     order_visibility = 'IS NOT NULL' if show_deleted_orders else 'IS NULL'
@@ -429,7 +430,7 @@ def add_product_modal():
             cursor.execute("""INSERT INTO inventory_logs
                 (product_id, change_amount, change_type, notes, created_by)
                 VALUES (%s, %s, 'adjustment', '新產品初始庫存', %s)""",
-                (new_id, initial_stock, get_current_user_id()))
+                           (new_id, initial_stock, get_current_user_id()))
         database.connection.commit()
         cursor.close()
 
@@ -449,7 +450,8 @@ def update_product_modal(product_id):
     try:
         # 1. 先取得資料庫目前的資料 (為了防止 Staff 編輯時將成本誤寫為 0)
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute("SELECT * FROM products WHERE id = %s FOR UPDATE", (product_id,))
+        cursor.execute(
+            "SELECT * FROM products WHERE id = %s FOR UPDATE", (product_id,))
         current_prod = cursor.fetchone()
 
         if not current_prod:
@@ -503,7 +505,7 @@ def update_product_modal(product_id):
             cursor.execute("""INSERT INTO inventory_logs
                 (product_id, change_amount, change_type, notes, created_by)
                 VALUES (%s, %s, 'adjustment', '編輯產品時調整庫存', %s)""",
-                (product_id, stock_difference, get_current_user_id()))
+                           (product_id, stock_difference, get_current_user_id()))
         database.connection.commit()
         cursor.close()
 
@@ -941,7 +943,8 @@ def update_event(event_id):
         e = parse_dt(end_date)
 
         cursor = database.connection.cursor()
-        cursor.execute("SELECT customer_id FROM events WHERE id=%s", (event_id,))
+        cursor.execute(
+            "SELECT customer_id FROM events WHERE id=%s", (event_id,))
         prior_event = cursor.fetchone()
         if prior_event is None:
             cursor.close()
@@ -1107,7 +1110,8 @@ def adjust_inventory_modal():
         if reason:
             notes = (reason + ('：' + notes if notes else ''))[:2000]
         cursor = database.connection.cursor()
-        cursor.execute('SELECT stock_quantity FROM products WHERE id=%s FOR UPDATE', (product_id,))
+        cursor.execute(
+            'SELECT stock_quantity FROM products WHERE id=%s FOR UPDATE', (product_id,))
         row = cursor.fetchone()
         if not row:
             raise ValueError('產品不存在')
@@ -1142,13 +1146,15 @@ def adjust_inventory_modal():
 
     return redirect(url_for('admin.dashboard', tab='inventory'))
 
+
 @admin_bp.route('/inventory/product/<int:product_id>/history')
 @staff_required
 def product_inventory_history(product_id):
     """逐筆檢視產品進出貨紀錄；訂單銷貨可追溯至訂單與客戶。"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        cursor.execute('SELECT id, name, stock_quantity, unit FROM products WHERE id=%s', (product_id,))
+        cursor.execute(
+            'SELECT id, name, stock_quantity, unit FROM products WHERE id=%s', (product_id,))
         product = cursor.fetchone()
         if not product:
             flash('找不到該產品', 'error')
@@ -1199,12 +1205,14 @@ def update_order_status(order_id):
                 # Stock and stored-value are both charged before the order can be restored.
                 restore_order(cursor, order, new_status, get_current_user_id())
             else:
-                cursor.execute('UPDATE orders SET status=%s WHERE id=%s', (new_status,order_id))
+                cursor.execute(
+                    'UPDATE orders SET status=%s WHERE id=%s', (new_status, order_id))
                 if new_status == 'completed':
                     cursor.execute('''UPDATE products p JOIN order_items oi ON p.id=oi.product_id
                                       SET p.last_sale_date=NOW() WHERE oi.order_id=%s''', (order_id,))
             changed = True
-        cursor.execute('SELECT firstname,email,line_id FROM users WHERE id=%s', (order['customer_id'],))
+        cursor.execute(
+            'SELECT firstname,email,line_id FROM users WHERE id=%s', (order['customer_id'],))
         customer_data = cursor.fetchone()
         database.connection.commit()
     except Exception as exc:
@@ -1218,15 +1226,19 @@ def update_order_status(order_id):
             from project.notifications import notify_order_confirmed, notify_order_status_update
             if new_status == 'confirmed' and old_status != 'confirmed':
                 notify_order_confirmed(order_id, customer_data, order['total_amount'],
-                                       order['stored_value_amount'],order['other_payment_amount'],order['other_payment_method'])
+                                       order['stored_value_amount'], order['other_payment_amount'], order['other_payment_method'])
             else:
-                notify_order_status_update(order_id,customer_data['firstname'],customer_data['email'],new_status)
+                notify_order_status_update(
+                    order_id, customer_data['firstname'], customer_data['email'], new_status)
         except Exception as exc:
-            current_app.logger.warning('Order notification failed: %s', type(exc).__name__)
+            current_app.logger.warning(
+                'Order notification failed: %s', type(exc).__name__)
         try:
-            log_activity('update','order',order_id,{'old':old_status,'new':new_status})
+            log_activity('update', 'order', order_id, {
+                         'old': old_status, 'new': new_status})
         except Exception:
-            current_app.logger.warning('Order status audit log failed for order %s', order_id)
+            current_app.logger.warning(
+                'Order status audit log failed for order %s', order_id)
         flash('訂單狀態已更新', 'success')
     return redirect(url_for('admin.dashboard', tab='orders'))
 
@@ -1246,7 +1258,8 @@ def update_booking_status(booking_id):
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
         # 鎖住此預約，避免重複取消／恢復造成時段人數不一致。
-        cursor.execute('SELECT id, status FROM bookings WHERE id=%s FOR UPDATE', (booking_id,))
+        cursor.execute(
+            'SELECT id, status FROM bookings WHERE id=%s FOR UPDATE', (booking_id,))
         locked_booking = cursor.fetchone()
         if not locked_booking:
             raise ValueError('預約不存在')
@@ -1268,7 +1281,8 @@ def update_booking_status(booking_id):
         new_active = status != 'cancelled'
         schedule_id = booking_info['global_schedule_id']
         if schedule_id and old_active != new_active:
-            cursor.execute('SELECT max_capacity, current_bookings FROM shop_schedules WHERE id=%s FOR UPDATE', (schedule_id,))
+            cursor.execute(
+                'SELECT max_capacity, current_bookings FROM shop_schedules WHERE id=%s FOR UPDATE', (schedule_id,))
             slot = cursor.fetchone()
             if not slot:
                 raise ValueError('找不到預約時段')
@@ -1277,7 +1291,8 @@ def update_booking_status(booking_id):
                 raise ValueError('時段已額滿，無法恢復預約')
             if delta < 0 and slot['current_bookings'] <= 0:
                 raise ValueError('預約時段人數不一致，請先檢查資料')
-            cursor.execute('UPDATE shop_schedules SET current_bookings=current_bookings+%s WHERE id=%s', (delta, schedule_id))
+            cursor.execute(
+                'UPDATE shop_schedules SET current_bookings=current_bookings+%s WHERE id=%s', (delta, schedule_id))
 
         # 2. 更新狀態
         cursor.execute(
@@ -1394,10 +1409,12 @@ def bulk_update_schedule():
                 slot_end = slot_start + timedelta(hours=1)  # 預設每個時段1小時
 
                 # 已存在的時段不能將容量調整至低於實際預約人數。
-                cursor.execute('SELECT current_bookings FROM shop_schedules WHERE start_time=%s FOR UPDATE', (slot_start,))
+                cursor.execute(
+                    'SELECT current_bookings FROM shop_schedules WHERE start_time=%s FOR UPDATE', (slot_start,))
                 occupied = cursor.fetchone()
                 if occupied and capacity < occupied[0]:
-                    raise ValueError(f'{slot_start} 已預約 {occupied[0]} 人，不能降低至 {capacity} 人')
+                    raise ValueError(
+                        f'{slot_start} 已預約 {occupied[0]} 人，不能降低至 {capacity} 人')
                 cursor.execute("""
                     INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
                     VALUES (%s, %s, %s, 0, 1)
@@ -1605,7 +1622,8 @@ def update_customer(customer_id):
             return redirect(url_for('admin.dashboard', tab='customers'))
 
         cursor = database.connection.cursor()
-        cursor.execute("SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
+        cursor.execute(
+            "SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
         if cursor.fetchone() is None:
             cursor.close()
             flash('找不到該客戶，未進行更新', 'error')
@@ -1707,9 +1725,11 @@ def customer_detail(customer_id):
         course_bookings = cursor.fetchall()
 
         # Prepaid credit (never expires). Ledger is append-only.
-        cursor.execute('SELECT balance FROM customer_stored_balances WHERE customer_id=%s', (customer_id,))
+        cursor.execute(
+            'SELECT balance FROM customer_stored_balances WHERE customer_id=%s', (customer_id,))
         balance_row = cursor.fetchone()
-        stored_value_balance = balance_row['balance'] if balance_row else Decimal('0.00')
+        stored_value_balance = balance_row['balance'] if balance_row else Decimal(
+            '0.00')
         cursor.execute('''SELECT l.*, o.id AS related_order_id
                            FROM customer_stored_value_ledger l
                            LEFT JOIN orders o ON o.id=l.order_id
@@ -1753,10 +1773,12 @@ def add_customer_stored_value(customer_id):
         note = (request.form.get('notes') or '').strip()
         if len(note) > 500:
             raise ValueError('備註不得超過 500 字')
-        cursor.execute("SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
+        cursor.execute(
+            "SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
         if not cursor.fetchone():
             raise ValueError('客戶不存在')
-        change_balance(cursor,customer_id,amount,'topup',get_current_user_id(),notes=note,request_key=operation_key)
+        change_balance(cursor, customer_id, amount, 'topup',
+                       get_current_user_id(), notes=note, request_key=operation_key)
         database.connection.commit()
         flash('客戶儲值已成功入帳', 'success')
     except Exception as exc:
@@ -1764,7 +1786,7 @@ def add_customer_stored_value(customer_id):
         flash(f'儲值失敗：{exc}', 'error')
     finally:
         cursor.close()
-    return redirect(url_for('admin.customer_detail',customer_id=customer_id))
+    return redirect(url_for('admin.customer_detail', customer_id=customer_id))
 
 
 @admin_bp.route('/customer/<int:customer_id>/delete', methods=['POST'])
@@ -1980,13 +2002,16 @@ def add_order_manual():
         quantities = request.form.getlist('quantities[]')
         prices = request.form.getlist('prices[]')
         costs = request.form.getlist('costs[]')
-        event_ids = list(dict.fromkeys(int(x) for x in request.form.getlist('event_ids[]') if x))
+        event_ids = list(dict.fromkeys(int(x)
+                         for x in request.form.getlist('event_ids[]') if x))
         operation_key = (request.form.get('request_key') or '').strip()
         if not re.fullmatch(r'[A-Za-z0-9_-]{24,64}', operation_key):
             raise ValueError('訂單請求識別碼無效，請重新開啟訂單頁面')
-        use_stored_value = money(request.form.get('stored_value_amount') or '0')
-        other_payment_method = request.form.get('other_payment_method') or 'cash'
-        if other_payment_method not in ('cash','credit_card','bank_transfer','other'):
+        use_stored_value = money(
+            request.form.get('stored_value_amount') or '0')
+        other_payment_method = request.form.get(
+            'other_payment_method') or 'cash'
+        if other_payment_method not in ('cash', 'credit_card', 'bank_transfer', 'other'):
             raise ValueError('付款方式無效')
         if use_stored_value < 0:
             raise ValueError('儲值扣款不能是負數')
@@ -2051,17 +2076,19 @@ def add_order_manual():
         cursor.execute("""
             INSERT INTO orders (customer_id,total_amount,status,created_at,
                                 stored_value_amount,other_payment_amount,other_payment_method,payment_method,request_key)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (customer_id,total_amount,status,created_at,use_stored_value,
-               other_amount,other_payment_method if other_amount > 0 else None,payment_method,operation_key))
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (customer_id, total_amount, status, created_at, use_stored_value,
+              other_amount, other_payment_method if other_amount > 0 else None, payment_method, operation_key))
         order_id = cursor.lastrowid
         if use_stored_value > 0:
-            change_balance(cursor,int(customer_id),-use_stored_value,'spend',
-                           get_current_user_id(),order_id,1,'新訂單儲值扣款')
-            cursor.execute('UPDATE orders SET financial_revision=1 WHERE id=%s', (order_id,))
+            change_balance(cursor, int(customer_id), -use_stored_value, 'spend',
+                           get_current_user_id(), order_id, 1, '新訂單儲值扣款')
+            cursor.execute(
+                'UPDATE orders SET financial_revision=1 WHERE id=%s', (order_id,))
         if event_ids:
             placeholders = ','.join(['%s'] * len(event_ids))
-            cursor.execute(f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(event_ids))
+            cursor.execute(
+                f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(event_ids))
             if len(cursor.fetchall()) != len(event_ids):
                 raise ValueError('所選活動不存在')
             for event_id in event_ids:
@@ -2109,7 +2136,7 @@ def add_order_manual():
                 customer_data = {
                     'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
                 notify_order_confirmed(order_id, customer_data, total_amount,
-                                       use_stored_value,other_amount,other_payment_method if other_amount else None)
+                                       use_stored_value, other_amount, other_payment_method if other_amount else None)
                 flash('訂單已建立並發送通知', 'success')
             except Exception as e:
                 flash('訂單建立成功，但通知發送失敗', 'warning')
@@ -2121,7 +2148,8 @@ def add_order_manual():
             log_activity('create', 'order', order_id, {
                          'type': 'manual_admin', 'amount': str(total_amount)})
         except Exception:
-            current_app.logger.warning('Manual order audit log failed for order %s', order_id)
+            current_app.logger.warning(
+                'Manual order audit log failed for order %s', order_id)
 
     except Exception as e:
         database.connection.rollback()
@@ -2136,18 +2164,23 @@ def update_order_events(order_id):
     """編輯訂單關聯活動（可選零至多個），不修改原有訂單金額或狀態。"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        ids = list(dict.fromkeys(int(v) for v in request.form.getlist('event_ids[]') if v))
-        cursor.execute('SELECT id FROM orders WHERE id=%s AND deleted_at IS NULL FOR UPDATE', (order_id,))
+        ids = list(dict.fromkeys(int(v)
+                   for v in request.form.getlist('event_ids[]') if v))
+        cursor.execute(
+            'SELECT id FROM orders WHERE id=%s AND deleted_at IS NULL FOR UPDATE', (order_id,))
         if not cursor.fetchone():
             raise ValueError('訂單不存在')
         if ids:
             placeholders = ','.join(['%s'] * len(ids))
-            cursor.execute(f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(ids))
+            cursor.execute(
+                f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(ids))
             if len(cursor.fetchall()) != len(ids):
                 raise ValueError('活動選項包含已刪除的活動')
-        cursor.execute('DELETE FROM order_events WHERE order_id=%s', (order_id,))
+        cursor.execute(
+            'DELETE FROM order_events WHERE order_id=%s', (order_id,))
         for event_id in ids:
-            cursor.execute('INSERT INTO order_events(order_id,event_id) VALUES(%s,%s)', (order_id,event_id))
+            cursor.execute(
+                'INSERT INTO order_events(order_id,event_id) VALUES(%s,%s)', (order_id, event_id))
         database.connection.commit()
         flash('訂單相關活動已儲存', 'success')
     except (ValueError, TypeError) as e:
@@ -2309,20 +2342,21 @@ def delete_order(order_id):
     """Soft delete only; cancel reverses inventory and prepaid amounts atomically."""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        order = lock_order(cursor,order_id)
-        archive_order(cursor,order,get_current_user_id())
+        order = lock_order(cursor, order_id)
+        archive_order(cursor, order, get_current_user_id())
         database.connection.commit()
         try:
-            log_activity('archive','order',order_id)
+            log_activity('archive', 'order', order_id)
         except Exception:
-            current_app.logger.warning('Archive audit notification failed for order %s', order_id)
+            current_app.logger.warning(
+                'Archive audit notification failed for order %s', order_id)
         flash('訂單已封存；訂單、庫存與儲值流水均保留', 'success')
     except Exception as exc:
         database.connection.rollback()
         flash(f'封存訂單失敗：{exc}', 'error')
     finally:
         cursor.close()
-    return redirect(url_for('admin.dashboard',tab='orders'))
+    return redirect(url_for('admin.dashboard', tab='orders'))
 
 
 @admin_bp.route('/booking/<int:booking_id>/delete', methods=['POST'])
