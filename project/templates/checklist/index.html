@@ -96,7 +96,8 @@
                         stats.total }} 項，已處理 {{ ((resolved * 100 / stats.total)|round)|int if stats.total else 100
                         }}%）</small>
                     <hr>
-                    <div class="small text-muted mb-1">簽核：值日生 {{ '✓' if approvals.get('duty') else '尚未確認' }}；芳療師／助理 {{ '✓'
+                    <div class="small text-muted mb-1">簽核：值日生 {{ '✓' if approvals.get('duty') else '尚未確認' }}；芳療師／助理 {{
+                        '✓'
                         if approvals.get('therapist') else '尚未確認' }} · 版本 {{ record.revision }}</div>
                     <div class="small">提醒：如 9:00 有預約，所有夥伴需於 8:50 前到店。</div>
                 </div>
@@ -151,7 +152,8 @@
                             item.done_surname or '' }} · {{ item.done_at }}</div>{% endif %}
                     </div>
                     {% if item.state != 'void' %}
-                    {% set signed_role_lock = (approvals.get(item.snapshot_role) if item.snapshot_role != 'all' else (approvals.get('duty') or approvals.get('therapist'))) %}
+                    {% set signed_role_lock = (approvals.get(item.snapshot_role) if item.snapshot_role != 'all' else
+                    (approvals.get('duty') or approvals.get('therapist'))) %}
                     <select class="form-select form-select-sm item-state" style="max-width:140px"
                         data-item-id="{{ item.id }}" data-original="{{ item.state }}" data-note="{{ item.note or '' }}"
                         {{ 'disabled' if record.status=='locked' or (actor.role!='admin' and day!=today) or not
@@ -199,37 +201,41 @@
         <div class="card-body">
             <h4 class="h6 mb-3">雙人簽核（僅本人操作）</h4>
             <div class="row g-3">
-                {% for role,label,id_field in [('duty','值日生','duty_user_id'),('therapist','芳療師／助理','therapist_user_id')] %}
+                {% for role,label,id_field in [('duty','值日生','duty_user_id'),('therapist','芳療師／助理','therapist_user_id')]
+                %}
                 <div class="col-md-6">
                     <div class="border rounded p-3 h-100">
                         <strong>{{ label }}</strong>
                         {% if approvals.get(role) %}
                         <div class="text-success small">✓ 已確認 · {{ approvals[role].signed_at }}</div>
                         {% else %}
-                        {% set signable = actor.id == record[id_field] and not pending_by_role[role] and record.status == 'open' and day <= today %}
-                        <form method="post" action="{{ url_for('checklist.sign_day',role=role) }}" class="mt-2">
+                        {% set signable = actor.id == record[id_field] and not pending_by_role[role] and record.status
+                        == 'open' and day <= today %} <form method="post"
+                            action="{{ url_for('checklist.sign_day',role=role) }}" class="mt-2">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="date" value="{{ day.isoformat() }}">
                             <label for="signName-{{ role }}" class="form-label small">簽核內容（自由輸入）</label>
-                            <input id="signName-{{ role }}" type="text" name="sign_name" class="form-control form-control-sm mb-2"
-                                autocomplete="off" placeholder="請輸入姓名、暱稱或其他簽核文字" required
-                                {{ 'disabled' if not signable else '' }}>
-                            <button type="submit" class="btn btn-success btn-sm" {{ 'disabled' if not signable else '' }}>確認本人簽核</button>
-                        </form>
-                        {% if not record[id_field] %}
-                        <div class="small text-warning mt-2">請先請管理員指派此角色的員工。</div>
-                        {% elif actor.id != record[id_field] %}
-                        <div class="small text-muted mt-2">只有當日被指派的本人可以簽核。</div>
-                        {% elif pending_by_role[role] %}
-                        <div class="small text-warning mt-2">自己負責或「全員」的工作尚有 {{ pending_by_role[role] }} 項未完成，請先完成或填寫不適用原因。另一職務的專屬工作不影響你的簽核。</div>
-                        {% elif day > today %}
-                        <div class="small text-muted mt-2">未來日期不能提前簽核。</div>
-                        {% elif record.status != 'open' %}
-                        <div class="small text-muted mt-2">本日已鎖定。</div>
-                        {% else %}
-                        <div class="small text-muted mt-2">可自由輸入簽核文字；系統仍會記錄實際登入帳號及簽核時間。</div>
-                        {% endif %}
-                        {% endif %}
+                            <input id="signName-{{ role }}" type="text" name="sign_name"
+                                class="form-control form-control-sm mb-2" autocomplete="off"
+                                placeholder="請輸入姓名、暱稱或其他簽核文字" required {{ 'disabled' if not signable else '' }}>
+                            <button type="submit" class="btn btn-success btn-sm" {{ 'disabled' if not signable else ''
+                                }}>確認本人簽核</button>
+                            </form>
+                            {% if not record[id_field] %}
+                            <div class="small text-warning mt-2">請先請管理員指派此角色的員工。</div>
+                            {% elif actor.id != record[id_field] %}
+                            <div class="small text-muted mt-2">只有當日被指派的本人可以簽核。</div>
+                            {% elif pending_by_role[role] %}
+                            <div class="small text-warning mt-2">自己負責或「全員」的工作尚有 {{ pending_by_role[role] }}
+                                項未完成，請先完成或填寫不適用原因。另一職務的專屬工作不影響你的簽核。</div>
+                            {% elif day > today %}
+                            <div class="small text-muted mt-2">未來日期不能提前簽核。</div>
+                            {% elif record.status != 'open' %}
+                            <div class="small text-muted mt-2">
+                                本日已鎖定。
+                            </div>
+                            {% endif %}
+                            {% endif %}
                     </div>
                 </div>{% endfor %}
             </div>
