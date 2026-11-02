@@ -179,10 +179,18 @@ def notify_new_booking_created(booking_id, customer_name, customer_email, course
         ).start()
 
 
-def notify_order_confirmed(order_id, customer, total_amount):
-    """訂單確認 (通知取貨)"""
+def notify_order_confirmed(order_id, customer, total_amount, stored_value_paid=0, other_payment_amount=None, other_payment_method=None):
+    """訂單確認；使用儲值時說明實際扣款與其他付款金額，避免要求重複付款。"""
     app = current_app._get_current_object()
     msg = f"✅ 訂單 #{order_id} 已確認！\n金額：NT$ {total_amount:,.0f}\n請您於營業時間前往店內付款取貨，謝謝！"
+    if stored_value_paid and stored_value_paid > 0:
+        payment_names = {'cash':'現金','credit_card':'信用卡','bank_transfer':'銀行轉帳','other':'其他'}
+        method_label = payment_names.get(other_payment_method, '其他方式')
+        other_amount = other_payment_amount or 0
+        msg = (f"✅ 訂單 #{order_id} 已確認！\n總金額：NT$ {total_amount:,.2f}"
+               f"\n已扣儲值金：NT$ {stored_value_paid:,.2f}"
+               f"\n其餘款項：NT$ {other_amount:,.2f}（{method_label if other_amount else '無'}）"
+               "\n請您於營業時間前往店內取貨，謝謝！")
 
     # LINE 通知客戶
     if customer.get('line_id'):

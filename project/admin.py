@@ -8,6 +8,7 @@ from functools import wraps
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import os
+import secrets
 import cloudinary
 import cloudinary.uploader
 import re
@@ -15,6 +16,8 @@ from project.extensions import database
 from project.db import get_current_user_id, get_current_user_role
 import MySQLdb.cursors
 from decimal import Decimal
+from project.stored_value import (money, ensure_wallet, change_balance, lock_order,
+                                  cancel_order, restore_order, archive_order)
 # from project.services import admin_update_order_with_inventory
 from project.db import get_current_user_id
 from project.audit import log_activity
@@ -67,6 +70,7 @@ def save_upload(file, upload_folder):
 @staff_required
 def dashboard():
     tab = request.args.get('tab', 'overview')
+    show_deleted_orders = request.args.get('show_deleted') == '1'
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     # 1. 基礎計數 (Counts)
@@ -79,7 +83,7 @@ def dashboard():
     course_count = cursor.fetchone()['count']
 
     cursor.execute(
-        "SELECT COUNT(*) as count FROM orders WHERE status != 'cancelled'")
+        "SELECT COUNT(*) as count FROM orders WHERE status != 'cancelled' AND deleted_at IS NULL")
     order_count = cursor.fetchone()['count']
 
     cursor.execute(
@@ -98,7 +102,7 @@ def dashboard():
     # 2. 營收計算 (Revenue)
     cursor.execute("""
         SELECT
-            (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status != 'cancelled') +
+            (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status != 'cancelled' AND deleted_at IS NULL) +
             (SELECT COALESCE(SUM(total_amount), 0) FROM bookings WHERE status != 'cancelled')
         as total_revenue
     """)
@@ -112,7 +116,7 @@ def dashboard():
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         JOIN orders o ON oi.order_id = o.id
-        WHERE o.status != 'cancelled'
+        WHERE o.status != 'cancelled' AND o.deleted_at IS NULL
     """)
     res = cursor.fetchone()
     order_cost = float(res['order_cost']) if res and res['order_cost'] else 0.0
@@ -137,6 +141,7 @@ def dashboard():
                u.username, u.firstname, u.surname
         FROM orders o
         JOIN users u ON o.customer_id = u.id
+        WHERE o.deleted_at IS NULL
         ORDER BY o.created_at DESC
         LIMIT 10
     """)
@@ -231,11 +236,17 @@ def dashboard():
         "SELECT id, firstname, surname, username FROM users WHERE role = 'customer' ORDER BY firstname")
     customers = cursor.fetchall()
 
+    # Wallet balances for customer selection; missing rows mean zero credit.
+    cursor.execute('SELECT customer_id,balance FROM customer_stored_balances')
+    stored_balances = {r['customer_id']: str(r['balance']) for r in cursor.fetchall()}
+
     # Orders full list
-    cursor.execute("""
+    order_visibility = 'IS NOT NULL' if show_deleted_orders else 'IS NULL'
+    cursor.execute(f"""
         SELECT o.*, u.username, u.firstname, u.surname, u.email, u.phone
         FROM orders o
         JOIN users u ON o.customer_id = u.id
+        WHERE o.deleted_at {order_visibility}
         ORDER BY o.created_at DESC
     """)
     orders = cursor.fetchall()
@@ -302,7 +313,7 @@ def dashboard():
                COUNT(DISTINCT b.id) as booking_count
         FROM users u
         LEFT JOIN customer_sources cs ON u.source_id = cs.id
-        LEFT JOIN orders o ON u.id = o.customer_id
+        LEFT JOIN orders o ON u.id = o.customer_id AND o.deleted_at IS NULL
         LEFT JOIN bookings b ON u.id = b.customer_id
         WHERE u.role = 'customer'
         GROUP BY u.id
@@ -367,7 +378,10 @@ def dashboard():
         events=events,
         inventory_products=inventory_products,
         customers=customers,
+        manual_order_request_key=secrets.token_urlsafe(24),
+        stored_balances=stored_balances,
         orders=orders,
+        show_deleted_orders=show_deleted_orders,
         bookings=bookings,
         customers_list=customers_list,
         customer_sources=customer_sources,
@@ -1168,104 +1182,52 @@ def product_inventory_history(product_id):
 @admin_bp.route('/order/<int:order_id>/update-status', methods=['POST'])
 @staff_required
 def update_order_status(order_id):
-    """
-    更新訂單狀態並連動庫存 + 發送通知 (修正變數名稱版)
-    """
+    new_status = request.form.get('status')
+    if new_status not in ('pending', 'confirmed', 'completed', 'cancelled'):
+        flash('無效的狀態', 'error')
+        return redirect(url_for('admin.dashboard', tab='orders'))
+
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    changed = False
     try:
-        new_status = request.form.get('status')
-        allowed_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
-
-        if new_status not in allowed_statuses:
-            flash('無效的狀態', 'error')
-            return redirect(url_for('admin.dashboard', tab='orders'))
-
-        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-        # 1. ⭐ 修正：將查詢結果賦值給 order_info (之前可能寫成 order)
-        cursor.execute("""
-            SELECT o.status, o.total_amount, u.email, u.firstname, u.line_id 
-            FROM orders o
-            JOIN users u ON o.customer_id = u.id
-            WHERE o.id = %s
-        """, (order_id,))
-        order_info = cursor.fetchone()  # <--- 關鍵修改：定義 order_info
-
-        if not order_info:
-            cursor.close()
-            flash('訂單不存在', 'error')
-            return redirect(url_for('admin.dashboard', tab='orders'))
-
-        old_status = order_info['status']
-
-        # 狀態沒變，直接返回
-        if old_status == new_status:
-            cursor.close()
-            return redirect(url_for('admin.dashboard', tab='orders'))
-
-        # 2. 庫存連動邏輯 (保持不變)
-        if old_status != 'cancelled' and new_status == 'cancelled':
-            cursor.execute(
-                "SELECT product_id, quantity FROM order_items WHERE order_id = %s", (order_id,))
-            items = cursor.fetchall()
-            for item in items:
-                cursor.execute("UPDATE products SET stock_quantity = stock_quantity + %s WHERE id = %s",
-                               (item['quantity'], item['product_id']))
-                cursor.execute("INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by) VALUES (%s, %s, 'return', %s, 'Order Cancelled', %s)",
-                               (item['product_id'], item['quantity'], order_id, get_current_user_id()))
-
-        elif old_status == 'cancelled' and new_status in ['pending', 'confirmed', 'completed']:
-            cursor.execute(
-                "SELECT product_id, quantity FROM order_items WHERE order_id = %s", (order_id,))
-            items = cursor.fetchall()
-            for item in items:
-                cursor.execute("""UPDATE products SET stock_quantity=stock_quantity-%s,
-                           last_sale_date=NOW() WHERE id=%s AND stock_quantity >= %s""",
-                           (item['quantity'], item['product_id'], item['quantity']))
-                if cursor.rowcount != 1:
-                    raise ValueError('產品庫存不足，無法恢復訂單')
-                cursor.execute("INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by) VALUES (%s, %s, 'sale', %s, 'Order Restored', %s)",
-                               (item['product_id'], -item['quantity'], order_id, get_current_user_id()))
-
-        elif new_status == 'completed':
-            cursor.execute(
-                "SELECT product_id FROM order_items WHERE order_id = %s", (order_id,))
-            items = cursor.fetchall()
-            for item in items:
-                cursor.execute(
-                    "UPDATE products SET last_sale_date = NOW() WHERE id = %s", (item['product_id'],))
-
-        # 3. 更新狀態
-        cursor.execute(
-            "UPDATE orders SET status = %s WHERE id = %s", (new_status, order_id))
+        order = lock_order(cursor, order_id)
+        old_status = order['status']
+        if old_status != new_status:
+            if new_status == 'cancelled':
+                cancel_order(cursor, order, get_current_user_id())
+            elif old_status == 'cancelled':
+                # Stock and stored-value are both charged before the order can be restored.
+                restore_order(cursor, order, new_status, get_current_user_id())
+            else:
+                cursor.execute('UPDATE orders SET status=%s WHERE id=%s', (new_status,order_id))
+                if new_status == 'completed':
+                    cursor.execute('''UPDATE products p JOIN order_items oi ON p.id=oi.product_id
+                                      SET p.last_sale_date=NOW() WHERE oi.order_id=%s''', (order_id,))
+            changed = True
+        cursor.execute('SELECT firstname,email,line_id FROM users WHERE id=%s', (order['customer_id'],))
+        customer_data = cursor.fetchone()
         database.connection.commit()
+    except Exception as exc:
+        database.connection.rollback()
+        flash(f'訂單狀態更新失敗：{exc}', 'error')
+        return redirect(url_for('admin.dashboard', tab='orders'))
+    finally:
         cursor.close()
-
-        # 4. ⭐ 發送通知 (現在 order_info 已經有定義了，不會報錯)
-        customer_data = {
-            'email': order_info['email'],
-            'firstname': order_info['firstname'],
-            'line_id': order_info['line_id']
-        }
-
+    if changed:
         try:
-            # ⭐ 延遲引用
             from project.notifications import notify_order_confirmed, notify_order_status_update
             if new_status == 'confirmed' and old_status != 'confirmed':
-                notify_order_confirmed(
-                    order_id, customer_data, order_info['total_amount'])
-            elif new_status != old_status:
-                notify_order_status_update(
-                    order_id, customer_data['firstname'], customer_data['email'], new_status)
-        except Exception as e:
-            print(f"Notification Error: {e}")
-
-        log_activity('update', 'order', order_id, {
-                     'old': old_status, 'new': new_status})
-        flash(f'狀態已更新 ({new_status})', 'success')
-    except Exception as e:
-        database.connection.rollback()
-        flash(f'更新失敗: {str(e)}', 'error')
-
+                notify_order_confirmed(order_id, customer_data, order['total_amount'],
+                                       order['stored_value_amount'],order['other_payment_amount'],order['other_payment_method'])
+            else:
+                notify_order_status_update(order_id,customer_data['firstname'],customer_data['email'],new_status)
+        except Exception as exc:
+            current_app.logger.warning('Order notification failed: %s', type(exc).__name__)
+        try:
+            log_activity('update','order',order_id,{'old':old_status,'new':new_status})
+        except Exception:
+            current_app.logger.warning('Order status audit log failed for order %s', order_id)
+        flash('訂單狀態已更新', 'success')
     return redirect(url_for('admin.dashboard', tab='orders'))
 
 
@@ -1704,7 +1666,7 @@ def customer_detail(customer_id):
         cursor.execute("""
             SELECT id, total_amount, status, created_at
             FROM orders
-            WHERE customer_id = %s
+            WHERE customer_id = %s AND deleted_at IS NULL
             ORDER BY created_at DESC
         """, (customer_id,))
         product_orders = cursor.fetchall()
@@ -1744,6 +1706,16 @@ def customer_detail(customer_id):
         """, (customer_id,))
         course_bookings = cursor.fetchall()
 
+        # Prepaid credit (never expires). Ledger is append-only.
+        cursor.execute('SELECT balance FROM customer_stored_balances WHERE customer_id=%s', (customer_id,))
+        balance_row = cursor.fetchone()
+        stored_value_balance = balance_row['balance'] if balance_row else Decimal('0.00')
+        cursor.execute('''SELECT l.*, o.id AS related_order_id
+                           FROM customer_stored_value_ledger l
+                           LEFT JOIN orders o ON o.id=l.order_id
+                           WHERE l.customer_id=%s ORDER BY l.id DESC LIMIT 50''', (customer_id,))
+        stored_value_history = cursor.fetchall()
+
         # 4. 取得來源列表 (供編輯表單的下拉選單使用)
         cursor.execute("SELECT * FROM customer_sources ORDER BY id")
         customer_sources = cursor.fetchall()
@@ -1754,11 +1726,45 @@ def customer_detail(customer_id):
     return render_template(
         'admin_customer_detail.html',
         customer=customer,
+        stored_value_balance=stored_value_balance,
+        stored_value_history=stored_value_history,
+        stored_value_request_key=secrets.token_urlsafe(24),
         product_orders=product_orders,
         order_items_map=order_items_map,
         course_bookings=course_bookings,
         customer_sources=customer_sources
     )
+
+
+@admin_bp.route('/customer/<int:customer_id>/stored-value/add', methods=['POST'])
+@staff_required
+def add_customer_stored_value(customer_id):
+    """Staff or admin may add credit; never directly edit the balance."""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        operation_key = (request.form.get('request_key') or '').strip()
+        if not re.fullmatch(r'[A-Za-z0-9_-]{24,64}', operation_key):
+            raise ValueError('儲值請求識別碼無效，請重新開啟客戶頁面')
+        amount = money(request.form.get('amount'))
+        if amount <= 0:
+            raise ValueError('儲值金額必須大於零')
+        if amount > Decimal('99999999.99'):
+            raise ValueError('單筆儲值金額過大')
+        note = (request.form.get('notes') or '').strip()
+        if len(note) > 500:
+            raise ValueError('備註不得超過 500 字')
+        cursor.execute("SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
+        if not cursor.fetchone():
+            raise ValueError('客戶不存在')
+        change_balance(cursor,customer_id,amount,'topup',get_current_user_id(),notes=note,request_key=operation_key)
+        database.connection.commit()
+        flash('客戶儲值已成功入帳', 'success')
+    except Exception as exc:
+        database.connection.rollback()
+        flash(f'儲值失敗：{exc}', 'error')
+    finally:
+        cursor.close()
+    return redirect(url_for('admin.customer_detail',customer_id=customer_id))
 
 
 @admin_bp.route('/customer/<int:customer_id>/delete', methods=['POST'])
@@ -1975,6 +1981,15 @@ def add_order_manual():
         prices = request.form.getlist('prices[]')
         costs = request.form.getlist('costs[]')
         event_ids = list(dict.fromkeys(int(x) for x in request.form.getlist('event_ids[]') if x))
+        operation_key = (request.form.get('request_key') or '').strip()
+        if not re.fullmatch(r'[A-Za-z0-9_-]{24,64}', operation_key):
+            raise ValueError('訂單請求識別碼無效，請重新開啟訂單頁面')
+        use_stored_value = money(request.form.get('stored_value_amount') or '0')
+        other_payment_method = request.form.get('other_payment_method') or 'cash'
+        if other_payment_method not in ('cash','credit_card','bank_transfer','other'):
+            raise ValueError('付款方式無效')
+        if use_stored_value < 0:
+            raise ValueError('儲值扣款不能是負數')
 
         if not customer_id or not product_ids:
             flash('請選擇客戶與至少一項產品', 'error')
@@ -2000,7 +2015,9 @@ def add_order_manual():
             if qty <= 0:
                 continue
 
-            price = float(prices[i])
+            price = money(prices[i])
+            if price < 0:
+                raise ValueError('產品單價不得小於零')
             cost = float(costs[i]) if i < len(costs) and costs[i] else None
 
             subtotal = price * qty
@@ -2018,13 +2035,30 @@ def add_order_manual():
             flash('訂單內容無效', 'error')
             return redirect(url_for('admin.dashboard', tab='orders'))
 
+        # 鎖定此客戶的儲值餘額，與建立訂單及扣庫存共享同一交易。
+        total_amount = money(total_amount)
+        if use_stored_value > total_amount:
+            raise ValueError('儲值扣款超過訂單金額')
+        current_balance = ensure_wallet(cursor, int(customer_id))
+        if use_stored_value > current_balance:
+            raise ValueError('儲值餘額不足')
+        other_amount = total_amount - use_stored_value
+        payment_method = ('stored_value' if other_amount == 0 else
+                          'mixed' if use_stored_value > 0 else other_payment_method)
+
         # 3. 寫入訂單主檔
         status = 'confirmed'
         cursor.execute("""
-            INSERT INTO orders (customer_id, total_amount, status, created_at)
-            VALUES (%s, %s, %s, %s)
-        """, (customer_id, total_amount, status, created_at))
+            INSERT INTO orders (customer_id,total_amount,status,created_at,
+                                stored_value_amount,other_payment_amount,other_payment_method,payment_method,request_key)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (customer_id,total_amount,status,created_at,use_stored_value,
+               other_amount,other_payment_method if other_amount > 0 else None,payment_method,operation_key))
         order_id = cursor.lastrowid
+        if use_stored_value > 0:
+            change_balance(cursor,int(customer_id),-use_stored_value,'spend',
+                           get_current_user_id(),order_id,1,'新訂單儲值扣款')
+            cursor.execute('UPDATE orders SET financial_revision=1 WHERE id=%s', (order_id,))
         if event_ids:
             placeholders = ','.join(['%s'] * len(event_ids))
             cursor.execute(f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(event_ids))
@@ -2074,15 +2108,20 @@ def add_order_manual():
                 from project.notifications import notify_order_confirmed
                 customer_data = {
                     'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
-                notify_order_confirmed(order_id, customer_data, total_amount)
+                notify_order_confirmed(order_id, customer_data, total_amount,
+                                       use_stored_value,other_amount,other_payment_method if other_amount else None)
                 flash('訂單已建立並發送通知', 'success')
             except Exception as e:
                 flash('訂單建立成功，但通知發送失敗', 'warning')
         else:
             flash('訂單已補登', 'success')
 
-        log_activity('create', 'order', order_id, {
-                     'type': 'manual_admin', 'amount': total_amount})
+        # Notification/audit failure must not report a committed order as failed.
+        try:
+            log_activity('create', 'order', order_id, {
+                         'type': 'manual_admin', 'amount': str(total_amount)})
+        except Exception:
+            current_app.logger.warning('Manual order audit log failed for order %s', order_id)
 
     except Exception as e:
         database.connection.rollback()
@@ -2098,7 +2137,7 @@ def update_order_events(order_id):
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
         ids = list(dict.fromkeys(int(v) for v in request.form.getlist('event_ids[]') if v))
-        cursor.execute('SELECT id FROM orders WHERE id=%s FOR UPDATE', (order_id,))
+        cursor.execute('SELECT id FROM orders WHERE id=%s AND deleted_at IS NULL FOR UPDATE', (order_id,))
         if not cursor.fetchone():
             raise ValueError('訂單不存在')
         if ids:
@@ -2267,29 +2306,23 @@ def fix_db_order():
 @admin_bp.route('/order/<int:order_id>/delete', methods=['POST'])
 @staff_required
 def delete_order(order_id):
-    """永久刪除訂單"""
+    """Soft delete only; cancel reverses inventory and prepaid amounts atomically."""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        cursor = database.connection.cursor()
-
-        # 1. 為了確保資料庫關聯不報錯，必須先刪除訂單底下的「購買項目 (order_items)」
-        cursor.execute(
-            "DELETE FROM order_items WHERE order_id = %s", (order_id,))
-
-        # 2. 刪除訂單主檔
-        cursor.execute("DELETE FROM orders WHERE id = %s", (order_id,))
-
+        order = lock_order(cursor,order_id)
+        archive_order(cursor,order,get_current_user_id())
         database.connection.commit()
-        cursor.close()
-
-        # 3. 寫入審計日誌
-        log_activity('delete', 'order', order_id)
-        flash('訂單已永久刪除', 'success')
-
-    except Exception as e:
+        try:
+            log_activity('archive','order',order_id)
+        except Exception:
+            current_app.logger.warning('Archive audit notification failed for order %s', order_id)
+        flash('訂單已封存；訂單、庫存與儲值流水均保留', 'success')
+    except Exception as exc:
         database.connection.rollback()
-        flash(f'刪除訂單失敗: {str(e)}', 'error')
-
-    return redirect(url_for('admin.dashboard', tab='orders'))
+        flash(f'封存訂單失敗：{exc}', 'error')
+    finally:
+        cursor.close()
+    return redirect(url_for('admin.dashboard',tab='orders'))
 
 
 @admin_bp.route('/booking/<int:booking_id>/delete', methods=['POST'])

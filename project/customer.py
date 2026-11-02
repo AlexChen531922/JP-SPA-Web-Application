@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, session, flash, redirect, url_for, current_app
 from .decorators import login_required, customer_required
 from project.extensions import database, mail
+from project.stored_value import cancel_order as cancel_order_with_refund, lock_order
 from .db import get_current_user_id, get_user_details, update_user_profile
 from project.notifications import send_email
 import MySQLdb.cursors
@@ -88,7 +89,7 @@ def dashboard():
                COUNT(oi.id) as item_count
         FROM orders o
         LEFT JOIN order_items oi ON o.id = oi.order_id
-        WHERE o.customer_id = %s
+        WHERE o.customer_id = %s AND o.deleted_at IS NULL
         GROUP BY o.id, o.total_amount, o.status, o.created_at
         ORDER BY o.created_at DESC
         LIMIT 5
@@ -101,11 +102,14 @@ def dashboard():
         FROM order_items oi
         JOIN orders o ON oi.order_id = o.id
         JOIN products p ON oi.product_id = p.id
-        WHERE o.customer_id = %s AND o.status IN ('confirmed', 'completed')
+        WHERE o.customer_id = %s AND o.deleted_at IS NULL AND o.status IN ('confirmed', 'completed')
         GROUP BY oi.product_id, p.name
     """, (user_id,))
     purchased_products = cursor.fetchall()
 
+    cursor.execute('SELECT balance FROM customer_stored_balances WHERE customer_id=%s', (user_id,))
+    wallet_row = cursor.fetchone()
+    stored_value_balance = wallet_row['balance'] if wallet_row else 0
     cursor.close()
 
     return render_template(
@@ -113,7 +117,8 @@ def dashboard():
         user=user,
         active_courses=active_courses,
         recent_orders=recent_orders,
-        purchased_products=purchased_products
+        purchased_products=purchased_products,
+        stored_value_balance=stored_value_balance
     )
 
 # ==========================================
@@ -153,7 +158,7 @@ def orders():
     cursor.execute("""
         SELECT o.id, o.total_amount, o.status, o.created_at, o.payment_method, o.notes
         FROM orders o
-        WHERE o.customer_id = %s
+        WHERE o.customer_id = %s AND o.deleted_at IS NULL
         ORDER BY o.created_at DESC
     """, (user_id,))
     orders_data = cursor.fetchall()
@@ -186,7 +191,7 @@ def order_detail(order_id):
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     cursor.execute(
-        "SELECT * FROM orders WHERE id = %s AND customer_id = %s", (order_id, user_id))
+        "SELECT * FROM orders WHERE id = %s AND customer_id = %s AND deleted_at IS NULL", (order_id, user_id))
     order = cursor.fetchone()
 
     if not order:
@@ -210,38 +215,23 @@ def order_detail(order_id):
 @customer_required
 def cancel_order(order_id):
     user_id = get_current_user_id()
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute(
-            "SELECT status FROM orders WHERE id = %s AND customer_id = %s", (order_id, user_id))
-        order = cursor.fetchone()
-
-        if not order or order['status'] in ['completed', 'cancelled']:
-            flash('無法取消此訂單', 'error')
-            return redirect(request.referrer or url_for('customer.dashboard'))
-
-        # 回補庫存
-        cursor.execute(
-            "SELECT product_id, quantity FROM order_items WHERE order_id = %s", (order_id,))
-        items = cursor.fetchall()
-        for item in items:
-            cursor.execute("UPDATE products SET stock_quantity = stock_quantity + %s WHERE id = %s",
-                           (item['quantity'], item['product_id']))
-            cursor.execute("INSERT INTO inventory_logs (product_id, change_amount, change_type, notes, created_by) VALUES (%s, %s, 'return', 'Customer Cancel', %s)",
-                           (item['product_id'], item['quantity'], user_id))
-
-        cursor.execute(
-            "UPDATE orders SET status = 'cancelled' WHERE id = %s", (order_id,))
+        order = lock_order(cursor, order_id, user_id)
+        if order['status'] in ('completed','cancelled'):
+            raise ValueError('無法取消此訂單')
+        cancel_order_with_refund(cursor,order,user_id,'Customer Cancel')
         database.connection.commit()
-        cursor.close()
-
-        send_cancel_notification("訂單", order_id)
-        flash('訂單已取消，庫存已釋出', 'success')
-
-    except Exception as e:
+        try:
+            send_cancel_notification('訂單',order_id)
+        except Exception:
+            pass
+        flash('訂單已取消，庫存及已使用的儲值金已退回', 'success')
+    except Exception as exc:
         database.connection.rollback()
-        flash(f'取消失敗: {str(e)}', 'error')
-
+        flash(f'取消失敗：{exc}', 'error')
+    finally:
+        cursor.close()
     return redirect(request.referrer or url_for('customer.dashboard'))
 
 

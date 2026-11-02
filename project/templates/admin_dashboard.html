@@ -488,6 +488,9 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>
         <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-cart"></i> 訂單管理</h4>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.dashboard',tab='orders',show_deleted=0 if show_deleted_orders else 1) }}">
+          {{ '返回有效訂單' if show_deleted_orders else '檢視已封存訂單' }}
+        </a>
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addOrderModal">
           <i class="bi bi-plus-circle"></i> 建立/補登訂單
         </button>
@@ -521,8 +524,13 @@
               data-date="{{ order.created_at.strftime('%Y-%m-%d') }}" data-products="{{ product_names }}">
               <td>{{ order.id }}</td>
               <td>{{ order.firstname }} {{ order.surname }}</td>
-              <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}</td>
+              <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}
+                {% if order.stored_value_amount %}<div class="small text-success">儲值扣款：NT$ {{ '{:,.2f}'.format(order.stored_value_amount) }}</div>{% endif %}
+                {% if order.other_payment_amount is not none %}<div class="small text-muted">其他付款：NT$ {{ '{:,.2f}'.format(order.other_payment_amount) }}
+                {% if order.other_payment_method %}（{{ {'cash':'現金','credit_card':'信用卡','bank_transfer':'銀行轉帳','other':'其他'}.get(order.other_payment_method,order.other_payment_method) }}）{% endif %}</div>{% endif %}
+              </td>
               <td>
+                {% if show_deleted_orders %}<span class="badge bg-secondary">已封存／已取消</span>{% else %}
                 <form method="POST" action="{{ url_for('admin.update_order_status', order_id=order.id) }}"
                   class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -534,6 +542,7 @@
                     <option value="cancelled" {% if order.status=='cancelled' %}selected{% endif %}>已取消</option>
                   </select>
                 </form>
+                {% endif %}
               </td>
               <td>{{ order.created_at.strftime('%Y-%m-%d') }}</td>
               <td class="text-end">
@@ -551,6 +560,7 @@
                   onclick="openOrderDetailModal({{ safe_order_data | tojson | forceescape }})">
                   <i class="bi bi-eye"></i>
                 </button>
+                {% if not show_deleted_orders %}
                 <button type="button" class="btn btn-sm btn-outline-primary" title="關聯活動" data-bs-toggle="modal" data-bs-target="#orderEventsModal{{ order.id }}">活動</button>
                 <div class="modal fade" id="orderEventsModal{{ order.id }}" tabindex="-1">
                   <div class="modal-dialog"><div class="modal-content"><form method="POST" action="{{ url_for('admin.update_order_events', order_id=order.id) }}">
@@ -565,10 +575,11 @@
                   </form></div></div>
                 </div>
                 <form method="POST" action="{{ url_for('admin.delete_order', order_id=order.id) }}" class="d-inline"
-                  onsubmit="return confirm('警告：確定要永久刪除這筆訂單嗎？\n(注意：直接刪除不會退回庫存，若需退庫存請先將狀態改為「已取消」)');">
+                  onsubmit="return confirm('確定封存這筆訂單？必須先將訂單取消（退庫存／儲值金），封存後仍保留歷史紀錄。');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-danger" title="刪除訂單"><i class="bi bi-trash"></i></button>
+                  <button class="btn btn-sm btn-outline-danger" title="封存訂單"><i class="bi bi-archive"></i></button>
                 </form>
+                {% endif %}
               </td>
             </tr>
             {% endfor %}
@@ -1580,6 +1591,7 @@
     <div class="modal-content">
       <form action="{{ url_for('admin.add_order_manual') }}" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="request_key" value="{{ manual_order_request_key }}">
 
         <div class="modal-header bg-primary text-white">
           <h5 class="modal-title"><i class="bi bi-cart-plus"></i> 建立或補登訂單 (多商品)</h5>
@@ -1593,7 +1605,7 @@
               <select name="customer_id" class="form-select" required>
                 <option value="">請選擇客戶...</option>
                 {% for c in customers %}
-                <option value="{{ c.id }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
+                <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,'0.00') }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
                 {% endfor %}
               </select>
             </div>
@@ -1635,6 +1647,20 @@
             <h5 class="fw-bold">總金額: NT$ <span id="manualOrderTotal">0</span></h5>
           </div>
 
+          <div class="card card-body bg-light mb-3">
+            <h6 class="fw-bold">訂單付款（儲值金可部分或全額扣款）</h6>
+            <p class="small mb-2">客戶可用儲值：NT$ <strong id="manualAvailableBalance">0.00</strong></p>
+            <div class="row g-2">
+              <div class="col-md-6"><label class="form-label" for="storedValueAmount">本次使用儲值金</label>
+                <input id="storedValueAmount" class="form-control" name="stored_value_amount" type="number" min="0" step="0.01" value="0" required></div>
+              <div class="col-md-6"><label class="form-label" for="otherPaymentMethod">剩餘金額付款方式</label>
+                <select id="otherPaymentMethod" class="form-select" name="other_payment_method">
+                  <option value="cash">現金</option><option value="credit_card">信用卡</option>
+                  <option value="bank_transfer">銀行轉帳</option><option value="other">其他</option>
+                </select></div>
+            </div>
+            <div class="small text-muted mt-2">其餘應付：NT$ <span id="manualOtherPayment">0.00</span>（最終金額由後端核對）</div>
+          </div>
           <div class="form-check form-switch mt-3">
             <input class="form-check-input" type="checkbox" name="send_notification" id="orderNotifSwitch" checked>
             <label class="form-check-label" for="orderNotifSwitch">發送確認通知 (LINE/Email)</label>
@@ -2089,6 +2115,30 @@
         });
     });
   }
+
+  // 客戶儲值顯示及付款金額提示；真正扣款數字一律以伺服器驗證為準。
+  (function () {
+    const customerSelect = document.querySelector('#addOrderModal select[name="customer_id"]');
+    const useInput = document.getElementById('storedValueAmount');
+    const remaining = document.getElementById('manualOtherPayment');
+    const balanceLabel = document.getElementById('manualAvailableBalance');
+    const totalLabel = document.getElementById('manualOrderTotal');
+    if (!customerSelect || !useInput || !remaining || !balanceLabel) return;
+    function refresh() {
+      const selected = customerSelect.selectedOptions[0];
+      const balance = Number(selected?.dataset.balance || 0);
+      const amount = Number(useInput.value || 0);
+      const total = Number((totalLabel?.textContent || '0').replace(/,/g,'')) || 0;
+      balanceLabel.textContent = balance.toFixed(2);
+      remaining.textContent = Math.max(0, total - amount).toFixed(2);
+      useInput.max = Math.max(0, Math.min(balance,total)).toFixed(2);
+      useInput.setCustomValidity(amount < 0 || amount > balance || amount > total ? '儲值扣款不可超過餘額或訂單金額' : '');
+    }
+    customerSelect.addEventListener('change', refresh);
+    useInput.addEventListener('input', refresh);
+    new MutationObserver(refresh).observe(totalLabel, {childList:true,characterData:true,subtree:true});
+    refresh();
+  })();
 
   // ================= 多商品補登訂單邏輯 (修正版：從 HTML 讀取) =================
 

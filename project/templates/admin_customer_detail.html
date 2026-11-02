@@ -13,6 +13,31 @@
         </a>
     </div>
 
+    <!-- 客戶儲值金（Staff/Admin 可儲值，永久有效） -->
+    <div class="card border-primary mb-4">
+      <div class="card-body">
+        <h4 class="h5">客戶儲值金</h4>
+        <p class="fs-4 fw-bold">可用餘額：NT$ {{ '{:,.2f}'.format(stored_value_balance) }}</p>
+        <form method="POST" action="{{ url_for('admin.add_customer_stored_value', customer_id=customer.id) }}" class="row g-2 align-items-end">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="request_key" value="{{ stored_value_request_key }}">
+          <div class="col-md-3"><label class="form-label" for="topupAmount">儲值金額</label>
+            <input id="topupAmount" type="number" name="amount" step="0.01" min="0.01" max="99999999.99" required class="form-control"></div>
+          <div class="col-md-6"><label class="form-label" for="topupNotes">備註（選填）</label>
+            <input id="topupNotes" type="text" name="notes" maxlength="500" class="form-control"></div>
+          <div class="col-md-3"><button type="submit" class="btn btn-primary w-100" >確認儲值</button></div>
+        </form>
+        <div class="table-responsive mt-3"><table class="table table-sm table-striped">
+          <thead><tr><th>日期</th><th>交易類型</th><th>金額</th><th>異動後餘額</th><th>訂單</th><th>備註</th></tr></thead>
+          <tbody>{% for tx in stored_value_history %}
+            <tr><td>{{ tx.created_at }}</td><td>{{ {'topup':'儲值','spend':'訂單扣款','refund':'訂單取消退款','restore_spend':'恢復訂單扣款'}.get(tx.action,tx.action) }}</td>
+              <td>{{ '{:+,.2f}'.format(tx.amount) }}</td><td>{{ '{:,.2f}'.format(tx.balance_after) }}</td>
+              <td>{{ tx.related_order_id or '—' }}</td><td>{{ tx.notes or '' }}</td></tr>
+          {% else %}<tr><td colspan="6" class="text-muted">尚無儲值交易紀錄</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </div>
+    </div>
+
     <!-- 頁籤導覽列 -->
     <ul class="nav nav-tabs mb-4" id="customerTab" role="tablist">
         <li class="nav-item">

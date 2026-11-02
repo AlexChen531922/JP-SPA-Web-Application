@@ -1,6 +1,7 @@
 from flask import Blueprint, render_template, request, session, flash, redirect, url_for, jsonify, abort
 from .decorators import login_required, customer_required
 from project.extensions import database
+from project.stored_value import cancel_order as cancel_order_with_refund, lock_order
 from .db import get_current_user_id, get_current_user_role, is_logged_in
 # 引入新的通知函式
 from .notifications import notify_contact_message, notify_new_order_created, notify_new_booking_created
@@ -783,79 +784,21 @@ def checkout():
 @login_required
 @customer_required
 def cancel_order(order_id):
-    """
-    Cancel order and restore inventory
-    """
     user_id = get_current_user_id()
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
     try:
-        # Verify order ownership
-        cursor.execute("""
-            SELECT id, status 
-            FROM orders 
-            WHERE id = %s AND customer_id = %s
-        """, (order_id, user_id))
-
-        order = cursor.fetchone()
-
-        if not order:
-            flash('訂單不存在', 'error')
-            cursor.close()
-            return redirect(url_for('customer.orders'))
-
+        order = lock_order(cursor,order_id,user_id)
         if order['status'] != 'pending':
-            flash('只能取消待確認的訂單', 'error')
-            cursor.close()
-            return redirect(url_for('customer.orders'))
-
-        # Get order items
-        cursor.execute("""
-            SELECT product_id, quantity 
-            FROM order_items 
-            WHERE order_id = %s
-        """, (order_id,))
-
-        items = cursor.fetchall()
-
-        # RESTORE INVENTORY
-        for item in items:
-            cursor.execute("""
-                UPDATE products 
-                SET stock_quantity = stock_quantity + %s 
-                WHERE id = %s
-            """, (item['quantity'], item['product_id']))
-
-            # LOG INVENTORY RESTORATION
-            cursor.execute("""
-                INSERT INTO inventory_logs 
-                (product_id, change_amount, change_type, reference_id, created_by)
-                VALUES (%s, %s, 'return', %s, %s)
-            """, (item['product_id'], item['quantity'], order_id, user_id))
-
-        # Update order status
-        cursor.execute("""
-            UPDATE orders 
-            SET status = 'cancelled' 
-            WHERE id = %s
-        """, (order_id,))
-
+            raise ValueError('只能取消待確認的訂單')
+        cancel_order_with_refund(cursor,order,user_id,'Customer Cancel')
         database.connection.commit()
-        cursor.close()
-
-        flash('訂單已取消,庫存已恢復', 'success')
-        return redirect(url_for('customer.orders'))
-
-    except Exception as e:
+        flash('訂單已取消，庫存及已使用的儲值金已退回', 'success')
+    except Exception as exc:
         database.connection.rollback()
+        flash(f'取消失敗：{exc}', 'error')
+    finally:
         cursor.close()
-        flash(f'取消失敗: {str(e)}', 'error')
-        return redirect(url_for('customer.orders'))
-
-
-# =====================================================
-# ADD TO CART
-# =====================================================
+    return redirect(url_for('customer.orders'))
 
 
 @main_bp.route('/cart/add/<int:product_id>', methods=['POST'])
@@ -954,7 +897,7 @@ def checkout_success(order_id):
 
     cursor.execute("""
         SELECT o.id, o.total_amount, o.created_at
-        FROM orders o WHERE o.id = %s AND o.customer_id = %s
+        FROM orders o WHERE o.id = %s AND o.customer_id = %s AND o.deleted_at IS NULL
     """, (order_id, user_id))
     order = cursor.fetchone()
 
