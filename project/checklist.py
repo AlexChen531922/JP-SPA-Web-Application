@@ -108,6 +108,22 @@ def display_names(cursor):
             for r in cursor.fetchall()}
 
 
+def affected_signoff_roles(snapshot_role):
+    """An 'all' task belongs to both signers; a specific task belongs to one."""
+    if snapshot_role == 'all':
+        return ('duty', 'therapist')
+    if snapshot_role in ('duty', 'therapist'):
+        return (snapshot_role,)
+    return ()
+
+
+def pending_for_signer(items, signer_role):
+    """Only outstanding work assigned to this signer can block their signoff."""
+    return sum(item['state'] == 'pending' and
+               signer_role in affected_signoff_roles(item['snapshot_role'])
+               for item in items)
+
+
 def can_change_task(actor, record, task):
     """Staff may only mark their assigned role's tasks; all-role tasks allow any staff."""
     if actor['role'] == 'admin':
@@ -175,11 +191,36 @@ def audit(cursor, actor_id, action, record_id=None, item_id=None, task_id=None, 
     ))
 
 
-def bump_revision(cursor, record, actor_id, why):
+def bump_revision(cursor, record, actor_id, why, preserve_roles=()):
+    """Advance the audit revision, retaining only unaffected role signatures.
+
+    Existing signoffs are immutable; retained signatures are copied with their
+    original signer and signed_at into the new revision. Each carry-over is
+    separately audited so no new employee signature is fabricated.
+    """
+    prior_revision = record['revision']
+    new_revision = prior_revision + 1
+    retained = []
+    if preserve_roles:
+        cursor.execute('''SELECT signer_role, signed_by_user_id, signed_at
+                          FROM checklist_signoffs WHERE record_id=%s AND revision=%s''',
+                       (record['id'], prior_revision))
+        retained = [r for r in cursor.fetchall() if r['signer_role'] in preserve_roles]
     cursor.execute('''UPDATE checklist_daily_records SET revision=revision+1, locked_at=NULL,
                       status='open' WHERE id=%s''', (record['id'],))
+    for signature in retained:
+        cursor.execute('''INSERT INTO checklist_signoffs
+            (record_id, revision, signer_role, signed_by_user_id, signed_at)
+            VALUES (%s,%s,%s,%s,%s)''',
+            (record['id'], new_revision, signature['signer_role'],
+             signature['signed_by_user_id'], signature['signed_at']))
+        audit(cursor, actor_id, 'carry_forward_signoff', record_id=record['id'],
+              new={'role': signature['signer_role'], 'from_revision': prior_revision,
+                   'to_revision': new_revision, 'signed_by_user_id': signature['signed_by_user_id']})
     audit(cursor, actor_id, 'invalidate_signoffs', record_id=record['id'],
-          old={'revision': record['revision']}, new={'reason': why, 'revision': record['revision']+1})
+          old={'revision': prior_revision},
+          new={'reason': why, 'revision': new_revision,
+               'retained_roles': [r['signer_role'] for r in retained]})
 
 
 def json_error(message, code=400):
@@ -298,9 +339,12 @@ def index():
                      'na': sum(i['state'] == 'na' for i in items),
                      'pending': sum(i['state'] == 'pending' for i in items),
                      'total': sum(i['state'] != 'void' for i in items)}
+            pending_by_role = {role: pending_for_signer(items, role)
+                               for role in ('duty', 'therapist')}
             return render_template('checklist/index.html', view=view, day=day, actor=actor,
                                    record=record, items=items, preview=preview, staff=staff,
-                                   approvals=approvals, stats=stats, today=taiwan_today(),
+                                   approvals=approvals, stats=stats, pending_by_role=pending_by_role,
+                                   today=taiwan_today(),
                                    category_names=CATEGORY_NAMES, role_names=ROLE_NAMES, state_names=STATE_NAMES, can_change_task=can_change_task)
         days = date_span(view, day)
         rows, cells, summary, records, _ = period_grid(cursor, days)
@@ -420,6 +464,15 @@ def set_item_state(item_id):
             abort(403, description='只能更新自己當日負責的工作')
         if item['state'] == 'void':
             return json_error('已取消項目不可更改', 409)
+        # Employees cannot modify work already confirmed by the relevant signer.
+        # Admins may correct it; the corresponding signature is then invalidated.
+        affected_roles = affected_signoff_roles(item['snapshot_role'])
+        if actor['role'] != 'admin':
+            cursor.execute('''SELECT signer_role FROM checklist_signoffs
+                WHERE record_id=%s AND revision=%s''', (record['id'], record['revision']))
+            signed_roles = {r['signer_role'] for r in cursor.fetchall()}
+            if signed_roles.intersection(affected_roles):
+                return json_error('此工作所屬角色已簽核，需由管理員修正後重新簽核', 409)
         if item['state'] == state and (item['note'] or '') == note:
             return jsonify(ok=True, unchanged=True)
         cursor.execute('''UPDATE checklist_daily_items SET state=%s,note=%s,
@@ -428,7 +481,8 @@ def set_item_state(item_id):
                        (state, note or None, actor['id'] if state == 'done' else None, state, actor['id'], item_id))
         audit(cursor, actor['id'], 'set_state', record_id=record['id'], item_id=item_id,
               old={'state': item['state'], 'note': item['note']}, new={'state': state, 'note': note})
-        bump_revision(cursor, record, actor['id'], 'item_change')
+        preserve_roles = tuple(r for r in ('duty', 'therapist') if r not in affected_roles)
+        bump_revision(cursor, record, actor['id'], 'item_change', preserve_roles=preserve_roles)
         return jsonify(ok=True)
     return transact(op)
 
@@ -460,7 +514,7 @@ def update_record():
         if len(notes) > 5000:
             abort(400)
         old = {'duty': record['duty_user_id'],
-               'therapist': record['therapist_user_id'], 'notes': record['handover_notes']}
+               'therapist': record['therapist_user_id'], 'notes': record['handover_notes'] or ''}
         new = {'duty': ids[0], 'therapist': ids[1], 'notes': notes}
         if old != new:
             cursor.execute('''UPDATE checklist_daily_records SET duty_user_id=%s,
@@ -468,7 +522,12 @@ def update_record():
                            (ids[0], ids[1], notes or None, record['id']))
             audit(cursor, actor['id'], 'update_record',
                   record_id=record['id'], old=old, new=new)
-            bump_revision(cursor, record, actor['id'], 'record_change')
+            # Assigning or replacing the *other* employee should not revoke an
+            # unrelated role's existing confirmation. A handover-note change is
+            # shared information and still invalidates both role confirmations.
+            preserve_roles = tuple(r for r in ('duty', 'therapist')
+                                   if old['notes'] == new['notes'] and old[r] == new[r])
+            bump_revision(cursor, record, actor['id'], 'record_change', preserve_roles=preserve_roles)
         flash('負責人與交接資料已儲存', 'success')
         return redirect(url_for('checklist.index', date=day.isoformat()))
     return transact(op)
@@ -499,13 +558,11 @@ def sign_day(role):
         if not signature_name_matches(actor, entered_name):
             flash('請輸入與目前登入帳號相同的姓名，才可以完成本人簽核', 'warning')
             return redirect(url_for('checklist.index', date=day.isoformat()))
-        if not record['duty_user_id'] or not record['therapist_user_id']:
-            flash('請管理者先指定值日生與芳療師／助理', 'warning')
-            return redirect(url_for('checklist.index', date=day.isoformat()))
         cursor.execute('''SELECT COUNT(*) AS pending_count FROM checklist_daily_items
-                          WHERE record_id=%s AND state='pending' ''', (record['id'],))
+                          WHERE record_id=%s AND state='pending'
+                            AND snapshot_role IN (%s, 'all')''', (record['id'], role))
         if cursor.fetchone()['pending_count']:
-            flash('請先處理所有待完成項目（可標記不適用並填原因）', 'warning')
+            flash('請先處理自己負責及「全員」的待完成項目（可標記不適用並填原因）', 'warning')
             return redirect(url_for('checklist.index', date=day.isoformat()))
         cursor.execute('''SELECT id FROM checklist_signoffs WHERE record_id=%s AND revision=%s AND signer_role=%s''',
                        (record['id'], record['revision'], role))
@@ -569,7 +626,9 @@ def add_day_item():
         item_id = cursor.lastrowid
         audit(cursor, actor['id'], 'add_oneoff',
               record_id=record['id'], item_id=item_id, new={'title': title})
-        bump_revision(cursor, record, actor['id'], 'add_oneoff')
+        preserve_roles = tuple(r for r in ('duty', 'therapist')
+                               if r not in affected_signoff_roles(role))
+        bump_revision(cursor, record, actor['id'], 'add_oneoff', preserve_roles=preserve_roles)
         flash('已加入當日臨時工作', 'success')
         return redirect(url_for('checklist.index', date=day.isoformat()))
     return transact(op)
@@ -591,14 +650,17 @@ def void_day_item(item_id):
         if record['status'] == 'locked':
             abort(409)
         cursor.execute(
-            'SELECT state FROM checklist_daily_items WHERE id=%s FOR UPDATE', (item_id,))
-        state = cursor.fetchone()['state']
+            'SELECT state,snapshot_role FROM checklist_daily_items WHERE id=%s FOR UPDATE', (item_id,))
+        item = cursor.fetchone()
+        state = item['state']
         if state != 'void':
             cursor.execute(
                 "UPDATE checklist_daily_items SET state='void',updated_by_user_id=%s,updated_at=NOW() WHERE id=%s", (actor['id'], item_id))
             audit(cursor, actor['id'], 'void_item', record_id=record['id'],
                   item_id=item_id, old={'state': state})
-            bump_revision(cursor, record, actor['id'], 'void_item')
+            preserve_roles = tuple(r for r in ('duty', 'therapist')
+                                   if r not in affected_signoff_roles(item['snapshot_role']))
+            bump_revision(cursor, record, actor['id'], 'void_item', preserve_roles=preserve_roles)
         flash('項目已取消，歷史紀錄仍保留', 'success')
         return redirect(url_for('checklist.index', date=record['log_date'].isoformat()))
     return transact(op)

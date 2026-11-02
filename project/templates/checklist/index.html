@@ -151,10 +151,11 @@
                             item.done_surname or '' }} · {{ item.done_at }}</div>{% endif %}
                     </div>
                     {% if item.state != 'void' %}
+                    {% set signed_role_lock = (approvals.get(item.snapshot_role) if item.snapshot_role != 'all' else (approvals.get('duty') or approvals.get('therapist'))) %}
                     <select class="form-select form-select-sm item-state" style="max-width:140px"
                         data-item-id="{{ item.id }}" data-original="{{ item.state }}" data-note="{{ item.note or '' }}"
                         {{ 'disabled' if record.status=='locked' or (actor.role!='admin' and day!=today) or not
-                        can_change_task(actor,record,item) else '' }}>
+                        can_change_task(actor,record,item) or (actor.role!='admin' and signed_role_lock) else '' }}>
                         <option value="pending" {{ 'selected' if item.state=='pending' else '' }}>未完成</option>
                         <option value="done" {{ 'selected' if item.state=='done' else '' }}>✓ 已完成</option>
                         <option value="na" {{ 'selected' if item.state=='na' else '' }}>不適用</option>
@@ -205,7 +206,7 @@
                         {% if approvals.get(role) %}
                         <div class="text-success small">✓ 已確認 · {{ approvals[role].signed_at }}</div>
                         {% else %}
-                        {% set signable = actor.id == record[id_field] and not stats.pending and record.status == 'open' and day <= today %}
+                        {% set signable = actor.id == record[id_field] and not pending_by_role[role] and record.status == 'open' and day <= today %}
                         <form method="post" action="{{ url_for('checklist.sign_day',role=role) }}" class="mt-2">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="date" value="{{ day.isoformat() }}">
@@ -219,8 +220,8 @@
                         <div class="small text-warning mt-2">請先請管理員指派此角色的員工。</div>
                         {% elif actor.id != record[id_field] %}
                         <div class="small text-muted mt-2">只有當日被指派的本人可以簽核。</div>
-                        {% elif stats.pending %}
-                        <div class="small text-warning mt-2">尚有 {{ stats.pending }} 項未完成，請先完成或填寫不適用原因。</div>
+                        {% elif pending_by_role[role] %}
+                        <div class="small text-warning mt-2">自己負責或「全員」的工作尚有 {{ pending_by_role[role] }} 項未完成，請先完成或填寫不適用原因。另一職務的專屬工作不影響你的簽核。</div>
                         {% elif day > today %}
                         <div class="small text-muted mt-2">未來日期不能提前簽核。</div>
                         {% elif record.status != 'open' %}
