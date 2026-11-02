@@ -252,7 +252,7 @@ def cancel_booking(booking_id):
     try:
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
         cursor.execute(
-            "SELECT status, schedule_id FROM bookings WHERE id = %s AND customer_id = %s", (booking_id, user_id))
+            "SELECT status, schedule_id, global_schedule_id FROM bookings WHERE id = %s AND customer_id = %s FOR UPDATE", (booking_id, user_id))
         booking = cursor.fetchone()
 
         if not booking or booking['status'] in ['completed', 'cancelled']:
@@ -262,9 +262,16 @@ def cancel_booking(booking_id):
         cursor.execute(
             "UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
 
-        if booking['schedule_id']:
-            cursor.execute(
-                "UPDATE course_schedules SET current_bookings = GREATEST(current_bookings - 1, 0) WHERE id = %s", (booking['schedule_id'],))
+        if booking['global_schedule_id']:
+            cursor.execute("""UPDATE shop_schedules SET current_bookings=current_bookings-1
+                         WHERE id=%s AND current_bookings>0""", (booking['global_schedule_id'],))
+            if cursor.rowcount != 1:
+                raise ValueError('預約時段人數不一致，請先檢查資料')
+        elif booking['schedule_id']:
+            cursor.execute("""UPDATE course_schedules SET current_bookings=current_bookings-1
+                         WHERE id=%s AND current_bookings>0""", (booking['schedule_id'],))
+            if cursor.rowcount != 1:
+                raise ValueError('課程時段人數不一致，請先檢查資料')
 
         database.connection.commit()
         cursor.close()

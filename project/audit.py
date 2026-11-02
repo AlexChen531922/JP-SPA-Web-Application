@@ -12,7 +12,7 @@ def log_activity(action, target_type, target_id, details=None):
     try:
         # 1. 檢查 Session
         user = session.get('user')
-        print(f"--- [DEBUG] Session User: {user} ---")
+        # 不將 Session 中的個人資料輸出到日誌。
 
         if not user:
             print("--- [ERROR] Session 中找不到 user，無法記錄 Log ---")

@@ -551,6 +551,19 @@
                   onclick="openOrderDetailModal({{ safe_order_data | tojson | forceescape }})">
                   <i class="bi bi-eye"></i>
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-primary" title="關聯活動" data-bs-toggle="modal" data-bs-target="#orderEventsModal{{ order.id }}">活動</button>
+                <div class="modal fade" id="orderEventsModal{{ order.id }}" tabindex="-1">
+                  <div class="modal-dialog"><div class="modal-content"><form method="POST" action="{{ url_for('admin.update_order_events', order_id=order.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="modal-header"><h5 class="modal-title">訂單 #{{ order.id }} 關聯活動</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                    <div class="modal-body"><p class="small text-muted">可複選，也可全部不勾選。</p>
+                      {% for e in events %}
+                      <div class="form-check"><input class="form-check-input" type="checkbox" name="event_ids[]" value="{{ e.id }}" id="oe{{ order.id }}-{{ e.id }}" {% if e.id in (order_event_map.get(order.id, [])|map(attribute='event_id')|list) %}checked{% endif %}>
+                        <label class="form-check-label" for="oe{{ order.id }}-{{ e.id }}">{{ e.title }}</label></div>
+                      {% else %}<p class="text-muted">目前沒有活動可選</p>{% endfor %}
+                    </div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary">儲存活動</button></div>
+                  </form></div></div>
+                </div>
                 <form method="POST" action="{{ url_for('admin.delete_order', order_id=order.id) }}" class="d-inline"
                   onsubmit="return confirm('警告：確定要永久刪除這筆訂單嗎？\n(注意：直接刪除不會退回庫存，若需退庫存請先將狀態改為「已取消」)');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -657,6 +670,17 @@
   <div class="tab-pane fade {% if tab == 'customers' %}show active{% endif %}" id="customers">
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h4 class="fw-bold mb-0"><i class="bi bi-people"></i> 客戶管理</h4>
+      <div class="d-flex flex-wrap gap-2 ms-auto me-2">
+        <input id="customerSearch" type="search" class="form-control form-control-sm" style="min-width:210px" placeholder="搜尋姓名或電話（任意字元）" aria-label="搜尋客戶姓名或電話" oninput="filterAndSortCustomers()">
+        <select id="customerSort" class="form-select form-select-sm" style="min-width:170px" aria-label="客戶排序" onchange="filterAndSortCustomers()">
+          <option value="created_desc">建立時間：新到舊</option>
+          <option value="created_asc">建立時間：舊到新</option>
+          <option value="name_asc">姓名：正序</option>
+          <option value="name_desc">姓名：反序</option>
+          <option value="updated_desc">最後編輯：新到舊</option>
+          <option value="updated_asc">最後編輯：舊到新</option>
+        </select>
+      </div>
       <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addCustomerModal">
         <i class="bi bi-person-plus"></i> 新增客戶
       </button>
@@ -677,9 +701,9 @@
                 <th class="text-end">操作</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody id="customerSearchRows">
               {% for customer in customers_list %}
-              <tr>
+              <tr class="customer-search-row" data-name="{{ (customer.surname or '') ~ (customer.firstname or '') }}" data-phone="{{ customer.phone or '' }}" data-created="{{ customer.created_at.isoformat() if customer.created_at else '' }}" data-updated="{{ customer.updated_at.isoformat() if customer.updated_at else '' }}">
                 <td>
                   <div class="fw-bold">{{ customer.surname }}{{ customer.firstname }}</div>
                   <small class="text-muted" style="font-size:0.8em;">{{ customer.username }}</small>
@@ -908,7 +932,7 @@
                   {% endif %}
                 </td>
                 <!-- 下方的欄位 td 保持不變即可 -->
-                <td class="fw-bold">{{ prod.name }}</td>
+                <td class="fw-bold"><a href="{{ url_for('admin.product_inventory_history', product_id=prod.id) }}" class="text-decoration-none" title="查看進出貨與客戶／訂單紀錄">{{ prod.name }} <i class="bi bi-clock-history"></i></a></td>
                 <td>
                   {% if prod.category_name %}
                   <span class="badge bg-secondary bg-opacity-10 text-dark border">{{ prod.category_name }}</span>
@@ -1320,6 +1344,13 @@
             <option value="purchase">進貨</option>
             <option value="return">退貨</option>
           </select>
+          <label>原因（選填）</label>
+          <select name="reason" class="form-select mb-2">
+            <option value="">一般盤點調整</option>
+            <option value="損耗">損耗</option>
+            <option value="廢棄">廢棄</option>
+            <option value="其他出貨">其他出貨</option>
+          </select>
           <label>備註</label>
           <textarea name="notes" class="form-control"></textarea>
         </div>
@@ -1573,6 +1604,11 @@
             </div>
           </div>
 
+          <div class="mb-3"><label class="form-label fw-bold">相關活動（可複選、可留空）</label>
+            <select name="event_ids[]" class="form-select" multiple size="4" aria-label="選擇訂單相關活動">
+              {% for e in events %}<option value="{{ e.id }}">{{ e.title }}</option>{% endfor %}
+            </select><div class="form-text">按住 Ctrl 可選擇多個活動；不選代表不關聯。</div>
+          </div>
           <label class="form-label fw-bold">訂單內容</label>
           <div class="table-responsive bg-light p-3 rounded mb-3">
             <table class="table table-sm table-borderless mb-0" id="orderItemsTable">
@@ -1943,6 +1979,28 @@
     let url = "{{ url_for('admin.update_event', event_id=0) }}";
     document.getElementById('editEventForm').action = url.replace('/0/', '/' + evt.id + '/');
     new bootstrap.Modal(document.getElementById('editEventModal')).show();
+  }
+
+  function filterAndSortCustomers() {
+    const tbody = document.getElementById('customerSearchRows');
+    if (!tbody) return;
+    const term = (document.getElementById('customerSearch')?.value || '').trim().toLocaleLowerCase();
+    const sort = document.getElementById('customerSort')?.value || 'created_desc';
+    const rows = Array.from(tbody.querySelectorAll('tr.customer-search-row'));
+    for (const row of rows) {
+      const name = (row.dataset.name || '').toLocaleLowerCase();
+      const phone = (row.dataset.phone || '').toLocaleLowerCase();
+      row.hidden = !(name.includes(term) || phone.includes(term));
+    }
+    rows.sort((a, b) => {
+      const compareName = () => (a.dataset.name || '').localeCompare(b.dataset.name || '', 'zh-Hant');
+      if (sort === 'name_asc') return compareName();
+      if (sort === 'name_desc') return -compareName();
+      const key = sort.startsWith('updated') ? 'updated' : 'created';
+      const v = (a.dataset[key] || '').localeCompare(b.dataset[key] || '');
+      return sort.endsWith('asc') ? v : -v;
+    });
+    for (const row of rows) tbody.appendChild(row);
   }
 
   function openEditCustomerModal(cust) {

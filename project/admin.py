@@ -181,9 +181,14 @@ def dashboard():
         "SELECT * FROM course_categories ORDER BY display_order, name")
     course_categories = cursor.fetchall()
 
-    # ⭐ 修正 2: Events 表不存在，暫時給空列表防止 500 錯誤
-    # cursor.execute("SELECT e.* ... FROM events e ...")
-    events = []
+    # 活動管理統一使用 events；不另區分 campaigns。
+    cursor.execute("""
+        SELECT e.*, CONCAT_WS('', u.surname, u.firstname) AS customer_name
+        FROM events e
+        LEFT JOIN users u ON u.id = e.customer_id
+        ORDER BY e.start_date DESC, e.id DESC
+    """)
+    events = cursor.fetchall()
 
     # Inventory
     cursor.execute("""
@@ -235,6 +240,16 @@ def dashboard():
     """)
     orders = cursor.fetchall()
 
+    # 訂單與活動多對多關聯；需先執行對應 Staging migration。
+    cursor.execute("""
+        SELECT oe.order_id, e.id AS event_id, e.title
+        FROM order_events oe JOIN events e ON e.id=oe.event_id
+        ORDER BY e.start_date DESC, e.id DESC
+    """)
+    order_event_map = {}
+    for link in cursor.fetchall():
+        order_event_map.setdefault(link['order_id'], []).append(link)
+
     # Order Items Map
     cursor.execute("""
         SELECT oi.order_id, oi.quantity, oi.unit_price, oi.subtotal, p.name as product_name
@@ -280,7 +295,7 @@ def dashboard():
     cursor.execute("""
         SELECT u.id, u.username, u.email, u.firstname, u.surname,
                u.phone, u.line_id, u.gender, u.occupation, u.created_at,
-               u.birth_date, u.source_id, u.address, u.notes,
+               u.birth_date, u.source_id, u.address, u.notes, u.updated_at,
                TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age,
                cs.name as source_name,
                COUNT(DISTINCT o.id) as order_count,
@@ -358,6 +373,7 @@ def dashboard():
         customer_sources=customer_sources,
         posts=posts,
         order_items_map=order_items_map,
+        order_event_map=order_event_map,
         audit_logs=audit_logs,
         now_str=now.strftime('%Y-%m-%dT%H:%M')
     )
@@ -391,6 +407,15 @@ def add_product_modal():
                        stock, description, image_url, 1))
 
         new_id = cursor.lastrowid
+        # 初始庫存也應具有可追溯的入庫流水。
+        initial_stock = int(stock)
+        if initial_stock < 0:
+            raise ValueError('初始庫存不得為負數')
+        if initial_stock:
+            cursor.execute("""INSERT INTO inventory_logs
+                (product_id, change_amount, change_type, notes, created_by)
+                VALUES (%s, %s, 'adjustment', '新產品初始庫存', %s)""",
+                (new_id, initial_stock, get_current_user_id()))
         database.connection.commit()
         cursor.close()
 
@@ -410,7 +435,7 @@ def update_product_modal(product_id):
     try:
         # 1. 先取得資料庫目前的資料 (為了防止 Staff 編輯時將成本誤寫為 0)
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-        cursor.execute("SELECT * FROM products WHERE id = %s", (product_id,))
+        cursor.execute("SELECT * FROM products WHERE id = %s FOR UPDATE", (product_id,))
         current_prod = cursor.fetchone()
 
         if not current_prod:
@@ -421,7 +446,10 @@ def update_product_modal(product_id):
         name = request.form.get('name')
         category_id = request.form.get('category_id') or None
         price = request.form.get('price') or 0
-        stock = request.form.get('stock') or 0
+        stock = int(request.form.get('stock') or 0)
+        if stock < 0:
+            raise ValueError('庫存不得為負數')
+        stock_difference = stock - int(current_prod['stock_quantity'] or 0)
         description = request.form.get('description')
         is_active = 1 if request.form.get('is_active') else 0
 
@@ -457,6 +485,11 @@ def update_product_modal(product_id):
             cursor.execute(sql, (name, category_id, price, cost,
                            stock, description, is_active, product_id))
 
+        if stock_difference:
+            cursor.execute("""INSERT INTO inventory_logs
+                (product_id, change_amount, change_type, notes, created_by)
+                VALUES (%s, %s, 'adjustment', '編輯產品時調整庫存', %s)""",
+                (product_id, stock_difference, get_current_user_id()))
         database.connection.commit()
         cursor.close()
 
@@ -894,6 +927,15 @@ def update_event(event_id):
         e = parse_dt(end_date)
 
         cursor = database.connection.cursor()
+        cursor.execute("SELECT customer_id FROM events WHERE id=%s", (event_id,))
+        prior_event = cursor.fetchone()
+        if prior_event is None:
+            cursor.close()
+            flash('找不到這筆活動，未進行更新', 'error')
+            return redirect(url_for('admin.dashboard', tab='events'))
+        # 原編輯表單沒有 customer_id 欄位，不能因此將既有客戶關聯清空。
+        if 'customer_id' not in request.form:
+            customer_id = prior_event[0]
         cursor.execute("""
             UPDATE events
             SET title=%s, description=%s, customer_id=%s, start_date=%s, end_date=%s, duration=%s
@@ -1041,17 +1083,26 @@ def adjust_inventory_modal():
         change_type = request.form.get('change_type', 'adjustment')
         notes = request.form.get('notes', '').strip()
 
-        if not product_id or change_amount == 0:
+        if not product_id or change_amount is None or change_amount == 0:
             flash('請填寫完整資料', 'error')
             return redirect(url_for('admin.dashboard', tab='inventory'))
 
+        if change_type not in ('purchase', 'sale', 'adjustment', 'return'):
+            raise ValueError('不支援的庫存異動類型')
+        reason = (request.form.get('reason') or '').strip()
+        if reason:
+            notes = (reason + ('：' + notes if notes else ''))[:2000]
         cursor = database.connection.cursor()
+        cursor.execute('SELECT stock_quantity FROM products WHERE id=%s FOR UPDATE', (product_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise ValueError('產品不存在')
+        if (row[0] or 0) + change_amount < 0:
+            raise ValueError('庫存不足，不能調整為負數')
 
         # 1. 更新產品實際庫存
         cursor.execute("""
-            UPDATE products 
-            SET stock_quantity = stock_quantity + %s 
-            WHERE id = %s
+            UPDATE products SET stock_quantity = stock_quantity + %s WHERE id = %s
         """, (change_amount, product_id))
 
         # 2. 寫入庫存日誌
@@ -1076,6 +1127,35 @@ def adjust_inventory_modal():
         flash(f'調整失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='inventory'))
+
+@admin_bp.route('/inventory/product/<int:product_id>/history')
+@staff_required
+def product_inventory_history(product_id):
+    """逐筆檢視產品進出貨紀錄；訂單銷貨可追溯至訂單與客戶。"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        cursor.execute('SELECT id, name, stock_quantity, unit FROM products WHERE id=%s', (product_id,))
+        product = cursor.fetchone()
+        if not product:
+            flash('找不到該產品', 'error')
+            return redirect(url_for('admin.dashboard', tab='inventory'))
+        cursor.execute("""
+            SELECT l.id, l.created_at, l.change_type, l.change_amount, l.notes,
+                   l.reference_id, o.id AS order_id,
+                   CONCAT_WS('', u.surname, u.firstname) AS customer_name,
+                   creator.username AS operator_name
+            FROM inventory_logs l
+            LEFT JOIN orders o ON o.id=l.reference_id AND l.change_type IN ('sale','return')
+            LEFT JOIN users u ON u.id=o.customer_id
+            LEFT JOIN users creator ON creator.id=l.created_by
+            WHERE l.product_id=%s
+            ORDER BY l.created_at DESC, l.id DESC
+        """, (product_id,))
+        logs = cursor.fetchall()
+    finally:
+        cursor.close()
+    return render_template('admin_inventory_history.html', product=product, logs=logs)
+
 
 # =====================================================
 # ORDER STATUS & INVENTORY SYNC (CRITICAL)
@@ -1138,13 +1218,11 @@ def update_order_status(order_id):
                 "SELECT product_id, quantity FROM order_items WHERE order_id = %s", (order_id,))
             items = cursor.fetchall()
             for item in items:
-                cursor.execute(
-                    "SELECT stock_quantity, name FROM products WHERE id = %s", (item['product_id'],))
-                prod = cursor.fetchone()
-                if prod['stock_quantity'] < item['quantity']:
-                    raise Exception(f"產品「{prod['name']}」庫存不足，無法恢復訂單")
-                cursor.execute("UPDATE products SET stock_quantity = stock_quantity - %s, last_sale_date = NOW() WHERE id = %s",
-                               (item['quantity'], item['product_id']))
+                cursor.execute("""UPDATE products SET stock_quantity=stock_quantity-%s,
+                           last_sale_date=NOW() WHERE id=%s AND stock_quantity >= %s""",
+                           (item['quantity'], item['product_id'], item['quantity']))
+                if cursor.rowcount != 1:
+                    raise ValueError('產品庫存不足，無法恢復訂單')
                 cursor.execute("INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by) VALUES (%s, %s, 'sale', %s, 'Order Restored', %s)",
                                (item['product_id'], -item['quantity'], order_id, get_current_user_id()))
 
@@ -1205,9 +1283,15 @@ def update_booking_status(booking_id):
 
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
+        # 鎖住此預約，避免重複取消／恢復造成時段人數不一致。
+        cursor.execute('SELECT id, status FROM bookings WHERE id=%s FOR UPDATE', (booking_id,))
+        locked_booking = cursor.fetchone()
+        if not locked_booking:
+            raise ValueError('預約不存在')
+
         # 1. ⭐ 獲取預約詳細資訊 (包含課程名稱、時間、客戶資料)
         cursor.execute("""
-            SELECT b.status, c.name as course_name, s.start_time, 
+            SELECT b.status, b.global_schedule_id, c.name as course_name, s.start_time,
                    u.email, u.firstname, u.line_id
             FROM bookings b
             JOIN users u ON b.customer_id = u.id
@@ -1216,6 +1300,22 @@ def update_booking_status(booking_id):
             WHERE b.id = %s
         """, (booking_id,))
         booking_info = cursor.fetchone()
+        if not booking_info:
+            raise ValueError('預約不存在')
+        old_active = booking_info['status'] != 'cancelled'
+        new_active = status != 'cancelled'
+        schedule_id = booking_info['global_schedule_id']
+        if schedule_id and old_active != new_active:
+            cursor.execute('SELECT max_capacity, current_bookings FROM shop_schedules WHERE id=%s FOR UPDATE', (schedule_id,))
+            slot = cursor.fetchone()
+            if not slot:
+                raise ValueError('找不到預約時段')
+            delta = 1 if new_active else -1
+            if delta > 0 and slot['current_bookings'] >= slot['max_capacity']:
+                raise ValueError('時段已額滿，無法恢復預約')
+            if delta < 0 and slot['current_bookings'] <= 0:
+                raise ValueError('預約時段人數不一致，請先檢查資料')
+            cursor.execute('UPDATE shop_schedules SET current_bookings=current_bookings+%s WHERE id=%s', (delta, schedule_id))
 
         # 2. 更新狀態
         cursor.execute(
@@ -1308,10 +1408,13 @@ def bulk_update_schedule():
         end_hour = int(request.form.get('end_hour'))     # e.g., 21
         capacity = int(request.form.get('capacity'))
 
+        if capacity < 0 or not (0 <= start_hour < end_hour <= 24):
+            raise ValueError('人數或營業時段不合法')
         # 解析日期
         s_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
         e_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-
+        if s_date > e_date:
+            raise ValueError('結束日期不能早於開始日期')
         cursor = database.connection.cursor()
         cursor.execute("SET time_zone = '+08:00'")
 
@@ -1328,8 +1431,11 @@ def bulk_update_schedule():
                     curr, datetime.min.time().replace(hour=h))
                 slot_end = slot_start + timedelta(hours=1)  # 預設每個時段1小時
 
-                # 使用 INSERT ... ON DUPLICATE KEY UPDATE
-                # 如果該時段已存在，就更新容量；不存在則新增
+                # 已存在的時段不能將容量調整至低於實際預約人數。
+                cursor.execute('SELECT current_bookings FROM shop_schedules WHERE start_time=%s FOR UPDATE', (slot_start,))
+                occupied = cursor.fetchone()
+                if occupied and capacity < occupied[0]:
+                    raise ValueError(f'{slot_start} 已預約 {occupied[0]} 人，不能降低至 {capacity} 人')
                 cursor.execute("""
                     INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
                     VALUES (%s, %s, %s, 0, 1)
@@ -1373,16 +1479,18 @@ def update_single_schedule_capacity(schedule_id):
 
         # 檢查是否小於目前已預約人數 (防止超賣)
         cursor.execute(
-            "SELECT current_bookings FROM shop_schedules WHERE id = %s", (schedule_id,))
+            "SELECT current_bookings FROM shop_schedules WHERE id = %s FOR UPDATE", (schedule_id,))
         row = cursor.fetchone()
         if not row:
             return jsonify({'success': False, 'message': '時段不存在'}), 404
 
+        if new_capacity < row[0]:
+            cursor.close()
+            return jsonify({'success': False, 'message': '新容量不能低於已預約人數'}), 400
         # 更新
         cursor.execute("""
-            UPDATE shop_schedules 
-            SET max_capacity = %s 
-            WHERE id = %s
+            UPDATE shop_schedules
+            SET max_capacity = %s WHERE id = %s
         """, (new_capacity, schedule_id))
 
         database.connection.commit()
@@ -1461,15 +1569,12 @@ def add_customer():
         if not username:
             username = phone if phone else email.split('@')[0]
 
-        # C. 如果沒填 密碼 -> 自動生成「符合高強度驗證」的密碼
-        # 規則：手機號碼 + "@Jp1"
-        # (這樣就同時滿足：>10碼、大寫、小寫、數字、符號)
-        if not password:
-            if phone:
-                password = f"{phone}@Jp1"
-            else:
-                # 如果連電話都沒填，給一組預設合規密碼
-                password = "Password@123456"
+        # 沒填密碼時產生高熵隨機初始密碼，不使用手機或固定預設密碼。
+        # 不顯示或記錄初始密碼；需要登入的客戶透過忘記密碼流程重設。
+        auto_password = not password
+        if auto_password:
+            import secrets
+            password = secrets.token_urlsafe(32)
 
         # 3. 檢查重複 (帳號或Email)
         cursor = database.connection.cursor()
@@ -1502,8 +1607,10 @@ def add_customer():
         log_activity('create', 'customer', new_id, {
                      'name': f"{firstname} {surname}"})
 
-        # 提示訊息：明確顯示生成的密碼，方便您告知客戶
-        flash(f'客戶建立成功！預設帳號: {username} / 預設密碼: {password}', 'success')
+        if auto_password:
+            flash('客戶建立成功。系統已設定隨機初始密碼，未在畫面顯示；若需要登入，請使用真實 Email 的忘記密碼流程重設。', 'success')
+        else:
+            flash('客戶建立成功', 'success')
 
     except Exception as e:
         database.connection.rollback()
@@ -1514,7 +1621,7 @@ def add_customer():
 
 
 @admin_bp.route('/customer/<int:customer_id>/update', methods=['POST'])
-@admin_required
+@staff_required
 def update_customer(customer_id):
     """Update customer details by admin"""
     try:
@@ -1527,6 +1634,7 @@ def update_customer(customer_id):
         birth_date = request.form.get('birth_date') or None
         occupation = request.form.get('occupation', '').strip()
         source_id = request.form.get('source_id', type=int) or None
+        address = request.form.get('address', '').strip()
 
         notes = request.form.get('notes', '').strip()
 
@@ -1535,6 +1643,11 @@ def update_customer(customer_id):
             return redirect(url_for('admin.dashboard', tab='customers'))
 
         cursor = database.connection.cursor()
+        cursor.execute("SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
+        if cursor.fetchone() is None:
+            cursor.close()
+            flash('找不到該客戶，未進行更新', 'error')
+            return redirect(url_for('admin.dashboard', tab='customers'))
 
         # 檢查 Email 是否與其他人重複
         cursor.execute(
@@ -1547,9 +1660,9 @@ def update_customer(customer_id):
         cursor.execute("""
             UPDATE users 
             SET firstname=%s, surname=%s, email=%s, phone=%s, line_id=%s, 
-                gender=%s, birth_date=%s, occupation=%s, source_id=%s, notes=%s
+                gender=%s, birth_date=%s, occupation=%s, source_id=%s, address=%s, notes=%s
             WHERE id=%s AND role='customer'
-        """, (firstname, surname, email, phone, line_id, gender, birth_date, occupation, source_id, notes, customer_id))
+        """, (firstname, surname, email, phone, line_id, gender, birth_date, occupation, source_id, address, notes, customer_id))
 
         database.connection.commit()
         cursor.close()
@@ -1861,6 +1974,7 @@ def add_order_manual():
         quantities = request.form.getlist('quantities[]')
         prices = request.form.getlist('prices[]')
         costs = request.form.getlist('costs[]')
+        event_ids = list(dict.fromkeys(int(x) for x in request.form.getlist('event_ids[]') if x))
 
         if not customer_id or not product_ids:
             flash('請選擇客戶與至少一項產品', 'error')
@@ -1911,6 +2025,14 @@ def add_order_manual():
             VALUES (%s, %s, %s, %s)
         """, (customer_id, total_amount, status, created_at))
         order_id = cursor.lastrowid
+        if event_ids:
+            placeholders = ','.join(['%s'] * len(event_ids))
+            cursor.execute(f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(event_ids))
+            if len(cursor.fetchall()) != len(event_ids):
+                raise ValueError('所選活動不存在')
+            for event_id in event_ids:
+                cursor.execute('INSERT INTO order_events (order_id,event_id) VALUES (%s,%s)',
+                               (order_id, event_id))
 
         # 4. 寫入訂單項目 & 扣庫存 & 寫入 Log
         for item in items_to_process:
@@ -1920,10 +2042,13 @@ def add_order_manual():
                 VALUES (%s, %s, %s, %s, %s)
             """, (order_id, item['product_id'], item['quantity'], item['price'], item['subtotal']))
 
-            # 扣除庫存
+            # 原子性扣庫存，並發訂單與同商品多筆項目也不能造成負庫存。
             cursor.execute("""
-                UPDATE products SET stock_quantity = stock_quantity - %s WHERE id = %s
-            """, (item['quantity'], item['product_id']))
+                UPDATE products SET stock_quantity = stock_quantity - %s
+                WHERE id = %s AND stock_quantity >= %s
+            """, (item['quantity'], item['product_id'], item['quantity']))
+            if cursor.rowcount != 1:
+                raise ValueError(f'商品 ID {item["product_id"]} 庫存不足或產品不存在')
 
             # 庫存 Log
             log_note = 'Admin Manual Order'
@@ -1963,6 +2088,37 @@ def add_order_manual():
         database.connection.rollback()
         flash(f'建立失敗: {str(e)}', 'error')
 
+    return redirect(url_for('admin.dashboard', tab='orders'))
+
+
+@admin_bp.route('/order/<int:order_id>/events', methods=['POST'])
+@staff_required
+def update_order_events(order_id):
+    """編輯訂單關聯活動（可選零至多個），不修改原有訂單金額或狀態。"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        ids = list(dict.fromkeys(int(v) for v in request.form.getlist('event_ids[]') if v))
+        cursor.execute('SELECT id FROM orders WHERE id=%s FOR UPDATE', (order_id,))
+        if not cursor.fetchone():
+            raise ValueError('訂單不存在')
+        if ids:
+            placeholders = ','.join(['%s'] * len(ids))
+            cursor.execute(f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(ids))
+            if len(cursor.fetchall()) != len(ids):
+                raise ValueError('活動選項包含已刪除的活動')
+        cursor.execute('DELETE FROM order_events WHERE order_id=%s', (order_id,))
+        for event_id in ids:
+            cursor.execute('INSERT INTO order_events(order_id,event_id) VALUES(%s,%s)', (order_id,event_id))
+        database.connection.commit()
+        flash('訂單相關活動已儲存', 'success')
+    except (ValueError, TypeError) as e:
+        database.connection.rollback()
+        flash(f'更新失敗：{e}', 'error')
+    except Exception:
+        database.connection.rollback()
+        raise
+    finally:
+        cursor.close()
     return redirect(url_for('admin.dashboard', tab='orders'))
 
 

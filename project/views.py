@@ -720,8 +720,10 @@ def checkout():
             cursor.execute("""
                 UPDATE products
                 SET stock_quantity = stock_quantity - %s
-                WHERE id = %s
-            """, (item['quantity'], item['product_id']))
+                WHERE id = %s AND stock_quantity >= %s
+            """, (item['quantity'], item['product_id'], item['quantity']))
+            if cursor.rowcount != 1:
+                raise ValueError(f'商品「{item["name"]}」庫存不足，訂單未建立')
 
             # Write inventory log
             cursor.execute("""

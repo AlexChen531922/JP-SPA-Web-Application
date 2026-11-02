@@ -1,0 +1,28 @@
+{% extends 'base.html' %}
+{% block title %}庫存異動歷史 - 晶品芳療{% endblock %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div><h2 class="h4">{{ product.name }} — 庫存交易紀錄</h2>
+      <div class="text-muted">目前庫存：{{ product.stock_quantity }} {{ product.unit or '件' }}</div></div>
+    <a href="{{ url_for('admin.dashboard', tab='inventory') }}" class="btn btn-outline-secondary">返回庫存管理</a>
+  </div>
+  <div class="table-responsive"><table class="table table-striped align-middle">
+    <thead><tr><th>時間</th><th>類型</th><th>異動數量</th><th>訂單</th><th>客戶</th><th>原因／備註</th><th>操作人</th></tr></thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log.created_at }}</td>
+        <td>{{ {'purchase':'進貨','sale':'銷貨／出庫','adjustment':'盤點／損耗／廢棄','return':'退貨／退庫'}.get(log.change_type,log.change_type) }}</td>
+        <td class="{{ 'text-success' if log.change_amount>0 else 'text-danger' }}">{{ '%+d'|format(log.change_amount) }}</td>
+        <td>{% if log.order_id %}#{{ log.order_id }}{% else %}—{% endif %}</td>
+        <td>{{ log.customer_name or '—' }}</td>
+        <td style="white-space:pre-wrap">{{ log.notes or '—' }}</td>
+        <td>{{ log.operator_name or '—' }}</td>
+      </tr>
+      {% else %}<tr><td colspan="7" class="text-center text-muted">目前沒有異動紀錄</td></tr>{% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small text-muted">舊紀錄若沒有訂單參照，可能無法判定對應客戶；進貨、損耗與盤點不一定有客戶或訂單。</p>
+</div>
+{% endblock %}
