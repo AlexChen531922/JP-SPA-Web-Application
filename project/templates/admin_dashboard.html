@@ -16,6 +16,7 @@
 </div>
 
 <ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('checklist.index') }}"><i class="bi bi-clipboard2-check"></i> 門市檢核</a></li>
   <li class="nav-item">
     <button class="nav-link {% if not tab or tab == 'overview' %}active{% endif %}" data-bs-toggle="tab"
       data-bs-target="#overview">

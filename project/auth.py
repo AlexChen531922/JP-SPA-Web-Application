@@ -72,8 +72,10 @@ def login():
             flash('登入成功！', 'success')
 
             # 根據角色導向
-            if user['role'] in ['admin', 'staff']:
+            if user['role'] == 'admin':
                 return redirect(url_for('admin.dashboard'))
+            elif user['role'] == 'staff':
+                return redirect(url_for('checklist.index'))
             else:
                 return redirect(url_for('main.home'))
         else:
@@ -114,7 +116,8 @@ def register():
             password = form.password.data
             firstname = form.firstname.data
             surname = form.surname.data
-            role = form.role.data
+            # Public registration may not grant staff/admin privileges even if form is tampered with.
+            role = 'customer'
             line_id = session.get('binding_line_id') or form.line_id.data
 
             # 1. 驗證密碼強度
@@ -369,8 +372,10 @@ def line_callback():
                 flash('LINE 帳號綁定成功！', 'success')
 
             # 依角色導向
-            if current_user.get('role') in ['admin', 'staff']:
+            if current_user.get('role') == 'admin':
                 return redirect(url_for('admin.dashboard'))
+            elif current_user.get('role') == 'staff':
+                return redirect(url_for('checklist.index'))
             else:
                 return redirect(url_for('customer.dashboard'))
 
@@ -386,8 +391,10 @@ def line_callback():
                 session['user'] = user
                 flash(f'歡迎回來，{user["firstname"]}！', 'success')
 
-                if user['role'] in ['admin', 'staff']:
+                if user['role'] == 'admin':
                     return redirect(url_for('admin.dashboard'))
+                elif user['role'] == 'staff':
+                    return redirect(url_for('checklist.index'))
 
                 # 一般顧客導向首頁或會員中心
                 return redirect(url_for('main.home'))  # 修正為 main.home
@@ -409,8 +416,10 @@ def line_callback():
 
         # 錯誤發生時的導向
         role = session.get('user', {}).get('role')
-        if role in ['admin', 'staff']:
+        if role == 'admin':
             return redirect(url_for('admin.dashboard'))
+        elif role == 'staff':
+            return redirect(url_for('checklist.index'))
         elif role == 'customer':
             return redirect(url_for('customer.dashboard'))
         else:

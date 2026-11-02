@@ -1,0 +1,314 @@
+{% extends 'base.html' %}
+{% block title %}門市工作檢核 - 晶品芳療{% endblock %}
+{% block content %}
+<div class="container-fluid py-4" style="max-width:1400px">
+    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
+        <div>
+            <h2 class="h3 fw-bold mb-1"><i class="bi bi-clipboard2-check"></i> 門市工作檢核</h2>
+            <div class="text-muted small">晶品芳療 JP AROMATIC · 臺灣時間 (UTC+8)</div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            {% if actor.role == 'admin' %}<a href="{{ url_for('checklist_admin.task_admin') }}"
+                class="btn btn-outline-secondary"><i class="bi bi-sliders"></i> 工作項目管理</a>
+            <a href="{{ url_for('checklist_admin.export',view=view,date=day.isoformat()) }}" class="btn btn-success"><i
+                    class="bi bi-file-earmark-excel"></i> 匯出 Excel</a>{% endif %}
+            <a href="{{ url_for('admin.dashboard') if actor.role=='admin' else url_for('main.home') }}"
+                class="btn btn-outline-secondary">{{ '返回管理後台' if actor.role=='admin' else '返回首頁' }}</a>
+        </div>
+    </div>
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body d-flex flex-wrap gap-3 align-items-center justify-content-between">
+            <div class="btn-group" role="group" aria-label="檢視模式">
+                {% for key,text in [('day','每日'),('week','每週'),('month','每月')] %}
+                <a class="btn btn-{{ 'primary' if view == key else 'outline-primary' }}"
+                    href="{{ url_for('checklist.index',view=key,date=day.isoformat()) }}">{{ text }}</a>
+                {% endfor %}
+            </div>
+            <form method="get" class="d-flex align-items-center gap-2" action="{{ url_for('checklist.index') }}">
+                <input type="hidden" name="view" value="{{ view }}">
+                <label for="datePicker" class="text-nowrap">選擇日期</label>
+                <input id="datePicker" name="date" type="date" class="form-control" value="{{ day.isoformat() }}"
+                    required>
+                <button class="btn btn-outline-primary text-nowrap">查詢</button>
+            </form>
+        </div>
+    </div>
+    {% with messages=get_flashed_messages(with_categories=true) %}
+    {% for category,message in messages %}
+    <div
+        class="alert alert-{{ 'warning' if category=='error' else category if category in ['info','success','warning','danger'] else 'info' }}">
+        {{ message }}</div>
+    {% endfor %}
+    {% endwith %}
+
+    {% if view == 'day' %}
+    <h3 class="h5 mb-3">{{ day.strftime('%Y/%m/%d') }} （{{ ['一','二','三','四','五','六','日'][day.weekday()] }}）</h3>
+    {% if not record %}
+    <div class="alert alert-info">尚未建立此日期的檢核紀錄。下方為依目前模板推算的適用任務；建立後會保存快照，不受後續模板變更影響。</div>
+    <div class="card mb-3">
+        <div class="card-body">
+            <p class="fw-semibold">預計工作：{{ preview|length }} 項</p>
+            <ul class="mb-3">{% for task in preview %}<li>{{ task.title }} <span class="text-muted small">（{{
+                        role_names[task.role_type] }}）</span></li>{% else %}<li>沒有符合此日期的啟用工作</li>{% endfor %}</ul>
+            {% if actor.role == 'admin' or day == today %}
+            <form method="post" action="{{ url_for('checklist.start_day') }}"><input type="hidden" name="csrf_token"
+                    value="{{ csrf_token() }}"><input type="hidden" name="date" value="{{ day.isoformat() }}">
+                <button class="btn btn-primary"><i class="bi bi-plus-circle"></i> 建立此日檢核表</button>
+            </form>
+            {% else %}<span class="text-muted">非管理員只能建立當日檢核。</span>{% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="row g-3 mb-3">
+        <div class="col-md-8">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between mb-2"><strong>工作進度</strong><span
+                            class="badge bg-{{ 'success' if record.status=='locked' else 'primary' }}">{{ '已簽核鎖定' if
+                            record.status=='locked' else '進行中' }}</span></div>
+                    {% set resolved = stats.done + stats.na %}
+                    <div class="progress mb-2" role="progressbar" aria-valuenow="{{ resolved }}" aria-valuemin="0"
+                        aria-valuemax="{{ stats.total }}" style="height:14px">
+                        <div class="progress-bar bg-success"
+                            style="width:{{ (resolved * 100 / stats.total)|round if stats.total else 0 }}%"></div>
+                    </div>
+                    <small class="text-muted">已完成 {{ stats.done }} / 不適用 {{ stats.na }} / 未完成 {{ stats.pending }}（共 {{
+                        stats.total }} 項，已處理 {{ ((resolved * 100 / stats.total)|round)|int if stats.total else 100
+                        }}%）</small>
+                    <hr>
+                    <div class="small text-muted mb-1">簽核：值日生 {{ '✓' if approvals.get('duty') else '尚未確認' }}；芳療師 {{ '✓'
+                        if approvals.get('therapist') else '尚未確認' }} · 版本 {{ record.revision }}</div>
+                    <div class="small">提醒：如 9:00 有預約，所有夥伴需於 8:50 前到店。</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0">
+                <div class="card-body">
+                    <strong class="d-block mb-2">當日工作分配</strong>
+                    <div class="text-muted small mb-2">負責人由管理員指定；員工只能更新自己負責的工作。</div>
+                    <form method="post" action="{{ url_for('checklist_admin.update_record') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden"
+                            name="date" value="{{ day.isoformat() }}">
+                        {% for key,label in [('duty_user_id','值日生'),('therapist_user_id','芳療師')] %}
+                        <label class="form-label small">{{ label }}</label>
+                        <select name="{{ key }}" class="form-select form-select-sm mb-2" {{ 'disabled' if
+                            actor.role!='admin' or record.status=='locked' else '' }}>
+                            <option value="">— 請選擇 —</option>
+                            {% for u in staff %}<option value="{{ u.id }}" {{ 'selected' if record[key]==u.id else ''
+                                }}>{{ u.firstname or '' }} {{ u.surname or '' }}（{{ u.username }}）</option>{% endfor %}
+                        </select>{% endfor %}
+                        <label class="form-label small">交接備註</label><textarea name="handover_notes"
+                            class="form-control form-control-sm mb-2" rows="2" {{ 'disabled' if actor.role!='admin' or
+                            record.status=='locked' else '' }}>{{ record.handover_notes or '' }}</textarea>
+                        {% if actor.role=='admin' and record.status!='locked' %}<button
+                            class="btn btn-outline-primary btn-sm">儲存分配與備註</button>{% endif %}
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% for category in ['opening','operating','closing','periodic'] %}
+    {% set ns=namespace(any=false) %}{% for item in items %}{% if item.snapshot_category == category %}{% set
+    ns.any=true %}{% endif %}{% endfor %}
+    {% if ns.any %}<div class="card shadow-sm border-0 mb-3">
+        <div class="card-header bg-light fw-bold">{{ category_names[category] }}</div>
+        <div class="list-group list-group-flush">
+            {% for item in items if item.snapshot_category == category %}
+            <div class="list-group-item {{ 'bg-light text-muted' if item.state == 'void' else '' }}">
+                <div class="d-flex flex-wrap align-items-start gap-2">
+                    <div class="flex-grow-1" style="min-width:220px">
+                        <strong>{{ item.snapshot_title }}</strong> <span class="badge bg-secondary">{{
+                            role_names[item.snapshot_role] }}</span>
+                        {% if item.state=='void' %}<span class="badge bg-dark">已取消</span>{% endif %}{% if actor.role ==
+                        'staff' and not can_change_task(actor,record,item) %}<span
+                            class="badge bg-light text-secondary border">其他同事負責</span>{% endif %}
+                        {% if item.snapshot_description %}<div class="text-muted small mt-1">{{
+                            item.snapshot_description }}</div>{% endif %}
+                        {% if item.note %}<div class="small mt-1"><i class="bi bi-chat-left-text"></i> {{ item.note }}
+                        </div>{% endif %}
+                        {% if item.done_at %}<div class="text-muted small">完成：{{ item.done_firstname or '' }} {{
+                            item.done_surname or '' }} · {{ item.done_at }}</div>{% endif %}
+                    </div>
+                    {% if item.state != 'void' %}
+                    <select class="form-select form-select-sm item-state" style="max-width:140px"
+                        data-item-id="{{ item.id }}" data-original="{{ item.state }}" data-note="{{ item.note or '' }}"
+                        {{ 'disabled' if record.status=='locked' or (actor.role!='admin' and day!=today) or not
+                        can_change_task(actor,record,item) else '' }}>
+                        <option value="pending" {{ 'selected' if item.state=='pending' else '' }}>未完成</option>
+                        <option value="done" {{ 'selected' if item.state=='done' else '' }}>✓ 已完成</option>
+                        <option value="na" {{ 'selected' if item.state=='na' else '' }}>不適用</option>
+                    </select>
+                    {% if actor.role == 'admin' and record.status == 'open' %}<form method="post"
+                        action="{{ url_for('checklist_admin.void_day_item',item_id=item.id) }}"
+                        onsubmit="return confirm('確定取消此日項目？紀錄將保留。')"><input type="hidden" name="csrf_token"
+                            value="{{ csrf_token() }}"><button class="btn btn-outline-danger btn-sm">取消</button></form>
+                    {% endif %}
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>{% endif %}
+    {% endfor %}
+    {% if actor.role=='admin' and record.status=='open' %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-body">
+            <h4 class="h6">＋ 當日臨時工作（不改永久模板）</h4>
+            <form method="post" action="{{ url_for('checklist_admin.add_day_item') }}" class="row g-2">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="date"
+                    value="{{ day.isoformat() }}">
+                <div class="col-md-4"><input class="form-control" name="title" required maxlength="255"
+                        placeholder="工作名稱"></div>
+                <div class="col-md-4"><input class="form-control" name="description" maxlength="5000"
+                        placeholder="工作內容"></div>
+                <div class="col-md-2"><select class="form-select" name="category">{% for key,text in
+                        category_names.items() %}<option value="{{ key }}">{{ text }}</option>{% endfor %}</select>
+                </div>
+                <div class="col-md-1"><select class="form-select" name="role_type">
+                        <option value="all">全員</option>
+                        <option value="duty">值日生</option>
+                        <option value="therapist">芳療師</option>
+                    </select></div>
+                <div class="col-md-1"><button class="btn btn-primary w-100">新增</button></div>
+            </form>
+        </div>
+    </div>{% endif %}
+    <div class="card shadow-sm border-0">
+        <div class="card-body">
+            <h4 class="h6 mb-3">雙人簽核（僅本人操作）</h4>
+            <div class="row g-3">
+                {% for role,label,id_field in [('duty','值日生','duty_user_id'),('therapist','芳療師','therapist_user_id')] %}
+                <div class="col-md-6">
+                    <div class="border rounded p-3 h-100">
+                        <strong>{{ label }}</strong>
+                        {% if approvals.get(role) %}<div class="text-success small">✓ 已確認 · {{ approvals[role].signed_at
+                            }}</div>
+                        {% else %}<div class="small text-muted mb-2">尚未確認</div>
+                        {% if actor.id==record[id_field] and not stats.pending and record.status=='open' and day<=today
+                            %} <form method="post" action="{{ url_for('checklist.sign_day',role=role) }}"><input
+                                type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden"
+                                name="date" value="{{ day.isoformat() }}"><button
+                                class="btn btn-success btn-sm">確認本人簽核</button></form>
+                            {% endif %}{% endif %}
+                    </div>
+                </div>{% endfor %}
+            </div>
+            {% if actor.role=='admin' and record.status=='locked' %}
+            <form method="post" action="{{ url_for('checklist_admin.reopen_day') }}"
+                onsubmit="return confirm('重新開啟會使原簽核失效，並保留歷史版本。確定嗎？')" class="mt-3"><input type="hidden"
+                    name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="date"
+                    value="{{ day.isoformat() }}"><button class="btn btn-outline-warning">管理員重新開啟</button></form>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <h3 class="h5 mb-3">{{ days[0].isoformat() }} ～ {{ days[-1].isoformat() }}</h3>
+    <div class="row g-2 mb-3">
+        {% set sums=namespace(file=0,finished=0,pending=0) %}
+        {% for d in days %}{% if summary[d].status in ['open','locked'] %}{% set sums.file=sums.file+1 %}{% set
+        sums.finished=sums.finished+summary[d].done+summary[d].na %}{% set sums.pending=sums.pending+summary[d].pending
+        %}{% endif %}{% endfor %}
+        <div class="col-sm-4">
+            <div class="card card-body">
+                <div class="text-muted small">已有檢核紀錄</div>
+                <div class="h4 mb-0">{{ sums.file }} 日</div>
+            </div>
+        </div>
+        <div class="col-sm-4">
+            <div class="card card-body">
+                <div class="text-muted small">已處理工作</div>
+                <div class="h4 mb-0">{{ sums.finished }} 項</div>
+            </div>
+        </div>
+        <div class="col-sm-4">
+            <div class="card card-body">
+                <div class="text-muted small">尚未完成</div>
+                <div class="h4 mb-0">{{ sums.pending }} 項</div>
+            </div>
+        </div>
+    </div>
+    {% if view=='month' %}
+    <div class="card shadow-sm border-0 mb-3">
+        <div class="card-header fw-bold bg-light">每月日曆（點日期看詳細紀錄）</div>
+        <div class="card-body">
+            <div class="row row-cols-7 g-1 text-center mb-2">
+                {% for name in ['一','二','三','四','五','六','日'] %}<div class="col small text-muted fw-bold">{{ name }}
+                </div>{% endfor %}
+                {% for _ in range(days[0].weekday()) %}<div class="col"></div>{% endfor %}
+                {% for d in days %}<div class="col"><a
+                        class="d-block border rounded p-1 text-decoration-none {{ 'bg-light' if summary[d].status in ['future','unfiled'] else '' }}"
+                        style="min-height:62px" href="{{ url_for('checklist.index',view='day',date=d.isoformat()) }}">
+                        <strong class="d-block">{{ d.day }}</strong><small
+                            class="{{ 'text-success' if summary[d].status=='locked' else 'text-muted' }}">
+                            {% if summary[d].status=='unfiled' %}未建檔{% elif summary[d].status=='future' %}未開始{% elif
+                            summary[d].status=='locked' %}✓ 已簽核{% else %}{{ summary[d].done+summary[d].na }}/{{
+                            summary[d].total }}{% endif %}</small></a></div>{% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-light fw-bold">{{ '每週' if view=='week' else '每月' }}工作矩陣 · 可左右捲動</div>
+        <div class="table-responsive">
+            <table class="table table-bordered table-sm align-middle text-center mb-0" style="font-size:0.85rem">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-start sticky-start" style="min-width:220px">工作項目</th>{% for d in days %}<th
+                            style="min-width:56px"><a
+                                href="{{ url_for('checklist.index',view='day',date=d.isoformat()) }}">{{
+                                d.strftime('%m/%d') }}</a></th>{% endfor %}
+                    </tr>
+                </thead>
+                <tbody>{% for row in rows %}<tr>
+                        <th class="text-start fw-normal" style="min-width:220px">{{ row.title }}</th>
+                        {% for d in days %}{% set s=cells[(row.key,d.isoformat())] %}
+                        <td title="{{ s }}">{% if s=='done' %}<i class="bi bi-check-circle-fill text-success"
+                                title="已完成"></i>
+                            {% elif s=='pending' %}<i class="bi bi-x-circle-fill text-danger" title="未完成"></i>
+                            {% elif s=='na' %}<span class="badge bg-info text-dark">NA</span>
+                            {% elif s=='unfiled' %}<span class="text-warning" title="未建檔">?</span>
+                            {% elif s=='future' %}<span class="text-muted" title="未開始">·</span>
+                            {% else %}<span class="text-muted opacity-50">—</span>{% endif %}</td>
+                        {% endfor %}
+                    </tr>{% else %}<tr>
+                        <td colspan="{{ days|length+1 }}">無工作紀錄</td>
+                    </tr>{% endfor %}</tbody>
+            </table>
+        </div>
+        <div class="card-footer small text-muted">✓ 完成、× 未完成、NA 不適用、? 未建檔、· 未開始、— 不適用於當日。未建檔不等於員工未完成。</div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script>
+    (() => {
+        const csrf = {{ csrf_token() | tojson
+    }};
+    document.querySelectorAll('select.item-state').forEach(el => {
+        el.addEventListener('change', async () => {
+            const prev = el.dataset.original;
+            let note = el.dataset.note || '';
+            if (el.value === 'na') {
+                const input = window.prompt('請填寫「不適用」原因（必填）', note);
+                if (input === null || !input.trim()) { el.value = prev; return; }
+                note = input.trim();
+            } else { note = ''; }
+            el.disabled = true;
+            try {
+                const response = await fetch({{ url_for('checklist.set_item_state', item_id = 987654321)| tojson }}.replace('987654321', el.dataset.itemId), {
+            method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+            body: JSON.stringify({ state: el.value, note })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || '儲存失敗');
+        window.location.reload();
+    } catch (e) { el.value = prev; el.disabled = false; alert('無法儲存：' + e.message); }
+    });
+  });
+}) ();
+</script>
+{% endblock %}

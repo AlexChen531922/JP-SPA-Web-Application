@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% block title %}工作項目管理 - 晶品芳療{% endblock %}
+{% block content %}
+<div class="container-fluid py-4" style="max-width:1350px">
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div><h2 class="h3 fw-bold">工作項目管理</h2><p class="text-muted mb-0">修改只影響未建立的檢核表，歷史快照永久保留。</p></div>
+    <div class="d-flex gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('checklist.index') }}">返回檢核表</a><button type="button" class="btn btn-primary" onclick="editTask(null)">＋ 新增工作項目</button></div>
+  </div>
+  {% with messages=get_flashed_messages(with_categories=true) %}{% for cat,m in messages %}<div class="alert alert-success">{{ m }}</div>{% endfor %}{% endwith %}
+  <div class="card shadow-sm border-0"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+    <thead class="table-light"><tr><th>排序</th><th>階段</th><th>工作名稱／內容</th><th>負責</th><th>週期</th><th>狀態</th><th>管理</th></tr></thead>
+    <tbody>{% for t in tasks %}<tr>
+      <td>{{ t.sort_order }}</td><td>{{ category_names[t.category] }}</td>
+      <td><strong>{{ t.title }}</strong>{% if t.description %}<div class="text-muted small">{{ t.description }}</div>{% endif %}</td>
+      <td>{{ role_names[t.role_type] }}</td>
+      <td>{% if t.period_type=='daily' %}每日{% elif t.period_type=='weekday' %}每週 {{ t.period_val }}{% elif t.period_type=='monthday' %}每月 {{ t.period_val }} 日{% else %}單次 {{ t.one_time_date }}{% endif %}</td>
+      <td><span class="badge bg-{{ 'success' if t.is_active else 'secondary' }}">{{ '啟用' if t.is_active else '停用' }}</span></td>
+      <td class="text-nowrap"><button type="button" class="btn btn-sm btn-outline-primary" onclick="editTask({{ t.id }})">編輯</button>
+        <form class="d-inline" method="post" action="{{ url_for('checklist_admin.task_toggle',task_id=t.id) }}" onsubmit="return confirm('確定切換此工作項目狀態？')"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary">{{ '停用' if t.is_active else '啟用' }}</button></form>
+      </td>
+    </tr>{% else %}<tr><td colspan="7" class="text-muted text-center">尚無工作項目</td></tr>{% endfor %}</tbody>
+  </table></div></div>
+  <p class="small text-muted mt-3">註：週期使用 ISO 星期（1＝週一，7＝週日）；每月指定日期若不存在，可選「略過」或「當月最後一日」。</p>
+</div>
+<div class="modal fade" id="taskModal" tabindex="-1" aria-labelledby="taskModalLabel" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <form method="post" action="{{ url_for('checklist_admin.task_save') }}" id="taskForm">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="id" id="task-id">
+    <div class="modal-header"><h5 class="modal-title" id="taskModalLabel">新增／編輯工作</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body"><div class="row g-3">
+      <div class="col-12"><label class="form-label">工作名稱 *</label><input name="title" class="form-control" maxlength="255" required></div>
+      <div class="col-12"><label class="form-label">詳細工作內容</label><textarea name="description" rows="2" class="form-control" maxlength="5000"></textarea></div>
+      <div class="col-md-6"><label class="form-label">工作階段 *</label><select name="category" class="form-select"><option value="opening">晨間開店</option><option value="operating">營業中</option><option value="closing">晚班閉店</option><option value="periodic">特定週期</option></select></div>
+      <div class="col-md-6"><label class="form-label">負責角色 *</label><select name="role_type" class="form-select"><option value="duty">值日生</option><option value="therapist">芳療師</option><option value="all">全員</option></select></div>
+      <div class="col-md-6"><label class="form-label">週期 *</label><select name="period_type" id="period-type" class="form-select"><option value="daily">每日</option><option value="weekday">每週指定星期</option><option value="monthday">每月指定日期</option><option value="once">單次指定日期</option></select></div>
+      <div class="col-md-6"><label class="form-label">星期（1–7）或日期（1–31）</label><input type="number" name="period_val" min="1" max="31" class="form-control" placeholder="例如：週一 = 1；每月 30 = 30"></div>
+      <div class="col-md-6"><label class="form-label">單次指定日期</label><input type="date" name="one_time_date" class="form-control"></div>
+      <div class="col-md-6"><label class="form-label">若當月無指定日期</label><select name="missing_day_policy" class="form-select"><option value="skip">略過</option><option value="last_day">在當月最後一天執行</option></select></div>
+      <div class="col-md-4"><label class="form-label">生效開始日期（選填）</label><input type="date" name="effective_start" class="form-control"></div>
+      <div class="col-md-4"><label class="form-label">生效結束日期（選填）</label><input type="date" name="effective_end" class="form-control"></div>
+      <div class="col-md-4"><label class="form-label">排序</label><input type="number" name="sort_order" value="0" class="form-control"></div>
+    </div></div>
+    <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary">儲存項目</button></div>
+  </form>
+</div></div></div>
+{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script>
+const existingTasks = {
+{% for t in tasks %}
+ {{ t.id }}: {
+   title:{{ t.title|tojson }},description:{{ (t.description or '')|tojson }},category:{{ t.category|tojson }},
+   role_type:{{ t.role_type|tojson }},period_type:{{ t.period_type|tojson }},period_val:{{ (t.period_val or '')|tojson }},
+   one_time_date:{{ (t.one_time_date.isoformat() if t.one_time_date else '')|tojson }},
+   missing_day_policy:{{ t.missing_day_policy|tojson }},
+   effective_start:{{ (t.effective_start.isoformat() if t.effective_start else '')|tojson }},
+   effective_end:{{ (t.effective_end.isoformat() if t.effective_end else '')|tojson }},
+   sort_order:{{ t.sort_order|tojson }}
+ },
+{% endfor %}
+};
+function editTask(id) {
+  const form=document.getElementById('taskForm');form.reset();form.elements.id.value=id || '';
+  const data=id?existingTasks[id]:null;
+  if(data) for(const [key,value] of Object.entries(data)) {
+    const el=form.elements.namedItem(key);
+    if(el) el.value=value ?? '';
+  }
+  document.getElementById('taskModalLabel').textContent=id?'編輯工作項目':'新增工作項目';
+  bootstrap.Modal.getOrCreateInstance(document.getElementById('taskModal')).show();
+}
+</script>
+{% endblock %}
