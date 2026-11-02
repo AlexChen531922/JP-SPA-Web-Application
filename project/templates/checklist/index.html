@@ -107,7 +107,6 @@
             <div class="card h-100 shadow-sm border-0">
                 <div class="card-body">
                     <strong class="d-block mb-2">當日工作分配</strong>
-                    <div class="text-muted small mb-2">負責人由管理員指定；員工只能更新自己負責的工作。</div>
                     <form method="post" action="{{ url_for('checklist_admin.update_record') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden"
                             name="date" value="{{ day.isoformat() }}">
@@ -224,7 +223,7 @@
                             {% if not record[id_field] %}
                             <div class="small text-warning mt-2">請先請管理員指派此角色的員工。</div>
                             {% elif actor.id != record[id_field] %}
-                            <div class="small text-muted mt-2">只有當日被指派的本人可以簽核。</div>
+                            {# 不顯示提示，保留原本條件判斷 #}
                             {% elif pending_by_role[role] %}
                             <div class="small text-warning mt-2">自己負責或「全員」的工作尚有 {{ pending_by_role[role] }}
                                 項未完成，請先完成或填寫不適用原因。另一職務的專屬工作不影響你的簽核。</div>
