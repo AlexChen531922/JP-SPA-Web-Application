@@ -473,11 +473,9 @@
           {% set is_line_bound = line_id and line_id.startswith('U') %}
 
           {% if role in ['staff', 'admin'] %}
-          {% if role == 'admin' %}
           <a href="{{ url_for('admin.dashboard') }}" class="btn btn-outline-primary btn-sm text-nowrap">
             <i class="bi bi-speedometer2"></i> 管理後台
           </a>
-          {% endif %}
           <a href="{{ url_for('checklist.index') }}" class="btn btn-outline-primary btn-sm text-nowrap">
             <i class="bi bi-clipboard2-check"></i> 工作檢核
           </a>
@@ -530,10 +528,8 @@
               {% elif role in ['admin', 'staff'] %}
               <li><a class="dropdown-item" href="{{ url_for('checklist.index') }}"><i class="bi bi-clipboard2-check"></i>
                   工作檢核</a></li>
-              {% if role == 'admin' %}
               <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-speedometer2"></i>
                   管理後台</a></li>
-              {% endif %}
               <li>
                 <hr class="dropdown-divider">
               </li>
@@ -552,10 +548,8 @@
               </li>
               {% endif %}
 
-              {% if role == 'admin' %}
               <li><a class="dropdown-item" href="{{ url_for('admin.dashboard') }}"><i class="bi bi-person-gear"></i>
                   個人設定</a></li>
-              {% endif %}
               {% endif %}
 
               <li>
