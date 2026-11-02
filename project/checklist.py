@@ -10,7 +10,6 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 import calendar
 import json
-import unicodedata
 from zoneinfo import ZoneInfo
 
 from flask import (Blueprint, abort, jsonify, redirect, render_template,
@@ -75,24 +74,6 @@ def may_edit_date(actor, work_date):
     # Staff can only change their own calendar day; admins may correct history.
     if actor['role'] != 'admin' and work_date != taiwan_today():
         abort(403, description='非管理員僅能修改今日檢核')
-
-
-def normalized_signature_name(value):
-    """Compare Chinese/English names allowing whitespace and width differences."""
-    return ''.join(unicodedata.normalize('NFKC', value).split()).casefold()
-
-
-def signature_name_matches(actor, entered):
-    """Verify the typed name against the authenticated staff account."""
-    firstname = (actor.get('firstname') or '').strip()
-    surname = (actor.get('surname') or '').strip()
-    if not firstname or not surname or not entered or len(entered) > 120:
-        return False
-    normalized = normalized_signature_name(entered)
-    return normalized in {
-        normalized_signature_name(firstname + surname),
-        normalized_signature_name(surname + firstname),
-    }
 
 
 def staff_choices(cursor):
@@ -554,9 +535,11 @@ def sign_day(role):
         assigned = record['duty_user_id'] if role == 'duty' else record['therapist_user_id']
         if actor['id'] != assigned:
             abort(403, description='只有被指派的本人可以完成其簽核')
+        # Typed confirmation is free-form text, not an identity check. The
+        # actual signer is still the authenticated, assigned staff account.
         entered_name = str(request.form.get('sign_name') or '').strip()
-        if not signature_name_matches(actor, entered_name):
-            flash('請輸入與目前登入帳號相同的姓名，才可以完成本人簽核', 'warning')
+        if not entered_name:
+            flash('請輸入簽核內容，不能留白', 'warning')
             return redirect(url_for('checklist.index', date=day.isoformat()))
         cursor.execute('''SELECT COUNT(*) AS pending_count FROM checklist_daily_items
                           WHERE record_id=%s AND state='pending'

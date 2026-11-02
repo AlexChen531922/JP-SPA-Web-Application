@@ -210,9 +210,9 @@
                         <form method="post" action="{{ url_for('checklist.sign_day',role=role) }}" class="mt-2">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                             <input type="hidden" name="date" value="{{ day.isoformat() }}">
-                            <label for="signName-{{ role }}" class="form-label small">簽核姓名（本人輸入）</label>
+                            <label for="signName-{{ role }}" class="form-label small">簽核內容（自由輸入）</label>
                             <input id="signName-{{ role }}" type="text" name="sign_name" class="form-control form-control-sm mb-2"
-                                maxlength="120" autocomplete="off" placeholder="請輸入登入帳號的姓名" required
+                                autocomplete="off" placeholder="請輸入姓名、暱稱或其他簽核文字" required
                                 {{ 'disabled' if not signable else '' }}>
                             <button type="submit" class="btn btn-success btn-sm" {{ 'disabled' if not signable else '' }}>確認本人簽核</button>
                         </form>
@@ -227,7 +227,7 @@
                         {% elif record.status != 'open' %}
                         <div class="small text-muted mt-2">本日已鎖定。</div>
                         {% else %}
-                        <div class="small text-muted mt-2">姓名須與登入帳號相符，簽核將留下使用者與時間紀錄。</div>
+                        <div class="small text-muted mt-2">可自由輸入簽核文字；系統仍會記錄實際登入帳號及簽核時間。</div>
                         {% endif %}
                         {% endif %}
                     </div>
