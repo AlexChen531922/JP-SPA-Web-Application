@@ -186,14 +186,16 @@ def dashboard():
         "SELECT * FROM course_categories ORDER BY display_order, name")
     course_categories = cursor.fetchall()
 
-    # 活動管理統一使用 events；不另區分 campaigns。
+    # 活動管理統一使用 events。封存活動不再供新訂單選取。
     cursor.execute("""
         SELECT e.*, CONCAT_WS('', u.surname, u.firstname) AS customer_name
         FROM events e
         LEFT JOIN users u ON u.id = e.customer_id
         ORDER BY e.start_date DESC, e.id DESC
     """)
-    events = cursor.fetchall()
+    all_events = cursor.fetchall()
+    events = [e for e in all_events if not e['is_archived']]
+    archived_events = [e for e in all_events if e['is_archived']]
 
     # Inventory
     cursor.execute("""
@@ -377,6 +379,7 @@ def dashboard():
         product_categories=product_categories,
         course_categories=course_categories,
         events=events,
+        archived_events=archived_events,
         inventory_products=inventory_products,
         customers=customers,
         manual_order_request_key=secrets.token_urlsafe(24),
@@ -973,29 +976,49 @@ def update_event(event_id):
 
 
 @admin_bp.route('/event/<int:event_id>/delete', methods=['POST'])
-@staff_required
+@admin_required
 def delete_event(event_id):
-    """Delete event"""
+    """Unlinked events may be deleted; linked events are archived, preserving order history."""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    action = None
+    event_title = None
     try:
-        cursor = database.connection.cursor()
-
-        # Get title
-        cursor.execute("SELECT title FROM events WHERE id = %s", (event_id,))
-        res = cursor.fetchone()
-        e_title = res[0] if res else 'Unknown'
-
-        cursor.execute("DELETE FROM events WHERE id = %s", (event_id,))
-        database.connection.commit()
-        cursor.close()
-
-        # ⭐ LOG ACTIVITY
-        log_activity('delete', 'event', event_id, {'title': e_title})
-
-        flash('活動已刪除', 'success')
-    except Exception as e:
+        # Lock the parent row: a concurrent order adding an FK must wait.
+        cursor.execute('SELECT id,title,is_archived FROM events WHERE id=%s FOR UPDATE', (event_id,))
+        event = cursor.fetchone()
+        if not event:
+            flash('活動不存在或已刪除', 'warning')
+        elif event['is_archived']:
+            flash('這筆活動已封存', 'info')
+        else:
+            event_title = event['title']
+            cursor.execute('SELECT COUNT(*) AS n FROM order_events WHERE event_id=%s', (event_id,))
+            linked_orders = cursor.fetchone()['n']
+            if linked_orders:
+                cursor.execute('UPDATE events SET is_archived=1 WHERE id=%s', (event_id,))
+                action = 'archive'
+            else:
+                cursor.execute('DELETE FROM events WHERE id=%s', (event_id,))
+                if cursor.rowcount != 1:
+                    raise RuntimeError('活動刪除未成功，請重新載入後再試')
+                action = 'delete'
+            database.connection.commit()
+            flash('活動已封存，歷史訂單關聯保留' if action == 'archive' else '活動已永久刪除', 'success')
+    except MySQLdb.IntegrityError:
         database.connection.rollback()
-        flash(f'刪除失敗: {str(e)}', 'error')
-
+        current_app.logger.exception('Event deletion blocked by database constraint: %s', event_id)
+        flash('活動仍被其他資料參照，未刪除任何資料；請查看 Railway 執行日誌', 'error')
+    except Exception:
+        database.connection.rollback()
+        current_app.logger.exception('Failed to delete or archive event %s', event_id)
+        flash('活動刪除／封存失敗，請查看 Railway 執行日誌', 'error')
+    finally:
+        cursor.close()
+    if action:
+        try:
+            log_activity(action, 'event', event_id, {'title': event_title})
+        except Exception:
+            current_app.logger.exception('Could not audit event %s', event_id)
     return redirect(url_for('admin.dashboard', tab='events'))
 
 # =====================================================
@@ -2088,7 +2111,7 @@ def add_order_manual():
         if event_ids:
             placeholders = ','.join(['%s'] * len(event_ids))
             cursor.execute(
-                f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(event_ids))
+                f'SELECT id FROM events WHERE is_archived=0 AND id IN ({placeholders})', tuple(event_ids))
             if len(cursor.fetchall()) != len(event_ids):
                 raise ValueError('所選活動不存在')
             for event_id in event_ids:
@@ -2170,15 +2193,20 @@ def update_order_events(order_id):
             'SELECT id FROM orders WHERE id=%s AND deleted_at IS NULL FOR UPDATE', (order_id,))
         if not cursor.fetchone():
             raise ValueError('訂單不存在')
+        # 保留舊訂單已關聯的封存活動，但不允許新加入封存活動。
+        cursor.execute('''SELECT oe.event_id FROM order_events oe
+                          JOIN events e ON e.id=oe.event_id
+                          WHERE oe.order_id=%s AND e.is_archived=1''', (order_id,))
+        archived_ids = [row['event_id'] for row in cursor.fetchall()]
         if ids:
             placeholders = ','.join(['%s'] * len(ids))
             cursor.execute(
-                f'SELECT id FROM events WHERE id IN ({placeholders})', tuple(ids))
+                f'SELECT id FROM events WHERE is_archived=0 AND id IN ({placeholders})', tuple(ids))
             if len(cursor.fetchall()) != len(ids):
-                raise ValueError('活動選項包含已刪除的活動')
+                raise ValueError('活動選項包含已刪除或已封存的活動')
         cursor.execute(
             'DELETE FROM order_events WHERE order_id=%s', (order_id,))
-        for event_id in ids:
+        for event_id in archived_ids + ids:
             cursor.execute(
                 'INSERT INTO order_events(order_id,event_id) VALUES(%s,%s)', (order_id, event_id))
         database.connection.commit()

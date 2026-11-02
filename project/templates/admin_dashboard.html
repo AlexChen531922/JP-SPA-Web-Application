@@ -849,9 +849,9 @@
                 class="bi bi-pencil"></i></button>
             {% if session.get('user', {}).get('role') == 'admin' %}
             <form method="POST" action="{{ url_for('admin.delete_event', event_id=event.id) }}" class="d-inline"
-              onsubmit="return confirm('刪除？')">
+              onsubmit="return confirm('確認處理這筆活動？未關聯訂單的活動會永久刪除；已關聯訂單的活動只會封存，保留歷史紀錄。')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除／封存活動"><i class="bi bi-trash"></i></button>
             </form>
             {% endif %}
           </td>
@@ -859,6 +859,18 @@
         {% endfor %}
       </tbody>
     </table>
+    {% if archived_events and session.get('user', {}).get('role') == 'admin' %}
+    <details class="mt-3 mb-2">
+      <summary class="text-muted">已封存活動（{{ archived_events|length }}）</summary>
+      <ul class="list-group mt-2">
+        {% for event in archived_events %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+          <span>{{ event.title }}</span><span class="badge bg-secondary">已封存</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </details>
+    {% endif %}
   </div>
 
   <div class="tab-pane fade {% if tab == 'inventory' %}show active{% endif %}" id="inventory">
