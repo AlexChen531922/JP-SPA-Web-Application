@@ -41,6 +41,26 @@
     {% endfor %}
     {% endwith %}
 
+    {% if actor.role == 'admin' %}
+    <div class="card border-primary-subtle shadow-sm mb-3">
+        <div class="card-body">
+            <h3 class="h6 fw-bold mb-2"><i class="bi bi-calendar-plus"></i> 批次建立整月檢核表（管理員）</h3>
+            <form method="post" action="{{ url_for('checklist_admin.create_month') }}"
+                class="d-flex flex-wrap align-items-end gap-2"
+                onsubmit="return confirm('確定建立整個月份的工作檢核表？已存在的日期不會被覆蓋。');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <div>
+                    <label for="checklistBulkMonth" class="form-label small mb-1">選擇月份</label>
+                    <input type="month" id="checklistBulkMonth" name="month" class="form-control"
+                        value="{{ day.strftime('%Y-%m') }}" required>
+                </div>
+                <button class="btn btn-primary" type="submit"><i class="bi bi-calendar-check"></i> 建立整月檢核表</button>
+            </form>
+            <div class="small text-muted mt-2">依每天適用的工作週期建立快照（包含週末），已存在的日期自動略過；建立後仍需指派值日生及芳療師／助理。</div>
+        </div>
+    </div>
+    {% endif %}
+
     {% if view == 'day' %}
     <h3 class="h5 mb-3">{{ day.strftime('%Y/%m/%d') }} （{{ ['一','二','三','四','五','六','日'][day.weekday()] }}）</h3>
     {% if not record %}
@@ -76,7 +96,7 @@
                         stats.total }} 項，已處理 {{ ((resolved * 100 / stats.total)|round)|int if stats.total else 100
                         }}%）</small>
                     <hr>
-                    <div class="small text-muted mb-1">簽核：值日生 {{ '✓' if approvals.get('duty') else '尚未確認' }}；芳療師 {{ '✓'
+                    <div class="small text-muted mb-1">簽核：值日生 {{ '✓' if approvals.get('duty') else '尚未確認' }}；芳療師／助理 {{ '✓'
                         if approvals.get('therapist') else '尚未確認' }} · 版本 {{ record.revision }}</div>
                     <div class="small">提醒：如 9:00 有預約，所有夥伴需於 8:50 前到店。</div>
                 </div>
@@ -90,7 +110,7 @@
                     <form method="post" action="{{ url_for('checklist_admin.update_record') }}">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden"
                             name="date" value="{{ day.isoformat() }}">
-                        {% for key,label in [('duty_user_id','值日生'),('therapist_user_id','芳療師')] %}
+                        {% for key,label in [('duty_user_id','值日生'),('therapist_user_id','芳療師／助理')] %}
                         <label class="form-label small">{{ label }}</label>
                         <select name="{{ key }}" class="form-select form-select-sm mb-2" {{ 'disabled' if
                             actor.role!='admin' or record.status=='locked' else '' }}>
@@ -168,7 +188,7 @@
                 <div class="col-md-1"><select class="form-select" name="role_type">
                         <option value="all">全員</option>
                         <option value="duty">值日生</option>
-                        <option value="therapist">芳療師</option>
+                        <option value="therapist">芳療師／助理</option>
                     </select></div>
                 <div class="col-md-1"><button class="btn btn-primary w-100">新增</button></div>
             </form>
@@ -178,19 +198,37 @@
         <div class="card-body">
             <h4 class="h6 mb-3">雙人簽核（僅本人操作）</h4>
             <div class="row g-3">
-                {% for role,label,id_field in [('duty','值日生','duty_user_id'),('therapist','芳療師','therapist_user_id')] %}
+                {% for role,label,id_field in [('duty','值日生','duty_user_id'),('therapist','芳療師／助理','therapist_user_id')] %}
                 <div class="col-md-6">
                     <div class="border rounded p-3 h-100">
                         <strong>{{ label }}</strong>
-                        {% if approvals.get(role) %}<div class="text-success small">✓ 已確認 · {{ approvals[role].signed_at
-                            }}</div>
-                        {% else %}<div class="small text-muted mb-2">尚未確認</div>
-                        {% if actor.id==record[id_field] and not stats.pending and record.status=='open' and day<=today
-                            %} <form method="post" action="{{ url_for('checklist.sign_day',role=role) }}"><input
-                                type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden"
-                                name="date" value="{{ day.isoformat() }}"><button
-                                class="btn btn-success btn-sm">確認本人簽核</button></form>
-                            {% endif %}{% endif %}
+                        {% if approvals.get(role) %}
+                        <div class="text-success small">✓ 已確認 · {{ approvals[role].signed_at }}</div>
+                        {% else %}
+                        {% set signable = actor.id == record[id_field] and not stats.pending and record.status == 'open' and day <= today %}
+                        <form method="post" action="{{ url_for('checklist.sign_day',role=role) }}" class="mt-2">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <input type="hidden" name="date" value="{{ day.isoformat() }}">
+                            <label for="signName-{{ role }}" class="form-label small">簽核姓名（本人輸入）</label>
+                            <input id="signName-{{ role }}" type="text" name="sign_name" class="form-control form-control-sm mb-2"
+                                maxlength="120" autocomplete="off" placeholder="請輸入登入帳號的姓名" required
+                                {{ 'disabled' if not signable else '' }}>
+                            <button type="submit" class="btn btn-success btn-sm" {{ 'disabled' if not signable else '' }}>確認本人簽核</button>
+                        </form>
+                        {% if not record[id_field] %}
+                        <div class="small text-warning mt-2">請先請管理員指派此角色的員工。</div>
+                        {% elif actor.id != record[id_field] %}
+                        <div class="small text-muted mt-2">只有當日被指派的本人可以簽核。</div>
+                        {% elif stats.pending %}
+                        <div class="small text-warning mt-2">尚有 {{ stats.pending }} 項未完成，請先完成或填寫不適用原因。</div>
+                        {% elif day > today %}
+                        <div class="small text-muted mt-2">未來日期不能提前簽核。</div>
+                        {% elif record.status != 'open' %}
+                        <div class="small text-muted mt-2">本日已鎖定。</div>
+                        {% else %}
+                        <div class="small text-muted mt-2">姓名須與登入帳號相符，簽核將留下使用者與時間紀錄。</div>
+                        {% endif %}
+                        {% endif %}
                     </div>
                 </div>{% endfor %}
             </div>

@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from io import BytesIO
 import calendar
 import json
+import unicodedata
 from zoneinfo import ZoneInfo
 
 from flask import (Blueprint, abort, jsonify, redirect, render_template,
@@ -43,7 +44,7 @@ ROLES = ('duty', 'therapist', 'all')
 PERIODS = ('daily', 'weekday', 'monthday', 'once')
 CATEGORY_NAMES = {'opening': '晨間開店', 'operating': '營業中',
                   'closing': '晚班閉店', 'periodic': '特定週期'}
-ROLE_NAMES = {'duty': '值日生', 'therapist': '芳療師', 'all': '全員'}
+ROLE_NAMES = {'duty': '值日生', 'therapist': '芳療師／助理', 'all': '全員'}
 STATE_NAMES = {'pending': '未完成', 'done': '已完成', 'na': '不適用', 'void': '已取消'}
 
 
@@ -74,6 +75,24 @@ def may_edit_date(actor, work_date):
     # Staff can only change their own calendar day; admins may correct history.
     if actor['role'] != 'admin' and work_date != taiwan_today():
         abort(403, description='非管理員僅能修改今日檢核')
+
+
+def normalized_signature_name(value):
+    """Compare Chinese/English names allowing whitespace and width differences."""
+    return ''.join(unicodedata.normalize('NFKC', value).split()).casefold()
+
+
+def signature_name_matches(actor, entered):
+    """Verify the typed name against the authenticated staff account."""
+    firstname = (actor.get('firstname') or '').strip()
+    surname = (actor.get('surname') or '').strip()
+    if not firstname or not surname or not entered or len(entered) > 120:
+        return False
+    normalized = normalized_signature_name(entered)
+    return normalized in {
+        normalized_signature_name(firstname + surname),
+        normalized_signature_name(surname + firstname),
+    }
 
 
 def staff_choices(cursor):
@@ -320,6 +339,54 @@ def start_day():
     return transact(op)
 
 
+@checklist_admin_bp.post('/month/create')
+@checklist_admin_required
+def create_month():
+    """Create every day in a month without changing any existing records."""
+    text = str(request.form.get('month') or '').strip()
+    if len(text) != 7 or text[4] != '-' or not text[:4].isdigit() or not text[5:].isdigit():
+        abort(400, description='月份格式必須是 YYYY-MM')
+    try:
+        month_start = date.fromisoformat(text + '-01')
+    except ValueError:
+        abort(400, description='無效的月份')
+    days = date_span('month', month_start)
+
+    def op(cursor):
+        actor = current_actor(cursor, admin=True)
+        active_tasks = get_active_tasks(cursor)
+        created = 0
+        skipped = 0
+        for work_day in days:
+            # The UNIQUE(log_date) index guarantees no duplicates. Handle only
+            # duplicate key 1062; other SQL errors must roll back the month.
+            try:
+                cursor.execute('''INSERT INTO checklist_daily_records
+                    (log_date, created_by_user_id) VALUES (%s, %s)''',
+                    (work_day, actor['id']))
+            except MySQLdb.IntegrityError as exc:
+                if exc.args and exc.args[0] == 1062:
+                    skipped += 1
+                    continue
+                raise
+            record_id = cursor.lastrowid
+            applicable = [t for t in active_tasks if is_applicable(t, work_day)]
+            for task in applicable:
+                cursor.execute('''INSERT INTO checklist_daily_items
+                    (record_id, task_id, snapshot_title, snapshot_description,
+                     snapshot_category, snapshot_role, sort_order)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+                    (record_id, task['id'], task['title'], task['description'],
+                     task['category'], task['role_type'], task['sort_order']))
+            audit(cursor, actor['id'], 'bulk_create_day', record_id=record_id,
+                  new={'month': text, 'date': work_day.isoformat(), 'task_count': len(applicable)})
+            created += 1
+        flash(f'{text} 建立完成：新增 {created} 日，略過既有 {skipped} 日；既有檢核紀錄不受影響。', 'success')
+        return redirect(url_for('checklist.index', view='month', date=month_start.isoformat()))
+
+    return transact(op)
+
+
 @checklist_bp.post('/item/<int:item_id>/state')
 @staff_required
 def set_item_state(item_id):
@@ -428,8 +495,12 @@ def sign_day(role):
         assigned = record['duty_user_id'] if role == 'duty' else record['therapist_user_id']
         if actor['id'] != assigned:
             abort(403, description='只有被指派的本人可以完成其簽核')
+        entered_name = str(request.form.get('sign_name') or '').strip()
+        if not signature_name_matches(actor, entered_name):
+            flash('請輸入與目前登入帳號相同的姓名，才可以完成本人簽核', 'warning')
+            return redirect(url_for('checklist.index', date=day.isoformat()))
         if not record['duty_user_id'] or not record['therapist_user_id']:
-            flash('請管理者先指定值日生與芳療師', 'warning')
+            flash('請管理者先指定值日生與芳療師／助理', 'warning')
             return redirect(url_for('checklist.index', date=day.isoformat()))
         cursor.execute('''SELECT COUNT(*) AS pending_count FROM checklist_daily_items
                           WHERE record_id=%s AND state='pending' ''', (record['id'],))
@@ -443,7 +514,7 @@ def sign_day(role):
                          (record_id,revision,signer_role,signed_by_user_id) VALUES (%s,%s,%s,%s)''',
                            (record['id'], record['revision'], role, actor['id']))
             audit(cursor, actor['id'], 'signoff', record_id=record['id'], new={
-                  'role': role, 'revision': record['revision']})
+                  'role': role, 'revision': record['revision'], 'confirmed_name': entered_name})
         cursor.execute('''SELECT COUNT(*) AS n FROM checklist_signoffs WHERE record_id=%s AND revision=%s''',
                        (record['id'], record['revision']))
         if cursor.fetchone()['n'] == 2:
@@ -685,7 +756,7 @@ def export():
         if view == 'day':
             d = days[0]
             rec = records.get(d)
-            record_info = [['日期', '值日生', '芳療師', '簽核狀態', '版本', '交接備註'],
+            record_info = [['日期', '值日生', '芳療師／助理', '簽核狀態', '版本', '交接備註'],
                            [d.isoformat(), names.get(rec['duty_user_id'], '') if rec else '', names.get(rec['therapist_user_id'], '') if rec else '',
                             rec['status'] if rec else '未建檔', rec['revision'] if rec else '', rec['handover_notes'] if rec else '']]
             excel_sheet(wb, '當日資訊', record_info[0], record_info[1:])
