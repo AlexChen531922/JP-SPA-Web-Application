@@ -1705,7 +1705,7 @@
 
           <div class="card card-body bg-light mb-3">
             <h6 class="fw-bold">訂單付款（儲值金可部分或全額扣款）</h6>
-            <p class="small mb-2">客戶可用儲值：NT$ <strong id="manualAvailableBalance">0.00</strong></p>
+            <p class="small mb-2">客戶可用儲值：NT$ <strong id="manualAvailableBalance">0</strong></p>
             <div class="row g-2">
               <div class="col-md-6"><label class="form-label" for="storedValueAmount">本次使用儲值金</label>
                 <input id="storedValueAmount" class="form-control" name="stored_value_amount" type="number" min="0"
@@ -1720,7 +1720,7 @@
                 </select>
               </div>
             </div>
-            <div class="small text-muted mt-2">其餘應付：NT$ <span id="manualOtherPayment">0.00</span>（最終金額由後端核對）</div>
+            <div class="small text-muted mt-2">其餘應付：NT$ <span id="manualOtherPayment">0</span>（最終金額由後端核對）</div>
           </div>
           <div class="form-check form-switch mt-3">
             <input class="form-check-input" type="checkbox" name="send_notification" id="orderNotifSwitch" checked>
@@ -1941,35 +1941,88 @@
 
 
 
-<!-- ⭐ 建立或補登預約 Modal -->
+<!-- ⭐ 建立預約 Modal (一體化表單) -->
 <div class="modal fade" id="addBookingModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
     <div class="modal-content">
-      <form action="{{ url_for('admin.add_booking_manual') }}" method="POST">
+      <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="bookingForm">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立或補登預約</h5>
+          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
 
-        <div class="modal-body pb-4" id="bookingCustomersContainer">
-          <!-- 這裡會動態載入客戶區塊 -->
+        <div class="modal-body pb-4">
+          <!-- 1. 選擇客戶 -->
+          <h6 class="fw-bold text-primary mb-2">1. 選擇客戶 <span class="text-danger">*</span></h6>
+          <div id="bookingCustomerList" class="mb-2"></div>
+          <button type="button" class="btn btn-sm btn-outline-primary mb-4" onclick="addBookingCustomerRow()">+
+            新增同行客戶</button>
+
+          <!-- 2. 預約課程 & 寄店扣料 -->
+          <div class="d-flex justify-content-between align-items-end mb-2 border-top pt-3">
+            <h6 class="fw-bold text-primary mb-0">2. 預約課程 <span class="text-danger">*</span></h6>
+            <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm"
+              onclick="openInventoryModal()"><i class="bi bi-box-seam"></i> 帶入寄店扣料</button>
+          </div>
+          <div id="invDeductDisplay" class="text-danger small fw-bold mb-2"></div>
+          <div id="invHiddenContainer"></div> <!-- 隱藏的扣料陣列 -->
+
+          <div class="table-responsive bg-light p-2 rounded mb-4 border">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 15%">所屬客戶</th>
+                  <th style="width: 20%">課程名稱 <span class="text-danger">*</span></th>
+                  <th style="width: 20%">預約時間</th>
+                  <th style="width: 15%">金額</th>
+                  <th style="width: 20%">儲值扣款 / 付款方式</th>
+                  <th style="width: 8%">手技/體驗</th>
+                  <th style="width: 2%"></th>
+                </tr>
+              </thead>
+              <tbody id="courseTbody"></tbody>
+            </table>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addCourseRow()">+
+              增加一筆課程</button>
+          </div>
+
+          <!-- 3. 加購產品 -->
+          <h6 class="fw-bold text-primary mb-2">3. 加購產品 <span class="text-muted small fw-normal">(選填，若有寄店扣料則無需加購)</span>
+          </h6>
+          <div class="table-responsive bg-light p-2 rounded border">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width: 15%">所屬客戶</th>
+                  <th style="width: 25%">產品名稱 <span class="text-danger">*</span></th>
+                  <th style="width: 15%">金額</th>
+                  <th style="width: 20%">儲值扣款 / 付款方式</th>
+                  <th style="width: 23%"></th> <!-- 佔位符，對齊上方表格 -->
+                  <th style="width: 2%"></th>
+                </tr>
+              </thead>
+              <tbody id="productTbody"></tbody>
+            </table>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addProductRow()">+
+              增加一筆產品</button>
+          </div>
         </div>
 
         <div class="modal-footer">
           <div class="form-check form-switch me-auto">
             <input class="form-check-input" type="checkbox" name="send_notification" checked>
-            <label class="form-check-label fw-bold text-info">發送 LINE/Email 通知</label>
+            <label class="form-check-label fw-bold text-info">發送預約確認通知</label>
           </div>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-          <button type="submit" class="btn btn-primary px-4">確認結帳建立</button>
+          <button type="submit" class="btn btn-primary px-4 fw-bold">確認建立預約</button>
         </div>
       </form>
     </div>
   </div>
 </div>
 
-<!-- 寄店扣料 Modal -->
+<!-- 寄店扣料 Modal (多人同視窗) -->
 <div class="modal fade" id="inventoryDeductModal" tabindex="-1" style="z-index: 1060;">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -1978,13 +2031,12 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <input type="hidden" id="currentDeductBlockId">
         <div id="inventoryLoading" class="text-center py-4 d-none">
           <div class="spinner-border text-primary"></div>
         </div>
         <div id="inventoryEmpty" class="text-center py-4 text-muted d-none"><i
-            class="bi bi-inbox fs-1"></i><br>此客戶目前沒有寄店產品</div>
-        <div id="inventoryList"></div>
+            class="bi bi-inbox fs-1"></i><br>目前選擇的客戶皆無寄店產品</div>
+        <div id="inventoryList"></div> <!-- 這裡會動態載入每位客戶的庫存 -->
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -2002,14 +2054,33 @@
   {% endfor %}
 </datalist>
 
-<datalist id="dl-items">
-  {% for c in courses %}
-  <option data-type="course" data-id="{{ c.id }}" data-price="{{ c.regular_price }}" data-exp="{{ c.experience_price }}"
-    value="[課程] {{ c.name }}"></option>
+<!-- 提供搜尋的資料清單 (不可見) -->
+<datalist id="dl-customers">
+  {% for c in customers_list %}
+  <option data-id="{{ c.id }}" data-balance="{{ stored_balances.get(c.id, '0') }}"
+    value="{{ c.surname }}{{ c.firstname }} ({{ c.phone }})"></option>
   {% endfor %}
+</datalist>
+
+<!-- 課程專用 -->
+<datalist id="dl-courses">
+  {% for c in courses %}
+  <option data-id="{{ c.id }}" data-price="{{ c.regular_price }}" data-exp="{{ c.experience_price }}"
+    value="{{ c.name }}"></option>
+  {% endfor %}
+</datalist>
+
+<!-- 產品專用 -->
+<datalist id="dl-products">
   {% for p in inventory_products %}
-  <option data-type="product" data-id="{{ p.id }}" data-price="{{ p.price }}" data-exp="{{ p.price }}"
-    value="[產品] {{ p.name }}"></option>
+  <option data-id="{{ p.id }}" data-price="{{ p.price }}" value="{{ p.name }}"></option>
+  {% endfor %}
+</datalist>
+
+<datalist id="dl-fees">
+  <option data-price="0" value="無手技費"></option>
+  {% for f in service_fees %}
+  <option data-id="{{ f.id }}" data-price="{{ f.price }}" value="{{ f.name }}"></option>
   {% endfor %}
 </datalist>
 
@@ -2446,9 +2517,14 @@
       const balance = Number(selected?.dataset.balance || 0);
       const amount = Number(useInput.value || 0);
       const total = Number((totalLabel?.textContent || '0').replace(/,/g, '')) || 0;
-      balanceLabel.textContent = balance.toFixed(2);
-      remaining.textContent = Math.max(0, total - amount).toFixed(2);
-      useInput.max = Math.max(0, Math.min(balance, total)).toFixed(2);
+
+      // 移除小數點，並加上千分位逗號顯示
+      balanceLabel.textContent = Math.floor(balance).toLocaleString();
+      remaining.textContent = Math.floor(Math.max(0, total - amount)).toLocaleString();
+
+      // input 的 max 屬性不能有逗號，直接取整數
+      useInput.max = Math.floor(Math.max(0, Math.min(balance, total)));
+
       useInput.setCustomValidity(amount < 0 || amount > balance || amount > total ? '儲值扣款不可超過餘額或訂單金額' : '');
     }
     customerSelect.addEventListener('change', refresh);
@@ -2592,126 +2668,141 @@
     }
   });
 
-  // ================= 3. 混合式預約單邏輯 (搜尋/課程/產品) =================
-  let blockCount = 0;
-
+  // ================= 3. 一體化預約單邏輯 =================
   document.addEventListener('DOMContentLoaded', () => {
     const bookingModalEl = document.getElementById('addBookingModal');
     if (bookingModalEl) {
       bookingModalEl.addEventListener('show.bs.modal', function () {
-        const container = document.getElementById('bookingCustomersContainer');
-        if (container.children.length === 0) {
-          addCustomerBlock();
-        }
+        document.getElementById('bookingCustomerList').innerHTML = '';
+        document.getElementById('courseTbody').innerHTML = '';
+        document.getElementById('productTbody').innerHTML = '';
+        document.getElementById('invDeductDisplay').innerHTML = '';
+        document.getElementById('invHiddenContainer').innerHTML = '';
+        addBookingCustomerRow(); // 預設第一位客戶
+        addCourseRow();          // 預設一堂課程
       });
     }
   });
 
-  function addCustomerBlock() {
-    blockCount++;
-    const blockId = 'custBlock_' + blockCount;
+  // --- 客戶列 ---
+  function addBookingCustomerRow() {
+    const container = document.getElementById('bookingCustomerList');
+    const isFirst = container.children.length === 0;
+    const rowId = 'custRow_' + Date.now();
+
     const html = `
-     <div class="customer-booking-block mb-4 pb-4 border-bottom border-2" id="${blockId}">
-        <div class="mb-3 w-50">
-           <label class="form-label fw-bold text-primary">1. 選擇客戶 <span class="text-danger">*</span></label>
-           <div class="d-flex align-items-center gap-2 mb-1">
-              <input type="text" class="form-control cust-search-input border-primary" list="dl-customers" placeholder="輸入姓名或電話搜尋..." onchange="syncCustomer(this)" required>
-              <input type="hidden" class="cust-id-val">
-              <button type="button" class="btn btn-outline-danger btn-sm text-nowrap" onclick="document.getElementById('${blockId}').remove()"><i class="bi bi-trash"></i> 移除</button>
-           </div>
-           <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCustomerBlock()">+ 新增同行客戶</button>
-           <div class="text-muted small mt-2">可用儲值金: NT$ <span class="cust-balance-txt fw-bold text-success">0</span></div>
-        </div>
-
-        <div class="d-flex justify-content-between align-items-end mb-2">
-           <label class="form-label fw-bold text-primary mb-0">2. 預約與購買內容</label>
-           <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm" onclick="openInventoryModal('${blockId}')"><i class="bi bi-box-seam"></i> 帶入寄店扣料</button>
-        </div>
-        
-        <input type="hidden" name="inv_cust_ids[]" class="inv-cust-id">
-        <input type="hidden" name="inv_jsons[]" class="inv-hidden" value="[]">
-        <div class="inv-display text-danger small fw-bold mb-2"></div>
-
-        <div class="table-responsive bg-light p-2 rounded">
-           <table class="table table-sm align-middle mb-0">
-              <thead class="table-light">
-                 <tr>
-                    <th style="width: 25%">項目 (可搜課程/產品) <span class="text-danger">*</span></th>
-                    <th style="width: 20%">時間 (純買產品可略)</th>
-                    <th style="width: 15%">金額</th>
-                    <th style="width: 20%">儲值扣款 / 付款方式</th>
-                    <th style="width: 15%">手技 / 體驗</th>
-                    <th style="width: 5%"></th>
-                 </tr>
-              </thead>
-              <tbody class="items-tbody"></tbody>
-           </table>
-           <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addItemRow('${blockId}')">+ 增加一筆項目</button>
-        </div>
+     <div class="d-flex align-items-center gap-2 mb-2 cust-row" id="${rowId}">
+         <div class="flex-grow-1" style="max-width: 400px;">
+             <input type="text" class="form-control form-control-sm border-primary cust-search" list="dl-customers" placeholder="輸入姓名或電話搜尋..." onchange="onCustomerChange()" required>
+             <input type="hidden" class="cust-id-val">
+         </div>
+         <div class="text-muted small ms-2" style="width: 160px;">可用: NT$ <span class="cust-bal-txt fw-bold text-success">0</span></div>
+         ${!isFirst ? `<button type="button" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('${rowId}').remove(); onCustomerChange();"><i class="bi bi-trash"></i> 移除</button>` : '<div style="width: 70px;"></div>'}
      </div>`;
-    document.getElementById('bookingCustomersContainer').insertAdjacentHTML('beforeend', html);
-    addItemRow(blockId);
+    container.insertAdjacentHTML('beforeend', html);
   }
 
-  function addItemRow(blockId) {
-    const tbody = document.getElementById(blockId).querySelector('.items-tbody');
-    const custId = document.getElementById(blockId).querySelector('.cust-id-val').value;
-    const nowStr = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  function getSelectedCustomers() {
+    const rows = document.querySelectorAll('.cust-row');
+    let custs = [];
+    rows.forEach(r => {
+      const id = r.querySelector('.cust-id-val').value;
+      const inputVal = r.querySelector('.cust-search').value;
+      if (id) custs.push({ id: id, label: inputVal.split('(')[0].trim() });
+    });
+    return custs;
+  }
 
+  function onCustomerChange() {
+    // 1. 更新餘額顯示
+    const rows = document.querySelectorAll('.cust-row');
+    rows.forEach(r => {
+      const input = r.querySelector('.cust-search');
+      const dl = document.getElementById('dl-customers');
+      const opt = Array.from(dl.options).find(o => o.value === input.value);
+      if (opt) {
+        r.querySelector('.cust-id-val').value = opt.dataset.id;
+        r.querySelector('.cust-bal-txt').innerText = Math.floor(parseFloat(opt.dataset.balance || 0)).toLocaleString();
+      } else {
+        r.querySelector('.cust-id-val').value = '';
+        r.querySelector('.cust-bal-txt').innerText = '0';
+      }
+    });
+
+    // 2. 更新下方所有課程與產品的「所屬客戶」下拉選單
+    const custs = getSelectedCustomers();
+    const selects = document.querySelectorAll('.row-cust-select');
+    selects.forEach(sel => {
+      const currentVal = sel.value;
+      sel.innerHTML = custs.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
+      if (currentVal && custs.find(c => c.id === currentVal)) sel.value = currentVal;
+    });
+  }
+
+  // --- 課程與產品列 ---
+  function addCourseRow() {
+    const tbody = document.getElementById('courseTbody');
+    const nowStr = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-        <input type="hidden" name="customer_ids[]" class="row-cust-id" value="${custId}">
+        <td><select name="customer_ids[]" class="form-select form-select-sm row-cust-select border-primary" required></select></td>
         <td>
-           <input type="text" class="form-control form-control-sm border-primary" list="dl-items" placeholder="輸入搜尋..." onchange="syncItem(this)" required>
-           <input type="hidden" name="item_types[]" class="row-item-type">
+           <input type="text" class="form-control form-control-sm border-primary" list="dl-courses" placeholder="搜尋課程..." onchange="syncCourse(this)" required>
+           <input type="hidden" name="item_types[]" value="course">
            <input type="hidden" name="item_ids[]" class="row-item-id">
         </td>
-        <td><input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" value="${nowStr}"></td>
+        <td><input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" value="${nowStr}" required></td>
         <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" required></td>
         <td>
            <input type="number" name="stored_value_amounts[]" class="form-control form-control-sm border-success mb-1" placeholder="儲值扣款" value="0">
-           <select name="payment_methods[]" class="form-select form-select-sm">
-              <option value="offline">現金 / 線下</option>
-              <option value="credit_card">信用卡</option>
-              <option value="transfer">匯款</option>
-           </select>
+           <select name="payment_methods[]" class="form-select form-select-sm"><option value="offline">現金 / 線下</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
         </td>
         <td>
-           <input type="text" class="form-control form-control-sm mb-1" list="dl-fees" placeholder="搜尋手技費..." onchange="syncFee(this)">
+           <input type="text" class="form-control form-control-sm mb-1" list="dl-fees" placeholder="手技費..." onchange="syncFee(this)">
            <input type="hidden" name="service_fee_ids[]" class="row-fee-id">
            <div class="form-check ms-1 mt-1">
               <input type="checkbox" class="form-check-input row-first-time" onchange="calcItemPrice(this.closest('tr'))">
               <input type="hidden" name="is_first_times[]" class="row-first-hidden" value="0">
-              <label class="form-check-label small text-muted">體驗價</label>
+              <label class="form-check-label small text-muted">體驗</label>
            </div>
         </td>
         <td><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
      `;
     tbody.appendChild(tr);
+    onCustomerChange(); // 自動載入選項
   }
 
-  // --- 關鍵字搜尋連動邏輯 ---
-  function syncCustomer(input) {
-    const dl = document.getElementById('dl-customers');
-    const opt = Array.from(dl.options).find(o => o.value === input.value);
-    const block = input.closest('.customer-booking-block');
-    if (opt) {
-      block.querySelector('.cust-id-val').value = opt.dataset.id;
-      block.querySelector('.cust-balance-txt').innerText = Math.floor(parseFloat(opt.dataset.balance || 0)).toLocaleString();
-      block.querySelectorAll('.row-cust-id').forEach(el => el.value = opt.dataset.id);
-      block.querySelector('.inv-cust-id').value = opt.dataset.id;
-    } else {
-      block.querySelector('.cust-id-val').value = '';
-      block.querySelector('.cust-balance-txt').innerText = '0';
-    }
+  function addProductRow() {
+    const tbody = document.getElementById('productTbody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td><select name="customer_ids[]" class="form-select form-select-sm row-cust-select border-primary" required></select></td>
+        <td>
+           <input type="text" class="form-control form-control-sm border-primary" list="dl-products" placeholder="搜尋產品..." onchange="syncProduct(this)" required>
+           <input type="hidden" name="item_types[]" value="product">
+           <input type="hidden" name="item_ids[]" class="row-item-id">
+        </td>
+        <!-- 產品不需時間與手技，但必須保留隱藏欄位確保後端陣列對齊 -->
+        <input type="hidden" name="appointment_times[]" value="">
+        <input type="hidden" name="service_fee_ids[]" value="">
+        <input type="hidden" name="is_first_times[]" value="0">
+        
+        <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" required></td>
+        <td>
+           <input type="number" name="stored_value_amounts[]" class="form-control form-control-sm border-success mb-1" placeholder="儲值扣款" value="0">
+           <select name="payment_methods[]" class="form-select form-select-sm"><option value="offline">現金 / 線下</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
+        </td>
+        <td></td>
+        <td><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+     `;
+    tbody.appendChild(tr);
+    onCustomerChange();
   }
 
-  function syncItem(input) {
-    const dl = document.getElementById('dl-items');
-    const opt = Array.from(dl.options).find(o => o.value === input.value);
+  function syncCourse(input) {
+    const opt = Array.from(document.getElementById('dl-courses').options).find(o => o.value === input.value);
     const tr = input.closest('tr');
     if (opt) {
-      tr.querySelector('.row-item-type').value = opt.dataset.type;
       tr.querySelector('.row-item-id').value = opt.dataset.id;
       tr.dataset.regPrice = opt.dataset.price;
       tr.dataset.expPrice = opt.dataset.exp || opt.dataset.price;
@@ -2719,9 +2810,17 @@
     }
   }
 
+  function syncProduct(input) {
+    const opt = Array.from(document.getElementById('dl-products').options).find(o => o.value === input.value);
+    const tr = input.closest('tr');
+    if (opt) {
+      tr.querySelector('.row-item-id').value = opt.dataset.id;
+      tr.querySelector('.row-amount').value = opt.dataset.price; // 產品直接帶入定價
+    }
+  }
+
   function syncFee(input) {
-    const dl = document.getElementById('dl-fees');
-    const opt = Array.from(dl.options).find(o => o.value === input.value);
+    const opt = Array.from(document.getElementById('dl-fees').options).find(o => o.value === input.value);
     const tr = input.closest('tr');
     if (opt) {
       tr.querySelector('.row-fee-id').value = opt.dataset.id || '';
@@ -2731,74 +2830,82 @@
   }
 
   function calcItemPrice(tr) {
+    if (!tr.dataset.regPrice) return; // 不是課程不用算
     const isFirst = tr.querySelector('.row-first-time').checked;
     tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
-
     const base = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
     const fee = parseFloat(tr.dataset.feePrice) || 0;
     tr.querySelector('.row-amount').value = base + fee;
   }
 
-  // --- 寄店扣料 AJAX 邏輯 ---
+  // --- 寄店扣料 AJAX ---
   let invModalInstance = null;
-  function openInventoryModal(blockId) {
-    if (!invModalInstance) invModalInstance = new bootstrap.Modal(document.getElementById('inventoryDeductModal'));
+  function openInventoryModal() {
+    const custs = getSelectedCustomers();
+    if (custs.length === 0) { alert('請先在第一區塊搜尋並選擇客戶！'); return; }
 
-    const block = document.getElementById(blockId);
-    const custId = block.querySelector('.cust-id-val').value;
-
-    if (!custId) {
-      alert('請先在左方搜尋並選擇客戶！');
-      return;
-    }
-    document.getElementById('currentDeductBlockId').value = blockId;
     document.getElementById('inventoryLoading').classList.remove('d-none');
     document.getElementById('inventoryEmpty').classList.add('d-none');
     document.getElementById('inventoryList').innerHTML = '';
+    if (!invModalInstance) invModalInstance = new bootstrap.Modal(document.getElementById('inventoryDeductModal'));
     invModalInstance.show();
 
-    fetch(`/admin/api/customer/${custId}/inventory`)
-      .then(res => res.json())
-      .then(data => {
-        document.getElementById('inventoryLoading').classList.add('d-none');
-        if (data.length === 0) {
-          document.getElementById('inventoryEmpty').classList.remove('d-none'); return;
-        }
-        let currentDeducts = [];
-        try { currentDeducts = JSON.parse(block.querySelector('.inv-hidden').value); } catch (e) { }
+    // 同時撈取所有選擇客戶的庫存
+    const promises = custs.map(c => fetch(`/admin/api/customer/${c.id}/inventory`).then(r => r.json()).then(data => ({ cust: c, data: data })));
 
-        let html = '<table class="table table-sm mt-3"><thead><tr><th>寄店產品</th><th>剩餘</th><th>本次扣除</th></tr></thead><tbody>';
-        data.forEach(item => {
-          let existing = currentDeducts.find(d => d.inv_id == item.inventory_id);
-          let val = existing ? existing.amount : '';
-          html += `<tr><td class="fw-bold">${item.product_name}</td><td class="text-primary">${item.remaining_amount} ${item.unit}</td>
-               <td><div class="input-group input-group-sm">
-                  <input type="number" class="form-control deduct-input" data-invid="${item.inventory_id}" data-name="${item.product_name}" data-unit="${item.unit}" max="${item.remaining_amount}" min="0" step="0.1" value="${val}">
-                  <span class="input-group-text">${item.unit}</span></div></td></tr>`;
-        });
-        html += '</tbody></table>';
-        document.getElementById('inventoryList').innerHTML = html;
-      })
-      .catch(err => console.error(err));
+    Promise.all(promises).then(results => {
+      document.getElementById('inventoryLoading').classList.add('d-none');
+      let hasAny = false;
+      let html = '';
+
+      results.forEach(res => {
+        if (res.data.length > 0) {
+          hasAny = true;
+          html += `<h6 class="fw-bold mt-3 text-primary"><i class="bi bi-person"></i> ${res.cust.label} 的寄店產品</h6>`;
+          html += `<table class="table table-sm mb-0 align-middle"><thead><tr class="table-light"><th>產品名稱</th><th>剩餘量</th><th style="width:140px">本次扣除</th></tr></thead><tbody>`;
+          res.data.forEach(item => {
+            html += `<tr>
+                         <td>${item.product_name}</td>
+                         <td class="text-primary">${item.remaining_amount}${item.unit}</td>
+                         <td><div class="input-group input-group-sm"><input type="number" class="form-control deduct-inp border-warning" data-custid="${res.cust.id}" data-invid="${item.inventory_id}" data-name="${item.product_name}" data-unit="${item.unit}" max="${item.remaining_amount}" min="0" step="0.1"><span class="input-group-text bg-warning text-dark">${item.unit}</span></div></td>
+                     </tr>`;
+          });
+          html += `</tbody></table>`;
+        }
+      });
+
+      if (!hasAny) document.getElementById('inventoryEmpty').classList.remove('d-none');
+      else document.getElementById('inventoryList').innerHTML = html;
+    });
   }
 
   function confirmInventoryDeduction() {
-    const blockId = document.getElementById('currentDeductBlockId').value;
-    const block = document.getElementById(blockId);
-    const inputs = document.querySelectorAll('#inventoryList .deduct-input');
-    let result = [], displayTexts = [];
+    const inputs = document.querySelectorAll('.deduct-inp');
+    let grouped = {};
+    let displayTexts = [];
 
     inputs.forEach(inp => {
       const amt = parseFloat(inp.value);
       if (amt > 0) {
-        result.push({ inv_id: parseInt(inp.dataset.invid), amount: amt });
-        displayTexts.push(`<span class="badge bg-warning text-dark me-1">${inp.dataset.name} -${amt}${inp.dataset.unit}</span>`);
+        const cid = inp.dataset.custid;
+        if (!grouped[cid]) grouped[cid] = [];
+        grouped[cid].push({ inv_id: parseInt(inp.dataset.invid), amount: amt });
+        const custLabel = getSelectedCustomers().find(c => c.id === cid)?.label || '客戶';
+        displayTexts.push(`[${custLabel}] ${inp.dataset.name} -${amt}${inp.dataset.unit}`);
       }
     });
 
-    block.querySelector('.inv-hidden').value = JSON.stringify(result);
-    const displayDiv = block.querySelector('.inv-display');
-    displayDiv.innerHTML = displayTexts.length > 0 ? '<i class="bi bi-check-circle-fill"></i> 扣除: ' + displayTexts.join(' ') : '';
+    const container = document.getElementById('invHiddenContainer');
+    container.innerHTML = '';
+    for (let cid in grouped) {
+      container.innerHTML += `<input type="hidden" name="inv_cust_ids[]" value="${cid}">`;
+      container.innerHTML += `<input type="hidden" name="inv_jsons[]" value='${JSON.stringify(grouped[cid])}'>`;
+    }
+
+    const display = document.getElementById('invDeductDisplay');
+    if (displayTexts.length > 0) display.innerHTML = `<i class="bi bi-check-circle-fill"></i> 已選擇扣料: ` + displayTexts.join(', ');
+    else display.innerHTML = '';
+
     invModalInstance.hide();
   }
   // ================= 過濾訂單 (前端即時搜尋) =================
