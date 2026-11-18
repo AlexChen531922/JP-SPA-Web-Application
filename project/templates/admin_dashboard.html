@@ -2049,14 +2049,6 @@
 <datalist id="dl-customers">
   {% for c in customers_list %}
   <option data-id="{{ c.id }}" data-balance="{{ stored_balances.get(c.id, '0') }}"
-    value="{{ c.surname }}{{ c.firstname }} ({{ c.phone }})"></option>
-  {% endfor %}
-</datalist>
-
-<!-- 提供搜尋的資料清單 (不可見) -->
-<datalist id="dl-customers">
-  {% for c in customers_list %}
-  <option data-id="{{ c.id }}" data-balance="{{ stored_balances.get(c.id, '0') }}"
     value="{{ c.surname }}{{ c.firstname }}"></option>
   {% endfor %}
 </datalist>
@@ -2073,13 +2065,6 @@
 <datalist id="dl-products">
   {% for p in inventory_products %}
   <option data-id="{{ p.id }}" data-price="{{ p.price }}" value="{{ p.name }}"></option>
-  {% endfor %}
-</datalist>
-
-<datalist id="dl-fees">
-  <option data-price="0" value="無手技費"></option>
-  {% for f in service_fees %}
-  <option data-id="{{ f.id }}" data-price="{{ f.price }}" value="{{ f.name }}"></option>
   {% endfor %}
 </datalist>
 
