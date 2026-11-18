@@ -1944,80 +1944,80 @@
 <!-- ⭐ 建立預約 Modal (一體化表單) -->
 <div class="modal fade" id="addBookingModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content">
-      <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="bookingForm">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單</h5>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+    <!-- 💡 關鍵修正：將 form 本身加上 class="modal-content"，確保 Bootstrap 捲軸正常運作 -->
+    <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="bookingForm" class="modal-content">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+
+      <div class="modal-body pb-4">
+        <!-- 1. 選擇客戶 -->
+        <h6 class="fw-bold text-primary mb-2">1. 選擇客戶 <span class="text-danger">*</span></h6>
+        <div id="bookingCustomerList" class="mb-2"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-4" onclick="addBookingCustomerRow()">+
+          新增同行客戶</button>
+
+        <!-- 2. 預約課程 & 寄店扣料 -->
+        <div class="d-flex justify-content-between align-items-end mb-2 border-top pt-3">
+          <h6 class="fw-bold text-primary mb-0">2. 預約課程 <span class="text-danger">*</span></h6>
+          <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm"
+            onclick="openInventoryModal()"><i class="bi bi-box-seam"></i> 帶入寄店扣料</button>
+        </div>
+        <div id="invDeductDisplay" class="text-danger small fw-bold mb-2"></div>
+        <div id="invHiddenContainer"></div> <!-- 隱藏的扣料陣列 -->
+
+        <div class="table-responsive bg-light p-2 rounded mb-4 border">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 15%">所屬客戶</th>
+                <th style="width: 20%">課程名稱 <span class="text-danger">*</span></th>
+                <th style="width: 20%">預約時間</th>
+                <th style="width: 12%">手技費</th>
+                <th style="width: 25%">總金額與儲值扣款</th>
+                <th style="width: 8%"></th>
+              </tr>
+            </thead>
+            <tbody id="courseTbody"></tbody>
+          </table>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addCourseRow()">+
+            增加一筆課程</button>
         </div>
 
-        <div class="modal-body pb-4">
-          <!-- 1. 選擇客戶 -->
-          <h6 class="fw-bold text-primary mb-2">1. 選擇客戶 <span class="text-danger">*</span></h6>
-          <div id="bookingCustomerList" class="mb-2"></div>
-          <button type="button" class="btn btn-sm btn-outline-primary mb-4" onclick="addBookingCustomerRow()">+
-            新增同行客戶</button>
-
-          <!-- 2. 預約課程 & 寄店扣料 -->
-          <div class="d-flex justify-content-between align-items-end mb-2 border-top pt-3">
-            <h6 class="fw-bold text-primary mb-0">2. 預約課程 <span class="text-danger">*</span></h6>
-            <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm"
-              onclick="openInventoryModal()"><i class="bi bi-box-seam"></i> 帶入寄店扣料</button>
-          </div>
-          <div id="invDeductDisplay" class="text-danger small fw-bold mb-2"></div>
-          <div id="invHiddenContainer"></div> <!-- 隱藏的扣料陣列 -->
-
-          <div class="table-responsive bg-light p-2 rounded mb-4 border">
-            <table class="table table-sm align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="width: 15%">所屬客戶</th>
-                  <th style="width: 20%">課程名稱 <span class="text-danger">*</span></th>
-                  <th style="width: 20%">預約時間</th>
-                  <th style="width: 12%">手技費</th>
-                  <th style="width: 25%">總金額與儲值扣款</th>
-                  <th style="width: 8%"></th>
-                </tr>
-              </thead>
-              <tbody id="courseTbody"></tbody>
-            </table>
-            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addCourseRow()">+
-              增加一筆課程</button>
-          </div>
-
-          <!-- 3. 加購產品 -->
-          <h6 class="fw-bold text-primary mb-2">3. 加購產品 <span class="text-muted small fw-normal">(選填，若有寄店扣料則無需加購)</span>
-          </h6>
-          <div class="table-responsive bg-light p-2 rounded border">
-            <table class="table table-sm align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="width: 15%">所屬客戶</th>
-                  <th style="width: 25%">產品名稱 <span class="text-danger">*</span></th>
-                  <th style="width: 15%">金額</th>
-                  <th style="width: 20%">儲值扣款 / 付款方式</th>
-                  <th style="width: 23%"></th> <!-- 佔位符，對齊上方表格 -->
-                  <th style="width: 2%"></th>
-                </tr>
-              </thead>
-              <tbody id="productTbody"></tbody>
-            </table>
-            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addProductRow()">+
-              增加一筆產品</button>
-          </div>
+        <!-- 3. 加購產品 -->
+        <h6 class="fw-bold text-primary mb-2">3. 加購產品 <span class="text-muted small fw-normal">(選填，若有寄店扣料則無需加購)</span>
+        </h6>
+        <div class="table-responsive bg-light p-2 rounded border">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width: 15%">所屬客戶</th>
+                <th style="width: 25%">產品名稱 <span class="text-danger">*</span></th>
+                <th style="width: 15%">金額</th>
+                <th style="width: 20%">儲值扣款 / 付款方式</th>
+                <th style="width: 23%"></th> <!-- 佔位符，對齊上方表格 -->
+                <th style="width: 2%"></th>
+              </tr>
+            </thead>
+            <tbody id="productTbody"></tbody>
+          </table>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addProductRow()">+
+            增加一筆產品</button>
         </div>
+      </div>
 
-        <div class="modal-footer">
-          <div class="form-check form-switch me-auto">
-            <input class="form-check-input" type="checkbox" name="send_notification" checked>
-            <label class="form-check-label fw-bold text-info">發送預約確認通知</label>
-          </div>
-          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-          <button type="submit" class="btn btn-primary px-4 fw-bold">確認建立預約</button>
+      <div class="modal-footer">
+        <div class="form-check form-switch me-auto">
+          <input class="form-check-input" type="checkbox" name="send_notification" checked>
+          <label class="form-check-label fw-bold text-info">發送預約確認通知</label>
         </div>
-      </form>
-    </div>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="submit" class="btn btn-primary px-4 fw-bold">確認建立預約</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -2800,16 +2800,21 @@
            <input type="hidden" name="item_ids[]" class="row-item-id">
         </td>
         
-        <!-- 產品不需時間與手技，但必須保留隱藏欄位確保後端陣列對齊 -->
+        <!-- 隱藏欄位確保後端陣列對齊 -->
         <input type="hidden" name="appointment_times[]" value="">
         <input type="hidden" name="service_fee_ids[]" value="">
         <input type="hidden" name="is_first_times[]" value="0">
         
-        <!-- 金額輸入框 (產品可手動修改金額，並觸發重新計算) -->
-        <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" oninput="calcItemPrice(this.closest('tr'))" required></td>
+        <!-- 金額 (與上方課程的手技/體驗欄位對齊) -->
+        <td colspan="2">
+           <div class="d-flex align-items-center mb-1">
+              <span class="text-muted small me-2">金額:</span>
+              <input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary w-50" oninput="calcItemPrice(this.closest('tr'))" required>
+           </div>
+        </td>
         
-        <!-- 儲值扣款整合區塊 -->
-        <td>
+        <!-- 儲值扣款 (展開填滿剩餘空間) -->
+        <td colspan="2">
            <div class="border rounded p-2 bg-white mt-1">
               <div class="d-flex justify-content-between align-items-center mb-1">
                  <small class="text-muted fw-bold">儲值扣款</small>
@@ -2825,8 +2830,7 @@
            </div>
         </td>
         
-        <td></td> <!-- 佔位符對齊上方手技欄 -->
-        <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+        <td class="text-end align-middle"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
      `;
     tbody.appendChild(tr);
     onCustomerChange();
@@ -2866,19 +2870,29 @@
     // 判斷是課程還是產品列
     const isCourse = tr.querySelector('.row-first-time') !== null;
 
-    let totalAmount = 0;
+    let courseBasePrice = 0;
+    let feePrice = 0;
+    let totalAmountForRemain = 0;
 
     if (isCourse) {
       if (!tr.dataset.regPrice) return;
       const isFirst = tr.querySelector('.row-first-time').checked;
       tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
-      const base = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
-      const fee = parseFloat(tr.dataset.feePrice) || 0;
-      totalAmount = base + fee;
-      tr.querySelector('.row-amount').value = totalAmount;
+
+      // 課程基本費用
+      courseBasePrice = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
+
+      // 取得手技費
+      feePrice = parseFloat(tr.dataset.feePrice) || 0;
+
+      // 總金額「只顯示」課程金額 (手技費不加上去)
+      tr.querySelector('.row-amount').value = courseBasePrice;
+
+      // 但計算尾款時，應收總額是 課程 + 手技
+      totalAmountForRemain = courseBasePrice + feePrice;
     } else {
-      // 產品列直接讀取 input 裡的值
-      totalAmount = parseFloat(tr.querySelector('.row-amount').value) || 0;
+      // 產品列
+      totalAmountForRemain = parseFloat(tr.querySelector('.row-amount').value) || 0;
     }
 
     // 處理儲值金與餘額
@@ -2886,30 +2900,35 @@
     if (!custSelect) return;
 
     const custId = custSelect.value;
-    // 從隱藏的 datalist 中抓取該客戶的餘額
     const custOption = document.querySelector(`datalist#dl-customers option[data-id="${custId}"]`);
     const maxBal = custOption ? parseFloat(custOption.dataset.balance || 0) : 0;
 
-    // 更新小標題的可用餘額
+    // 更新可用餘額顯示
     const balDisplay = tr.querySelector('.row-bal-display');
     if (balDisplay) balDisplay.innerText = Math.floor(maxBal).toLocaleString();
 
     const svInput = tr.querySelector('.sv-input');
     if (svInput) {
+      // [新增邏輯]：如果是課程，且手技費大於 0，預設將手技費帶入「本次扣除金額」(前提是餘額夠扣)
+      if (isCourse && feePrice > 0 && document.activeElement !== svInput) {
+        // 只有在使用者沒有「正在手動輸入」儲值金時，才自動帶入手技費
+        svInput.value = Math.min(feePrice, maxBal);
+      }
+
       let svUse = parseFloat(svInput.value) || 0;
 
-      // 防呆：不能扣超過可用餘額，也不能扣超過總金額
+      // 防呆：不能扣超過可用餘額，也不能扣超過應付總額
       if (svUse > maxBal) {
         svUse = maxBal;
         svInput.value = maxBal;
       }
-      if (svUse > totalAmount) {
-        svUse = totalAmount;
-        svInput.value = totalAmount;
+      if (svUse > totalAmountForRemain) {
+        svUse = totalAmountForRemain;
+        svInput.value = totalAmountForRemain;
       }
 
-      // 計算未付餘額
-      const remain = totalAmount - svUse;
+      // 計算未付餘額 (應付總額 - 儲值扣抵)
+      const remain = totalAmountForRemain - svUse;
       const remainDisplay = tr.querySelector('.row-remain-amount');
       if (remainDisplay) {
         remainDisplay.innerText = Math.floor(remain).toLocaleString();
