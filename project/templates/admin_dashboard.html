@@ -1975,10 +1975,9 @@
                   <th style="width: 15%">所屬客戶</th>
                   <th style="width: 20%">課程名稱 <span class="text-danger">*</span></th>
                   <th style="width: 20%">預約時間</th>
-                  <th style="width: 15%">金額</th>
-                  <th style="width: 20%">儲值扣款 / 付款方式</th>
-                  <th style="width: 8%">手技/體驗</th>
-                  <th style="width: 2%"></th>
+                  <th style="width: 12%">手技費</th>
+                  <th style="width: 25%">總金額與儲值扣款</th>
+                  <th style="width: 8%"></th>
                 </tr>
               </thead>
               <tbody id="courseTbody"></tbody>
@@ -2727,6 +2726,10 @@
         r.querySelector('.cust-id-val').value = '';
         r.querySelector('.cust-bal-txt').innerText = '0';
       }
+      if (currentVal && custs.find(c => c.id === currentVal)) {
+        sel.value = currentVal;
+        calcItemPrice(sel.closest('tr')); // 切換客戶時重新計算餘額顯示
+      }
     });
 
     // 2. 更新下方所有課程與產品的「所屬客戶」下拉選單
@@ -2752,21 +2755,42 @@
            <input type="hidden" name="item_ids[]" class="row-item-id">
         </td>
         <td><input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" value="${nowStr}" required></td>
-        <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" required></td>
+        
+        <!-- 手技與體驗區塊 (移到金額左側) -->
         <td>
-           <input type="number" name="stored_value_amounts[]" class="form-control form-control-sm border-success mb-1" placeholder="儲值扣款" value="0">
-           <select name="payment_methods[]" class="form-select form-select-sm"><option value="offline">現金 / 線下</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
-        </td>
-        <td>
-           <input type="text" class="form-control form-control-sm mb-1" list="dl-fees" placeholder="手技費..." onchange="syncFee(this)">
+           <input type="text" class="form-control form-control-sm mb-1 fee-select-input" list="dl-fees" placeholder="手技費..." onchange="syncFee(this)">
            <input type="hidden" name="service_fee_ids[]" class="row-fee-id">
            <div class="form-check ms-1 mt-1">
               <input type="checkbox" class="form-check-input row-first-time" onchange="calcItemPrice(this.closest('tr'))">
               <input type="hidden" name="is_first_times[]" class="row-first-hidden" value="0">
-              <label class="form-check-label small text-muted">體驗</label>
+              <label class="form-check-label small text-muted">體驗價</label>
            </div>
         </td>
-        <td><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+
+        <!-- 總金額與儲值扣款區塊 -->
+        <td>
+           <div class="d-flex align-items-center mb-1">
+              <span class="text-muted small me-2">總金額:</span>
+              <input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary w-50" readonly required>
+           </div>
+           
+           <!-- 儲值扣款整合區塊 (參考圖片樣式) -->
+           <div class="border rounded p-2 bg-white mt-1">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                 <small class="text-muted fw-bold">儲值扣款</small>
+                 <small class="text-muted">可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
+              </div>
+              <div class="input-group input-group-sm mb-1">
+                 <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="本次扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
+              </div>
+              <div class="d-flex justify-content-between align-items-center">
+                 <small class="text-muted">餘額 <span class="row-remain-amount fw-bold text-danger">0</span></small>
+                 <select name="payment_methods[]" class="form-select form-select-sm w-auto border-0 text-muted" style="background-color: transparent;"><option value="offline">現金</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
+              </div>
+           </div>
+        </td>
+
+        <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
      `;
     tbody.appendChild(tr);
     onCustomerChange(); // 自動載入選項
@@ -2835,7 +2859,39 @@
     tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
     const base = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
     const fee = parseFloat(tr.dataset.feePrice) || 0;
-    tr.querySelector('.row-amount').value = base + fee;
+
+    // 1. 計算總金額
+    const totalAmount = base + fee;
+    tr.querySelector('.row-amount').value = totalAmount;
+
+    // 2. 處理儲值金與餘額
+    const custSelect = tr.querySelector('.row-cust-select');
+    const custId = custSelect.value;
+    const custData = getSelectedCustomers().find(c => c.id === custId);
+    const maxBal = custData ? parseFloat(document.querySelector(`option[data-id="${custId}"]`).dataset.balance || 0) : 0;
+
+    // 更新小標題的可用餘額
+    const balDisplay = tr.querySelector('.row-bal-display');
+    if (balDisplay) balDisplay.innerText = Math.floor(maxBal).toLocaleString();
+
+    const svInput = tr.querySelector('.sv-input');
+    if (svInput) {
+      let svUse = parseFloat(svInput.value || 0);
+
+      // 防呆：不能扣超過可用餘額，也不能扣超過總金額
+      if (svUse > maxBal) {
+        svUse = maxBal;
+        svInput.value = maxBal;
+      }
+      if (svUse > totalAmount) {
+        svUse = totalAmount;
+        svInput.value = totalAmount;
+      }
+
+      // 計算未付餘額
+      const remain = totalAmount - svUse;
+      tr.querySelector('.row-remain-amount').innerText = Math.floor(remain).toLocaleString();
+    }
   }
 
   // --- 寄店扣料 AJAX ---
