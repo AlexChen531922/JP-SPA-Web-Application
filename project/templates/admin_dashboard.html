@@ -2057,7 +2057,7 @@
 <datalist id="dl-customers">
   {% for c in customers_list %}
   <option data-id="{{ c.id }}" data-balance="{{ stored_balances.get(c.id, '0') }}"
-    value="{{ c.surname }}{{ c.firstname }} ({{ c.phone }})"></option>
+    value="{{ c.surname }}{{ c.firstname }}"></option>
   {% endfor %}
 </datalist>
 
@@ -2695,7 +2695,7 @@
              <input type="text" class="form-control form-control-sm border-primary cust-search" list="dl-customers" placeholder="輸入姓名或電話搜尋..." onchange="onCustomerChange()" required>
              <input type="hidden" class="cust-id-val">
          </div>
-         <div class="text-muted small ms-2" style="width: 160px;">可用: NT$ <span class="cust-bal-txt fw-bold text-success">0</span></div>
+         <div class="text-muted small ms-2" style="width: 160px;">儲值可用: NT$ <span class="cust-bal-txt fw-bold text-success">0</span></div>
          ${!isFirst ? `<button type="button" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('${rowId}').remove(); onCustomerChange();"><i class="bi bi-trash"></i> 移除</button>` : '<div style="width: 70px;"></div>'}
      </div>`;
     container.insertAdjacentHTML('beforeend', html);
@@ -2707,7 +2707,8 @@
     rows.forEach(r => {
       const id = r.querySelector('.cust-id-val').value;
       const inputVal = r.querySelector('.cust-search').value;
-      if (id) custs.push({ id: id, label: inputVal.split('(')[0].trim() });
+      // 確保有抓到 id，並直接使用 inputVal 作為標籤顯示
+      if (id) custs.push({ id: id, label: inputVal.trim() });
     });
     return custs;
   }
@@ -2778,7 +2779,7 @@
            <div class="border rounded p-2 bg-white mt-1">
               <div class="d-flex justify-content-between align-items-center mb-1">
                  <small class="text-muted fw-bold">儲值扣款</small>
-                 <small class="text-muted">可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
+                 <small class="text-muted">儲值可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
               </div>
               <div class="input-group input-group-sm mb-1">
                  <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="本次扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
@@ -2800,24 +2801,40 @@
     const tbody = document.getElementById('productTbody');
     const tr = document.createElement('tr');
     tr.innerHTML = `
-        <td><select name="customer_ids[]" class="form-select form-select-sm row-cust-select border-primary" required></select></td>
+        <td><select name="customer_ids[]" class="form-select form-select-sm row-cust-select border-primary" onchange="calcItemPrice(this.closest('tr'))" required></select></td>
         <td>
            <input type="text" class="form-control form-control-sm border-primary" list="dl-products" placeholder="搜尋產品..." onchange="syncProduct(this)" required>
            <input type="hidden" name="item_types[]" value="product">
            <input type="hidden" name="item_ids[]" class="row-item-id">
         </td>
+        
         <!-- 產品不需時間與手技，但必須保留隱藏欄位確保後端陣列對齊 -->
         <input type="hidden" name="appointment_times[]" value="">
         <input type="hidden" name="service_fee_ids[]" value="">
         <input type="hidden" name="is_first_times[]" value="0">
         
-        <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" required></td>
+        <!-- 金額輸入框 (產品可手動修改金額，並觸發重新計算) -->
+        <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" oninput="calcItemPrice(this.closest('tr'))" required></td>
+        
+        <!-- 儲值扣款整合區塊 -->
         <td>
-           <input type="number" name="stored_value_amounts[]" class="form-control form-control-sm border-success mb-1" placeholder="儲值扣款" value="0">
-           <select name="payment_methods[]" class="form-select form-select-sm"><option value="offline">現金 / 線下</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
+           <div class="border rounded p-2 bg-white mt-1">
+              <div class="d-flex justify-content-between align-items-center mb-1">
+                 <small class="text-muted fw-bold">儲值扣款</small>
+                 <small class="text-muted">可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
+              </div>
+              <div class="input-group input-group-sm mb-1">
+                 <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
+              </div>
+              <div class="d-flex justify-content-between align-items-center">
+                 <small class="text-muted">餘額 <span class="row-remain-amount fw-bold text-danger">0</span></small>
+                 <select name="payment_methods[]" class="form-select form-select-sm w-auto border-0 text-muted" style="background-color: transparent;"><option value="offline">現金</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
+              </div>
+           </div>
         </td>
-        <td></td>
-        <td><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+        
+        <td></td> <!-- 佔位符對齊上方手技欄 -->
+        <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
      `;
     tbody.appendChild(tr);
     onCustomerChange();
@@ -2854,21 +2871,32 @@
   }
 
   function calcItemPrice(tr) {
-    if (!tr.dataset.regPrice) return; // 不是課程不用算
-    const isFirst = tr.querySelector('.row-first-time').checked;
-    tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
-    const base = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
-    const fee = parseFloat(tr.dataset.feePrice) || 0;
+    // 判斷是課程還是產品列
+    const isCourse = tr.querySelector('.row-first-time') !== null;
 
-    // 1. 計算總金額
-    const totalAmount = base + fee;
-    tr.querySelector('.row-amount').value = totalAmount;
+    let totalAmount = 0;
 
-    // 2. 處理儲值金與餘額
+    if (isCourse) {
+      if (!tr.dataset.regPrice) return;
+      const isFirst = tr.querySelector('.row-first-time').checked;
+      tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
+      const base = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
+      const fee = parseFloat(tr.dataset.feePrice) || 0;
+      totalAmount = base + fee;
+      tr.querySelector('.row-amount').value = totalAmount;
+    } else {
+      // 產品列直接讀取 input 裡的值
+      totalAmount = parseFloat(tr.querySelector('.row-amount').value) || 0;
+    }
+
+    // 處理儲值金與餘額
     const custSelect = tr.querySelector('.row-cust-select');
+    if (!custSelect) return;
+
     const custId = custSelect.value;
-    const custData = getSelectedCustomers().find(c => c.id === custId);
-    const maxBal = custData ? parseFloat(document.querySelector(`option[data-id="${custId}"]`).dataset.balance || 0) : 0;
+    // 從隱藏的 datalist 中抓取該客戶的餘額
+    const custOption = document.querySelector(`datalist#dl-customers option[data-id="${custId}"]`);
+    const maxBal = custOption ? parseFloat(custOption.dataset.balance || 0) : 0;
 
     // 更新小標題的可用餘額
     const balDisplay = tr.querySelector('.row-bal-display');
@@ -2876,7 +2904,7 @@
 
     const svInput = tr.querySelector('.sv-input');
     if (svInput) {
-      let svUse = parseFloat(svInput.value || 0);
+      let svUse = parseFloat(svInput.value) || 0;
 
       // 防呆：不能扣超過可用餘額，也不能扣超過總金額
       if (svUse > maxBal) {
@@ -2890,7 +2918,10 @@
 
       // 計算未付餘額
       const remain = totalAmount - svUse;
-      tr.querySelector('.row-remain-amount').innerText = Math.floor(remain).toLocaleString();
+      const remainDisplay = tr.querySelector('.row-remain-amount');
+      if (remainDisplay) {
+        remainDisplay.innerText = Math.floor(remain).toLocaleString();
+      }
     }
   }
 
