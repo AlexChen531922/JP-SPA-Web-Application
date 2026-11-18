@@ -2699,7 +2699,7 @@
   }
 
   function onCustomerChange() {
-    // 1. 更新餘額顯示
+    // 1. 更新上方客戶列的餘額顯示
     const rows = document.querySelectorAll('.cust-row');
     rows.forEach(r => {
       const input = r.querySelector('.cust-search');
@@ -2712,20 +2712,37 @@
         r.querySelector('.cust-id-val').value = '';
         r.querySelector('.cust-bal-txt').innerText = '0';
       }
-      if (currentVal && custs.find(c => c.id === currentVal)) {
-        sel.value = currentVal;
-        calcItemPrice(sel.closest('tr')); // 切換客戶時重新計算餘額顯示
-      }
     });
 
     // 2. 更新下方所有課程與產品的「所屬客戶」下拉選單
     const custs = getSelectedCustomers();
     const selects = document.querySelectorAll('.row-cust-select');
     selects.forEach(sel => {
-      const currentVal = sel.value;
+      const currentVal = sel.value; // 記住原本選的客戶
+
+      // 動態產生選項
       sel.innerHTML = custs.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
-      if (currentVal && custs.find(c => c.id === currentVal)) sel.value = currentVal;
+
+      // 如果原本選的客戶還在清單裡，就維持選中
+      if (currentVal && custs.find(c => c.id === currentVal)) {
+        sel.value = currentVal;
+      }
+
+      // 無論如何，都重新觸發一次金額計算 (更新可用餘額上限)
+      if (sel.value) {
+        calcItemPrice(sel.closest('tr'));
+      }
     });
+  }
+
+  // 2. 更新下方所有課程與產品的「所屬客戶」下拉選單
+  const custs = getSelectedCustomers();
+  const selects = document.querySelectorAll('.row-cust-select');
+  selects.forEach(sel => {
+    const currentVal = sel.value;
+    sel.innerHTML = custs.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
+    if (currentVal && custs.find(c => c.id === currentVal)) sel.value = currentVal;
+  });
   }
 
   // --- 課程與產品列 ---
