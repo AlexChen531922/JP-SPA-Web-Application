@@ -2601,10 +2601,24 @@ def update_employee(emp_id):
         phone = request.form.get('phone', '').strip()
         job_title = request.form.get('job_title', '').strip()
         password = request.form.get('password', '').strip()
+        gender = request.form.get('gender', 'other')
+        birth_date = request.form.get('birth_date') or None
+        address = request.form.get('address', '').strip()
+        notes = request.form.get('notes', '').strip()
 
         if not firstname:
             flash('名字為必填欄位', 'error')
             return redirect(url_for('admin.dashboard', tab='employees'))
+
+        if gender not in ('male', 'female', 'other'):
+            flash('性別欄位無效', 'error')
+            return redirect(url_for('admin.dashboard', tab='employees'))
+        if birth_date:
+            try:
+                datetime.strptime(birth_date, '%Y-%m-%d')
+            except ValueError:
+                flash('生日日期格式不正確', 'error')
+                return redirect(url_for('admin.dashboard', tab='employees'))
 
         cursor = database.connection.cursor()
 
@@ -2612,18 +2626,22 @@ def update_employee(emp_id):
         if password:
             hashed_password = generate_password_hash(password)
             cursor.execute("""
-                UPDATE users 
-                SET firstname=%s, surname=%s, phone=%s, job_title=%s, password_hash=%s 
+                UPDATE users
+                SET firstname=%s, surname=%s, phone=%s, job_title=%s,
+                    gender=%s, birth_date=%s, address=%s, notes=%s, password_hash=%s
                 WHERE id=%s AND role IN ('staff', 'admin')
-            """, (firstname, surname, phone, job_title, hashed_password, emp_id))
+            """, (firstname, surname, phone, job_title,
+                  gender, birth_date, address, notes, hashed_password, emp_id))
             flash_msg = '員工資料與密碼已成功更新！'
         else:
             # 未填寫密碼，只更新基本資料
             cursor.execute("""
-                UPDATE users 
-                SET firstname=%s, surname=%s, phone=%s, job_title=%s 
+                UPDATE users
+                SET firstname=%s, surname=%s, phone=%s, job_title=%s,
+                    gender=%s, birth_date=%s, address=%s, notes=%s
                 WHERE id=%s AND role IN ('staff', 'admin')
-            """, (firstname, surname, phone, job_title, emp_id))
+            """, (firstname, surname, phone, job_title,
+                  gender, birth_date, address, notes, emp_id))
             flash_msg = '員工基本資料已更新！'
 
         database.connection.commit()

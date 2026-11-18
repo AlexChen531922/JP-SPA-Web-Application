@@ -1826,7 +1826,7 @@
 
           <!-- 編輯員工資料的 Modal -->
           <div class="modal fade" id="editEmployeeModal{{ emp['id'] }}" tabindex="-1">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
               <div class="modal-content text-start">
                 <form action="{{ url_for('admin.update_employee', emp_id=emp['id']) }}" method="POST">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1855,6 +1855,32 @@
                     <div class="mb-3">
                       <label class="form-label">電話</label>
                       <input type="tel" name="phone" class="form-control" value="{{ emp['phone'] or '' }}">
+                    </div>
+                    <div class="row g-2 mb-3">
+                      <div class="col-md-6">
+                        <label class="form-label" for="employeeGender{{ emp['id'] }}">性別</label>
+                        <select class="form-select" name="gender" id="employeeGender{{ emp['id'] }}">
+                          <option value="male" {% if emp['gender'] == 'male' %}selected{% endif %}>男性</option>
+                          <option value="female" {% if emp['gender'] == 'female' %}selected{% endif %}>女性</option>
+                          <option value="other" {% if emp['gender'] not in ['male', 'female'] %}selected{% endif %}>其他／未指定</option>
+                        </select>
+                      </div>
+                      <div class="col-md-6">
+                        <label class="form-label" for="employeeBirthDate{{ emp['id'] }}">生日</label>
+                        <input type="date" class="form-control" name="birth_date"
+                          id="employeeBirthDate{{ emp['id'] }}"
+                          value="{{ emp['birth_date'].strftime('%Y-%m-%d') if emp['birth_date'] else '' }}">
+                      </div>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label" for="employeeAddress{{ emp['id'] }}">地址</label>
+                      <textarea name="address" id="employeeAddress{{ emp['id'] }}"
+                        class="form-control" rows="2">{{ emp['address'] or '' }}</textarea>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label" for="employeeNotes{{ emp['id'] }}">備註</label>
+                      <textarea name="notes" id="employeeNotes{{ emp['id'] }}"
+                        class="form-control" rows="3">{{ emp['notes'] or '' }}</textarea>
                     </div>
                     <hr>
                     <div class="mb-3">
