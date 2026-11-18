@@ -642,8 +642,8 @@ def add_course_modal():
 
         cursor = database.connection.cursor()
         sql = """
-            INSERT INTO courses 
-            (name, category_id, regular_price, experience_price, service_fee, product_fee, 
+            INSERT INTO courses
+            (name, category_id, regular_price, experience_price, service_fee, product_fee,
              duration, description, image, is_active, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
         """
@@ -708,9 +708,9 @@ def update_course_modal(course_id):
         # 4. 更新資料庫
         if image_url:
             sql = """
-                UPDATE courses 
-                SET name=%s, category_id=%s, regular_price=%s, experience_price=%s, 
-                    service_fee=%s, product_fee=%s, duration=%s, description=%s, 
+                UPDATE courses
+                SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
+                    service_fee=%s, product_fee=%s, duration=%s, description=%s,
                     is_active=%s, image=%s, updated_at=NOW()
                 WHERE id=%s
             """
@@ -718,9 +718,9 @@ def update_course_modal(course_id):
                            product_fee, duration, description, is_active, image_url, course_id))
         else:
             sql = """
-                UPDATE courses 
-                SET name=%s, category_id=%s, regular_price=%s, experience_price=%s, 
-                    service_fee=%s, product_fee=%s, duration=%s, description=%s, 
+                UPDATE courses
+                SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
+                    service_fee=%s, product_fee=%s, duration=%s, description=%s,
                     is_active=%s, updated_at=NOW()
                 WHERE id=%s
             """
@@ -1111,8 +1111,8 @@ def restock_product():
         # 3. 更新資料庫
         # 更新庫存 + 更新為平均成本 + 更新最後進貨日
         cursor.execute("""
-            UPDATE products 
-            SET stock_quantity = stock_quantity + %s, 
+            UPDATE products
+            SET stock_quantity = stock_quantity + %s,
                 cost = %s,
                 last_purchase_date = NOW()
             WHERE id = %s
@@ -1123,7 +1123,7 @@ def restock_product():
         log_note = f"{notes or 'Manual Restock'}. 進貨價: {new_cost}, 新平均價: {final_avg_cost}"
 
         cursor.execute("""
-            INSERT INTO inventory_logs 
+            INSERT INTO inventory_logs
             (product_id, change_amount, change_type, notes, created_by)
             VALUES (%s, %s, 'purchase', %s, %s)
         """, (product_id, quantity, log_note, get_current_user_id()))
@@ -1177,7 +1177,7 @@ def adjust_inventory_modal():
 
         # 2. 寫入庫存日誌
         cursor.execute("""
-            INSERT INTO inventory_logs 
+            INSERT INTO inventory_logs
             (product_id, change_amount, change_type, notes, created_by)
             VALUES (%s, %s, %s, %s, %s)
         """, (product_id, change_amount, change_type, notes, get_current_user_id()))
@@ -1621,8 +1621,9 @@ def add_customer():
 
         # 5. 寫入資料庫 (使用 password_hash)
         sql = """
-            INSERT INTO users 
-            (username, email, password_hash, firstname, surname, phone, line_id, role, gender, birth_date, occupation, address, source_id, notes, created_at)
+            INSERT INTO users
+            (username, email, password_hash, firstname, surname, phone, line_id, role,
+             gender, birth_date, occupation, address, source_id, notes, created_at)
             VALUES (%s, %s, %s, %s, %s, %s, %s, 'customer', %s, %s, %s, %s, %s, %s, NOW())
         """
         cursor.execute(sql, (
@@ -1690,8 +1691,8 @@ def update_customer(customer_id):
             return redirect(url_for('admin.dashboard', tab='customers'))
 
         cursor.execute("""
-            UPDATE users 
-            SET firstname=%s, surname=%s, email=%s, phone=%s, line_id=%s, 
+            UPDATE users
+            SET firstname=%s, surname=%s, email=%s, phone=%s, line_id=%s,
                 gender=%s, birth_date=%s, occupation=%s, source_id=%s, address=%s, notes=%s
             WHERE id=%s AND role='customer'
         """, (firstname, surname, email, phone, line_id, gender, birth_date, occupation, source_id, address, notes, customer_id))
@@ -1720,8 +1721,8 @@ def customer_detail(customer_id):
     try:
         # 1. 取得客戶基本資料與來源名稱
         cursor.execute("""
-            SELECT u.*, cs.name as source_name, 
-                   TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age 
+            SELECT u.*, cs.name as source_name,
+                   TIMESTAMPDIFF(YEAR, u.birth_date, CURDATE()) as age
             FROM users u
             LEFT JOIN customer_sources cs ON u.source_id = cs.id
             WHERE u.id = %s AND u.role = 'customer'
@@ -1766,7 +1767,7 @@ def customer_detail(customer_id):
 
         # 3. 取得課程預約紀錄 (關聯課程名稱與預約時間)
         cursor.execute("""
-            SELECT b.id, b.total_amount, b.status, b.created_at, 
+            SELECT b.id, b.total_amount, b.status, b.created_at,
                    c.name as course_name, s.start_time
             FROM bookings b
             JOIN courses c ON b.course_id = c.id
@@ -1936,8 +1937,9 @@ def add_post():
             cursor = database.connection.cursor()
             # ⭐ 修正: posts -> blog_posts
             sql = """
-                INSERT INTO blog_posts 
-                (title, content, summary, status, author_id, image, created_at, updated_at)
+                INSERT INTO blog_posts
+                (title, content, summary, status,
+                 author_id, image, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, %s, %s, NOW(), NOW())
             """
             cursor.execute(sql, (title, content, summary,
@@ -1988,7 +1990,7 @@ def edit_post(post_id):
             if image_url:
                 # ⭐ 修正: posts -> blog_posts
                 sql = """
-                    UPDATE blog_posts 
+                    UPDATE blog_posts
                     SET title=%s, content=%s, summary=%s, status=%s, image=%s, updated_at=NOW()
                     WHERE id=%s
                 """
@@ -1997,7 +1999,7 @@ def edit_post(post_id):
             else:
                 # ⭐ 修正: posts -> blog_posts
                 sql = """
-                    UPDATE blog_posts 
+                    UPDATE blog_posts
                     SET title=%s, content=%s, summary=%s, status=%s, updated_at=NOW()
                     WHERE id=%s
                 """
@@ -2294,7 +2296,7 @@ def add_booking_manual():
                     deduct_amt = float(d.get('amount', 0))
                     if inv_id and deduct_amt > 0:
                         cursor.execute("""
-                            UPDATE customer_inventory 
+                            UPDATE customer_inventory
                             SET remaining_amount = GREATEST(0, remaining_amount - %s)
                             WHERE id = %s AND customer_id = %s
                         """, (deduct_amt, inv_id, c_id))
@@ -2319,26 +2321,12 @@ def add_booking_manual():
             sv_amount = float(stored_value_amounts[i]) if i < len(
                 stored_value_amounts) and stored_value_amounts[i] else 0.0
 
-            # 執行儲值金扣款紀錄
-            if sv_amount > 0:
-                from project.stored_value import change_balance
-                if i_type == 'course':
-                    note = f'預約課程儲值扣款 (預約單號 #{ref_id})'
-                    # 📌 預約單不是實體訂單(orders)，所以傳入 None 避免 Foreign Key 錯誤
-                    change_balance(cursor, c_id, Decimal(
-                        str(sv_amount)), 'spend', get_current_user_id(), None, 1, note)
-                else:
-                    note = '購買產品儲值扣款'
-                    # 📌 產品結帳有建立 orders，所以 ref_id 是真正的 order_id
-                    change_balance(cursor, c_id, Decimal(
-                        str(sv_amount)), 'spend', get_current_user_id(), ref_id, 1, note)
-
             # 📌 狀況 A：購買的是「課程」 -> 寫入 Booking
             if i_type == 'course':
                 appt_time = datetime.strptime(
                     appt_time_str, '%Y-%m-%dT%H:%M') if appt_time_str else datetime.now()
                 cursor.execute("""
-                    INSERT INTO bookings 
+                    INSERT INTO bookings
                     (customer_id, course_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at,
                      payment_method, stored_value_amount, service_fee_id)
                     VALUES (%s, %s, %s, %s, 1, 1, 'confirmed', %s, %s, %s, %s)
@@ -2393,11 +2381,18 @@ def add_booking_manual():
                              'type': 'manual_advanced_product'})
 
             # 執行儲值金扣款紀錄
-            if sv_amount > 0:
-                from project.stored_value import change_balance
-                note = '預約課程儲值扣款' if i_type == 'course' else '購買產品儲值扣款'
-                change_balance(cursor, c_id, Decimal(str(sv_amount)),
-                               'spend', get_current_user_id(), ref_id, 1, note)
+                if sv_amount > 0:
+                    from project.stored_value import change_balance
+                    if i_type == 'course':
+                        note = f'預約課程儲值扣款 (預約單號 #{ref_id})'
+                        # 📌 預約單不是實體訂單(orders)，所以傳入 None 避免 Foreign Key 錯誤
+                        change_balance(cursor, c_id, Decimal(
+                            str(sv_amount)), 'spend', get_current_user_id(), None, 1, note)
+                    else:
+                        note = '購買產品儲值扣款'
+                        # 📌 產品結帳有建立 orders，所以 ref_id 是真正的 order_id
+                        change_balance(cursor, c_id, Decimal(
+                            str(sv_amount)), 'spend', get_current_user_id(), ref_id, 1, note)
 
             success_count += 1
 
