@@ -1797,7 +1797,7 @@
             <th>職稱</th>
             <th>權限</th>
             <th>電話</th>
-            <th class="text-end">操作 (編輯/薪資)</th>
+            <th class="text-end">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -1809,6 +1809,10 @@
             <td><span class="badge bg-primary">{{ emp['role'] or '' }}</span></td>
             <td>{{ emp['phone'] or '-' }}</td>
             <td class="text-end">
+              <a href="{{ url_for('admin.employee_detail', emp_id=emp['id']) }}"
+                class="btn btn-sm btn-outline-secondary me-1" title="檢視員工資料與歷史薪資">
+                <i class="bi bi-eye"></i> 檢視與紀錄
+              </a>
               <button class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal"
                 data-bs-target="#editEmployeeModal{{ emp['id'] }}">
                 <i class="bi bi-pencil"></i> 編輯

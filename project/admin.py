@@ -2517,6 +2517,51 @@ def delete_service_fee(fee_id):
     return redirect(url_for('admin.dashboard', tab='service_fees'))
 
 
+@admin_bp.route('/employee/<int:emp_id>/detail')
+@admin_required
+def employee_detail(emp_id):
+    """Admin-only employee profile and recorded salary history (read-only)."""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        # Current schema snapshot does not contain job_title; select it only if available.
+        cursor.execute("SHOW COLUMNS FROM users LIKE 'job_title'")
+        job_title_column = ', job_title' if cursor.fetchone() else ''
+        cursor.execute(f"""
+            SELECT id, username, firstname, surname, email, phone,
+                   gender, birth_date, occupation, line_id, address,
+                   notes, role, created_at, updated_at{job_title_column}
+            FROM users
+            WHERE id = %s AND role IN ('admin', 'staff')
+        """, (emp_id,))
+        employee = cursor.fetchone()
+        if employee is None:
+            flash('找不到該員工', 'error')
+            return redirect(url_for('admin.dashboard', tab='employees'))
+
+        # Avoid a 500 when an older database has not deployed salary tables yet.
+        cursor.execute("SHOW TABLES LIKE %s", ('employee_salaries',))
+        salary_table_exists = cursor.fetchone() is not None
+        salary_history = []
+        if salary_table_exists:
+            cursor.execute("""
+                SELECT salary_month, base_salary, personal_bonus, team_bonus,
+                       other_bonus_name, other_bonus_amount, total_salary
+                FROM employee_salaries
+                WHERE user_id = %s
+                ORDER BY salary_month DESC
+            """, (emp_id,))
+            salary_history = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    return render_template(
+        'admin_employee_detail.html',
+        employee=employee,
+        salary_history=salary_history,
+        salary_table_exists=salary_table_exists
+    )
+
+
 @admin_bp.route('/employee/<int:emp_id>/salary', methods=['POST'])
 @admin_required
 def update_employee_salary(emp_id):
