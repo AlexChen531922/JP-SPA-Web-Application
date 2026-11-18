@@ -2878,9 +2878,8 @@
     // 判斷是課程還是產品列
     const isCourse = tr.querySelector('.row-first-time') !== null;
 
-    let courseBasePrice = 0;
-    let feePrice = 0;
     let totalAmountForRemain = 0;
+    let feePrice = 0;
 
     if (isCourse) {
       if (!tr.dataset.regPrice) return;
@@ -2888,14 +2887,14 @@
       tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
 
       // 課程基本費
-      courseBasePrice = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
+      const courseBasePrice = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
       feePrice = parseFloat(tr.dataset.feePrice) || 0;
 
       // 總金額輸入框只顯示課程金額
       tr.querySelector('.row-amount').value = courseBasePrice;
 
-      // 但這列的真正應付總額是 課程 + 手技
-      totalAmountForRemain = courseBasePrice + feePrice;
+      // ⭐ 修正核心：扣款前的原始餘額，就是課程總金額，不把手技費加上去！
+      totalAmountForRemain = courseBasePrice;
     } else {
       // 產品列的總額直接抓金額欄位
       totalAmountForRemain = parseFloat(tr.querySelector('.row-amount').value) || 0;
@@ -2919,12 +2918,13 @@
     if (svInput) {
       // 若為課程且有手技費，預設將手技費帶入扣款 (僅當使用者沒手動修改時)
       if (isCourse && feePrice > 0 && document.activeElement !== svInput) {
-        svInput.value = Math.min(feePrice, maxBal);
+        // 防呆：帶入的手技費不能超過客戶餘額，也不能超過課程總金額
+        svInput.value = Math.min(feePrice, maxBal, totalAmountForRemain);
       }
 
       let svUse = parseFloat(svInput.value) || 0;
 
-      // 防呆
+      // 防呆限制
       if (svUse > maxBal) {
         svUse = maxBal;
         svInput.value = maxBal;
@@ -2934,7 +2934,7 @@
         svInput.value = totalAmountForRemain;
       }
 
-      // [修正] 計算該列未付餘額 (應付總額 - 儲值扣款)
+      // ⭐ 正確的餘額計算：總金額 - 儲值扣款
       const remain = totalAmountForRemain - svUse;
       const remainDisplay = tr.querySelector('.row-remain-amount');
       if (remainDisplay) {
