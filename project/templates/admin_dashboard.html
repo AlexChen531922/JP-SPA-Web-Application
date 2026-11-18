@@ -73,6 +73,7 @@
       data-bs-target="#inventory">
       <i class="bi bi-boxes"></i> 庫存管理
     </button>
+  </li>
   <li class="nav-item">
     <button class="nav-link {% if tab == 'service_fees' %}active{% endif %}" data-bs-toggle="tab"
       data-bs-target="#service_fees">
@@ -87,7 +88,6 @@
     </button>
   </li>
   {% endif %}
-  </li>
   {% if session.get('user', {}).get('role') == 'admin' %}
   <li class="nav-item">
     <button class="nav-link {% if tab == 'logs' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#logs">

@@ -102,10 +102,10 @@ def dashboard():
   # 2. 營收計算 (Revenue) - ⭐ 排除店內損耗 (email = store@jparomatic.local)
     cursor.execute("""
         SELECT
-            (SELECT COALESCE(SUM(o.total_amount), 0) 
-             FROM orders o JOIN users u ON o.customer_id = u.id 
+            (SELECT COALESCE(SUM(o.total_amount), 0)
+             FROM orders o JOIN users u ON o.customer_id = u.id
              WHERE o.status != 'cancelled' AND o.deleted_at IS NULL AND u.email != 'store@jparomatic.local') +
-            (SELECT COALESCE(SUM(b.total_amount), 0) 
+            (SELECT COALESCE(SUM(b.total_amount), 0)
              FROM bookings b JOIN users u ON b.customer_id = u.id
              WHERE b.status != 'cancelled' AND u.email != 'store@jparomatic.local')
         as total_revenue
@@ -203,8 +203,8 @@ def dashboard():
 
     # Inventory
     cursor.execute("""
-        SELECT 
-            p.id, p.name, p.stock_quantity, p.cost, p.price, 
+        SELECT
+            p.id, p.name, p.stock_quantity, p.cost, p.price,
             p.last_purchase_date, p.last_sale_date, p.unit,
             p.image, p.description, c.name as category_name,
             (SELECT notes FROM inventory_logs WHERE product_id = p.id ORDER BY created_at DESC LIMIT 1) as latest_note
@@ -357,8 +357,6 @@ def dashboard():
     cursor.execute("SELECT * FROM customer_sources ORDER BY id")
     customer_sources = cursor.fetchall()
 
-    cursor.close()
-
     now = datetime.now()
 
     stats = {
@@ -386,6 +384,8 @@ def dashboard():
     cursor.execute("SELECT * FROM service_fees WHERE is_active = 1")
     service_fees = cursor.fetchall()
     # ========================================================
+
+    cursor.close()
 
     return render_template(
         'admin_dashboard.html',
