@@ -414,7 +414,7 @@ def dashboard():
         audit_logs=audit_logs,
         employees=employees,
         salaries=salaries,
-        service_fees=service_fees
+        service_fees=service_fees,
         now_str=now.strftime('%Y-%m-%dT%H:%M')
     )
 
