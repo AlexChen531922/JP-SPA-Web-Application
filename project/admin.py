@@ -2319,12 +2319,19 @@ def add_booking_manual():
             sv_amount = float(stored_value_amounts[i]) if i < len(
                 stored_value_amounts) and stored_value_amounts[i] else 0.0
 
-            # 確保存款足夠
+            # 執行儲值金扣款紀錄
             if sv_amount > 0:
-                from project.stored_value import ensure_wallet
-                current_balance = ensure_wallet(cursor, c_id)
-                if Decimal(str(sv_amount)) > current_balance:
-                    raise ValueError(f'客戶儲值餘額不足 (需 {sv_amount})')
+                from project.stored_value import change_balance
+                if i_type == 'course':
+                    note = f'預約課程儲值扣款 (預約單號 #{ref_id})'
+                    # 📌 預約單不是實體訂單(orders)，所以傳入 None 避免 Foreign Key 錯誤
+                    change_balance(cursor, c_id, Decimal(
+                        str(sv_amount)), 'spend', get_current_user_id(), None, 1, note)
+                else:
+                    note = '購買產品儲值扣款'
+                    # 📌 產品結帳有建立 orders，所以 ref_id 是真正的 order_id
+                    change_balance(cursor, c_id, Decimal(
+                        str(sv_amount)), 'spend', get_current_user_id(), ref_id, 1, note)
 
             # 📌 狀況 A：購買的是「課程」 -> 寫入 Booking
             if i_type == 'course':
