@@ -1,8 +1,8 @@
-# Force Railway to switch to Nixpacks (這是註解，強迫更新)
+
 # Railway 專用設定檔：強制安裝 MySQL 驅動程式
 
 [phases.setup]
-# 安裝必要的 Linux 系統套件
+
 nixPkgs = ["python3", "mysql-client", "mariadb-connector-c", "pkg-config", "gcc"]
 
 [phases.build]
@@ -11,7 +11,7 @@ cmds = ["python -m venv /opt/venv && . /opt/venv/bin/activate && pip install -r 
 [start]
 cmd = "gunicorn run:app"
 
-# 👇👇👇 您之前漏掉了這一段，這是最重要的！ 👇👇👇
+
 [variables]
-# 告訴系統去哪裡找 libmariadb.so.3
+
 LD_LIBRARY_PATH = "/nix/var/nix/profiles/default/lib"
