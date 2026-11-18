@@ -1761,10 +1761,10 @@
         <tbody>
           {% for fee in service_fees %}
           <tr>
-            <td>{{ fee.name }}</td>
-            <td>NT$ {{ '{:,.0f}'.format(fee.price) }}</td>
+            <td>{{ fee['name'] }}</td>
+            <td>NT$ {{ '{:,.0f}'.format(fee['price']) }}</td>
             <td class="text-end">
-              <form action="{{ url_for('admin.delete_service_fee', fee_id=fee.id) }}" method="POST"
+              <form action="{{ url_for('admin.delete_service_fee', fee_id=fee['id']) }}" method="POST"
                 onsubmit="return confirm('確定停用？')">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 停用</button>
@@ -1777,6 +1777,7 @@
     </div>
   </div>
 </div>
+
 
 <!-- ⭐ 員工與薪資管理區塊 (加上 Admin 權限判斷，徹底隱藏原始碼) -->
 {% if session.get('user', {}).get('role') == 'admin' %}
@@ -1802,52 +1803,54 @@
         <tbody>
           {% for emp in employees %}
           <tr>
-            <td class="fw-bold">{{ emp.surname }}{{ emp.firstname }}</td>
-            <td class="text-muted"><small>{{ emp.username }}</small></td>
-            <td>{{ emp.job_title or '未設定' }}</td>
-            <td><span class="badge bg-primary">{{ emp.role }}</span></td>
-            <td>{{ emp.phone or '-' }}</td>
+            <td class="fw-bold">{{ emp['surname'] or '' }}{{ emp['firstname'] or '' }}</td>
+            <td class="text-muted"><small>{{ emp['username'] or '' }}</small></td>
+            <td>{{ emp['job_title'] or '未設定' }}</td>
+            <td><span class="badge bg-primary">{{ emp['role'] or '' }}</span></td>
+            <td>{{ emp['phone'] or '-' }}</td>
             <td class="text-end">
               <button class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal"
-                data-bs-target="#editEmployeeModal{{ emp.id }}">
+                data-bs-target="#editEmployeeModal{{ emp['id'] }}">
                 <i class="bi bi-pencil"></i> 編輯
               </button>
               <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal"
-                data-bs-target="#salaryModal{{ emp.id }}">
+                data-bs-target="#salaryModal{{ emp['id'] }}">
                 <i class="bi bi-currency-dollar"></i> 核算薪資
               </button>
             </td>
           </tr>
 
           <!-- 編輯員工資料的 Modal -->
-          <div class="modal fade" id="editEmployeeModal{{ emp.id }}" tabindex="-1">
+          <div class="modal fade" id="editEmployeeModal{{ emp['id'] }}" tabindex="-1">
             <div class="modal-dialog">
               <div class="modal-content text-start">
-                <form action="{{ url_for('admin.update_employee', emp_id=emp.id) }}" method="POST">
+                <form action="{{ url_for('admin.update_employee', emp_id=emp['id']) }}" method="POST">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <div class="modal-header">
-                    <h5 class="modal-title">編輯員工：{{ emp.username }}</h5>
+                    <h5 class="modal-title">編輯員工：{{ emp['username'] or '' }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                   </div>
                   <div class="modal-body">
                     <div class="row g-2 mb-3">
                       <div class="col-6">
                         <label class="form-label">姓氏</label>
-                        <input type="text" name="surname" class="form-control" value="{{ emp.surname }}" required>
+                        <input type="text" name="surname" class="form-control" value="{{ emp['surname'] or '' }}"
+                          required>
                       </div>
                       <div class="col-6">
                         <label class="form-label">名字</label>
-                        <input type="text" name="firstname" class="form-control" value="{{ emp.firstname }}" required>
+                        <input type="text" name="firstname" class="form-control" value="{{ emp['firstname'] or '' }}"
+                          required>
                       </div>
                     </div>
                     <div class="mb-3">
                       <label class="form-label">職稱</label>
-                      <input type="text" name="job_title" class="form-control" value="{{ emp.job_title or '' }}"
+                      <input type="text" name="job_title" class="form-control" value="{{ emp['job_title'] or '' }}"
                         placeholder="例如：資深芳療師">
                     </div>
                     <div class="mb-3">
                       <label class="form-label">電話</label>
-                      <input type="tel" name="phone" class="form-control" value="{{ emp.phone or '' }}">
+                      <input type="tel" name="phone" class="form-control" value="{{ emp['phone'] or '' }}">
                     </div>
                     <hr>
                     <div class="mb-3">
@@ -1866,13 +1869,13 @@
           </div>
 
           <!-- 核算薪資 Modal -->
-          <div class="modal fade" id="salaryModal{{ emp.id }}">
+          <div class="modal fade" id="salaryModal{{ emp['id'] }}" tabindex="-1">
             <div class="modal-dialog">
               <div class="modal-content text-start">
-                <form action="{{ url_for('admin.update_employee_salary', emp_id=emp.id) }}" method="POST">
+                <form action="{{ url_for('admin.update_employee_salary', emp_id=emp['id']) }}" method="POST">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <div class="modal-header">
-                    <h5 class="modal-title">核算薪資：{{ emp.firstname }}</h5>
+                    <h5 class="modal-title">核算薪資：{{ emp['firstname'] or '' }}</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                   </div>
                   <div class="modal-body">
