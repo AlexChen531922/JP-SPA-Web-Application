@@ -2520,16 +2520,29 @@ def delete_service_fee(fee_id):
 @admin_bp.route('/employee/<int:emp_id>/detail')
 @admin_required
 def employee_detail(emp_id):
-    """Admin-only employee profile and recorded salary history (read-only)."""
+    """Admin only: employee data, salary and verifiable audit actions."""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        # Current schema snapshot does not contain job_title; select it only if available.
+        # Keep historical created_at / updated_at untouched. Employment dates
+        # are independent fields added by the accompanying SQL migration.
         cursor.execute("SHOW COLUMNS FROM users LIKE 'job_title'")
         job_title_column = ', job_title' if cursor.fetchone() else ''
+        cursor.execute("SHOW COLUMNS FROM users LIKE 'hire_date'")
+        hire_date_exists = cursor.fetchone() is not None
+        cursor.execute("SHOW COLUMNS FROM users LIKE 'termination_date'")
+        termination_date_exists = cursor.fetchone() is not None
+        employment_dates_available = hire_date_exists and termination_date_exists
+        hire_date_column = ', hire_date' if hire_date_exists else ', NULL AS hire_date'
+        termination_date_column = (
+            ', termination_date' if termination_date_exists
+            else ', NULL AS termination_date'
+        )
+
         cursor.execute(f"""
             SELECT id, username, firstname, surname, email, phone,
                    gender, birth_date, occupation, line_id, address,
                    notes, role, created_at, updated_at{job_title_column}
+                   {hire_date_column}{termination_date_column}
             FROM users
             WHERE id = %s AND role IN ('admin', 'staff')
         """, (emp_id,))
@@ -2538,7 +2551,6 @@ def employee_detail(emp_id):
             flash('找不到該員工', 'error')
             return redirect(url_for('admin.dashboard', tab='employees'))
 
-        # Avoid a 500 when an older database has not deployed salary tables yet.
         cursor.execute("SHOW TABLES LIKE %s", ('employee_salaries',))
         salary_table_exists = cursor.fetchone() is not None
         salary_history = []
@@ -2551,15 +2563,151 @@ def employee_detail(emp_id):
                 ORDER BY salary_month DESC
             """, (emp_id,))
             salary_history = cursor.fetchall()
+
+        # Audit attribution means this employee acted on the record. It does
+        # NOT establish permanent sales ownership or customer assignment.
+        cursor.execute("SHOW TABLES LIKE %s", ('audit_logs',))
+        audit_table_exists = cursor.fetchone() is not None
+        order_operations = []
+        booking_operations = []
+        handled_customers = []
+        audit_totals = {'order': {'actions': 0, 'records': 0},
+                        'booking': {'actions': 0, 'records': 0}}
+        if audit_table_exists:
+            cursor.execute("""
+                SELECT target_type, COUNT(*) AS action_count,
+                       COUNT(DISTINCT target_id) AS record_count
+                FROM audit_logs
+                WHERE user_id=%s AND target_type IN ('order', 'booking')
+                GROUP BY target_type
+            """, (emp_id,))
+            for item in cursor.fetchall():
+                audit_totals[item['target_type']] = {
+                    'actions': item['action_count'],
+                    'records': item['record_count']
+                }
+
+            cursor.execute("""
+                SELECT a.id AS audit_id, a.action, a.details,
+                       a.created_at AS operated_at, a.target_id AS order_id,
+                       o.total_amount, o.status, o.created_at AS order_created_at,
+                       o.deleted_at, c.id AS customer_id, c.firstname, c.surname
+                FROM audit_logs a
+                LEFT JOIN orders o ON o.id = a.target_id
+                LEFT JOIN users c ON c.id = o.customer_id
+                WHERE a.user_id=%s AND a.target_type='order'
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 100
+            """, (emp_id,))
+            order_operations = cursor.fetchall()
+
+            cursor.execute("""
+                SELECT a.id AS audit_id, a.action, a.details,
+                       a.created_at AS operated_at, a.target_id AS booking_id,
+                       b.total_amount, b.status, b.sessions_purchased,
+                       c.id AS customer_id, c.firstname, c.surname,
+                       co.name AS course_name,
+                       COALESCE(s.start_time, b.booking_date) AS appointment_at
+                FROM audit_logs a
+                LEFT JOIN bookings b ON b.id = a.target_id
+                LEFT JOIN users c ON c.id = b.customer_id
+                LEFT JOIN courses co ON co.id = b.course_id
+                LEFT JOIN shop_schedules s ON s.id = b.global_schedule_id
+                WHERE a.user_id=%s AND a.target_type='booking'
+                ORDER BY a.created_at DESC, a.id DESC
+                LIMIT 100
+            """, (emp_id,))
+            booking_operations = cursor.fetchall()
+
+            # Distinct customers appearing in transactions with recorded actions.
+            # Customer contact data is not duplicated into the audit table.
+            cursor.execute("""
+                SELECT c.id, c.firstname, c.surname
+                FROM users c
+                JOIN (
+                    SELECT o.customer_id AS customer_id
+                    FROM audit_logs a JOIN orders o ON o.id=a.target_id
+                    WHERE a.user_id=%s AND a.target_type='order'
+                    UNION
+                    SELECT b.customer_id AS customer_id
+                    FROM audit_logs a JOIN bookings b ON b.id=a.target_id
+                    WHERE a.user_id=%s AND a.target_type='booking'
+                ) handled ON handled.customer_id=c.id
+                ORDER BY c.surname, c.firstname, c.id
+                LIMIT 100
+            """, (emp_id, emp_id))
+            handled_customers = cursor.fetchall()
     finally:
         cursor.close()
 
     return render_template(
         'admin_employee_detail.html',
         employee=employee,
+        employment_dates_available=employment_dates_available,
         salary_history=salary_history,
-        salary_table_exists=salary_table_exists
+        salary_table_exists=salary_table_exists,
+        audit_table_exists=audit_table_exists,
+        audit_totals=audit_totals,
+        order_operations=order_operations,
+        booking_operations=booking_operations,
+        handled_customers=handled_customers
     )
+
+
+@admin_bp.route('/employee/<int:emp_id>/employment-dates', methods=['POST'])
+@admin_required
+def update_employee_employment_dates(emp_id):
+    """Update actual employment dates without overwriting account timestamps."""
+    def parse_optional_date(field_name, label):
+        raw = request.form.get(field_name, '').strip()
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw, '%Y-%m-%d').date()
+        except ValueError:
+            raise ValueError(f'{label}必須是有效的 YYYY-MM-DD 日期')
+
+    try:
+        hire_date = parse_optional_date('hire_date', '入職日期')
+        termination_date = parse_optional_date('termination_date', '離職日期')
+        if hire_date and termination_date and termination_date < hire_date:
+            raise ValueError('離職日期不得早於入職日期')
+
+        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        try:
+            cursor.execute("SHOW COLUMNS FROM users LIKE 'hire_date'")
+            has_hire_date = cursor.fetchone() is not None
+            cursor.execute("SHOW COLUMNS FROM users LIKE 'termination_date'")
+            has_termination_date = cursor.fetchone() is not None
+            if not (has_hire_date and has_termination_date):
+                raise ValueError('資料庫尚未新增入職日期／離職日期欄位，請先執行 Migration')
+            cursor.execute("""
+                SELECT id FROM users
+                WHERE id=%s AND role IN ('admin', 'staff')
+            """, (emp_id,))
+            if not cursor.fetchone():
+                raise ValueError('找不到該員工')
+            cursor.execute("""
+                UPDATE users SET hire_date=%s, termination_date=%s
+                WHERE id=%s AND role IN ('admin', 'staff')
+            """, (hire_date, termination_date, emp_id))
+            database.connection.commit()
+        finally:
+            cursor.close()
+        try:
+            log_activity('update', 'employee', emp_id, {
+                'fields': ['hire_date', 'termination_date']
+            })
+        except Exception:
+            current_app.logger.warning('Employment date audit failed for employee %s', emp_id)
+        flash('入職／離職日期已更新', 'success')
+    except ValueError as exc:
+        flash(str(exc), 'error')
+    except Exception:
+        database.connection.rollback()
+        current_app.logger.exception('Updating employment dates failed')
+        flash('儲存入職／離職日期失敗，請查看伺服器紀錄', 'error')
+    return redirect(url_for('admin.employee_detail', emp_id=emp_id))
 
 
 @admin_bp.route('/employee/<int:emp_id>/salary', methods=['POST'])

@@ -15,95 +15,149 @@
 
   <div class="row g-4">
     <div class="col-12 col-xl-5">
-      <div class="card border-0 shadow-sm h-100">
+      <div class="card border-0 shadow-sm">
         <div class="card-header bg-white py-3"><h5 class="fw-bold mb-0">基本資料</h5></div>
         <div class="card-body">
           <h4 class="fw-bold mb-3">{{ employee.surname or '' }}{{ employee.firstname or '' }}</h4>
           <dl class="row gy-3 mb-0">
-            <dt class="col-sm-4 text-muted">員工編號</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.id }}</dd>
-            <dt class="col-sm-4 text-muted">帳號</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.username or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">權限</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.role }}</dd>
-            <dt class="col-sm-4 text-muted">職稱</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.get('job_title') or '未設定／資料庫未提供' }}</dd>
-            <dt class="col-sm-4 text-muted">Email</dt>
-            <dd class="col-sm-8 mb-0 text-break">{{ employee.email or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">電話</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.phone or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">LINE ID</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.line_id or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">性別</dt>
-            <dd class="col-sm-8 mb-0">{{ {'male':'男性','female':'女性','other':'其他'}.get(employee.gender, employee.gender or '—') }}</dd>
-            <dt class="col-sm-4 text-muted">生日</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.birth_date or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">職業</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.occupation or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">地址</dt>
-            <dd class="col-sm-8 mb-0" style="white-space: pre-wrap">{{ employee.address or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">備註</dt>
-            <dd class="col-sm-8 mb-0" style="white-space: pre-wrap">{{ employee.notes or '—' }}</dd>
-            <dt class="col-sm-4 text-muted">帳號建立時間</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.created_at.strftime('%Y-%m-%d %H:%M') if employee.created_at else '—' }}</dd>
-            <dt class="col-sm-4 text-muted">最後更新時間</dt>
-            <dd class="col-sm-8 mb-0">{{ employee.updated_at.strftime('%Y-%m-%d %H:%M') if employee.updated_at else '—' }}</dd>
+            <dt class="col-sm-4 text-muted">員工編號</dt><dd class="col-sm-8 mb-0">{{ employee.id }}</dd>
+            <dt class="col-sm-4 text-muted">帳號</dt><dd class="col-sm-8 mb-0">{{ employee.username or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">權限</dt><dd class="col-sm-8 mb-0">{{ employee.role }}</dd>
+            <dt class="col-sm-4 text-muted">職稱</dt><dd class="col-sm-8 mb-0">{{ employee.get('job_title') or '未設定／資料庫未提供' }}</dd>
+            <dt class="col-sm-4 text-muted">Email</dt><dd class="col-sm-8 mb-0 text-break">{{ employee.email or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">電話</dt><dd class="col-sm-8 mb-0">{{ employee.phone or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">LINE ID</dt><dd class="col-sm-8 mb-0">{{ employee.line_id or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">性別</dt><dd class="col-sm-8 mb-0">{{ {'male':'男性','female':'女性','other':'其他'}.get(employee.gender, employee.gender or '—') }}</dd>
+            <dt class="col-sm-4 text-muted">生日</dt><dd class="col-sm-8 mb-0">{{ employee.birth_date or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">職業</dt><dd class="col-sm-8 mb-0">{{ employee.occupation or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">地址</dt><dd class="col-sm-8 mb-0" style="white-space: pre-wrap">{{ employee.address or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">備註</dt><dd class="col-sm-8 mb-0" style="white-space: pre-wrap">{{ employee.notes or '—' }}</dd>
+            <dt class="col-sm-4 text-muted">入職日期</dt><dd class="col-sm-8 mb-0">{{ employee.hire_date or '尚未填寫' }}</dd>
+            <dt class="col-sm-4 text-muted">離職日期</dt><dd class="col-sm-8 mb-0">{{ employee.termination_date or '尚未填寫' }}</dd>
           </dl>
+          <hr>
+          <h6 class="fw-bold">編輯到職與離職日期</h6>
+          {% if employment_dates_available %}
+          <form method="POST" action="{{ url_for('admin.update_employee_employment_dates', emp_id=employee.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="row g-3">
+              <div class="col-sm-6">
+                <label for="empHireDate" class="form-label">入職日期</label>
+                <input id="empHireDate" class="form-control" type="date" name="hire_date"
+                  value="{{ employee.hire_date.strftime('%Y-%m-%d') if employee.hire_date else '' }}">
+              </div>
+              <div class="col-sm-6">
+                <label for="empTerminationDate" class="form-label">離職日期</label>
+                <input id="empTerminationDate" class="form-control" type="date" name="termination_date"
+                  value="{{ employee.termination_date.strftime('%Y-%m-%d') if employee.termination_date else '' }}">
+              </div>
+              <div class="col-12">
+                <button type="submit" class="btn btn-primary"><i class="bi bi-save me-1"></i>儲存日期</button>
+                <span class="text-muted small ms-2">留空即表示日期未填寫，不會自動停用帳號。</span>
+              </div>
+            </div>
+          </form>
+          {% else %}
+          <div class="alert alert-warning mb-0" role="status">尚未執行入職／離職日期 Migration。欄位目前無法編輯；既有的帳號建立與更新時間不會被改寫。</div>
+          {% endif %}
         </div>
       </div>
     </div>
 
     <div class="col-12 col-xl-7">
-      <div class="card border-0 shadow-sm">
+      <div class="card border-0 shadow-sm mb-4">
         <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
           <h5 class="fw-bold mb-0"><i class="bi bi-cash-stack me-2"></i>歷史薪資紀錄</h5>
           <span class="text-muted small">{{ salary_history|length }} 筆紀錄</span>
         </div>
         <div class="card-body p-0">
           {% if not salary_table_exists %}
-          <div class="alert alert-warning m-3 mb-3" role="status">
-            目前資料庫尚未提供 employee_salaries 資料表，無法顯示歷史薪資。
-            這不代表員工薪資為零；請先確認薪資功能的資料庫 Migration。
-          </div>
+          <div class="alert alert-warning m-3" role="status">目前資料庫尚未提供 employee_salaries 資料表，無法顯示歷史薪資。請確認薪資功能的 Migration。</div>
           {% elif not salary_history %}
           <div class="text-muted p-4 text-center">尚無此員工的薪資紀錄。</div>
           {% else %}
-          <div class="table-responsive">
-            <table class="table table-striped table-hover align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th>月份</th>
-                  <th class="text-end">底薪</th>
-                  <th class="text-end">個人獎金</th>
-                  <th class="text-end">團體獎金</th>
-                  <th>其他獎金</th>
-                  <th class="text-end">其他金額</th>
-                  <th class="text-end">總薪資</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for record in salary_history %}
-                <tr>
-                  <td class="text-nowrap">{{ record.salary_month }}</td>
-                  <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.base_salary or 0) }}</td>
-                  <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.personal_bonus or 0) }}</td>
-                  <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.team_bonus or 0) }}</td>
-                  <td>{{ record.other_bonus_name or '—' }}</td>
-                  <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.other_bonus_amount or 0) }}</td>
-                  <td class="text-end text-nowrap fw-bold">NT$ {{ '{:,.0f}'.format(record.total_salary or 0) }}</td>
-                </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+          <div class="table-responsive"><table class="table table-striped table-hover align-middle mb-0">
+            <thead class="table-light"><tr><th>月份</th><th class="text-end">底薪</th><th class="text-end">個人獎金</th><th class="text-end">團體獎金</th><th>其他獎金</th><th class="text-end">其他金額</th><th class="text-end">總薪資</th></tr></thead>
+            <tbody>{% for record in salary_history %}<tr>
+              <td class="text-nowrap">{{ record.salary_month }}</td>
+              <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.base_salary or 0) }}</td>
+              <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.personal_bonus or 0) }}</td>
+              <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.team_bonus or 0) }}</td>
+              <td>{{ record.other_bonus_name or '—' }}</td>
+              <td class="text-end text-nowrap">NT$ {{ '{:,.0f}'.format(record.other_bonus_amount or 0) }}</td>
+              <td class="text-end text-nowrap fw-bold">NT$ {{ '{:,.0f}'.format(record.total_salary or 0) }}</td>
+            </tr>{% endfor %}</tbody>
+          </table></div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="card border-0 shadow-sm">
+        <div class="card-header bg-white py-3"><h5 class="fw-bold mb-0"><i class="bi bi-people me-2"></i>操作關聯顧客</h5></div>
+        <div class="card-body">
+          <p class="text-muted small">以下顧客是由此員工的訂單／預約稽核紀錄關聯而來，<strong>不代表客戶永久歸屬或業績負責人</strong>。最多顯示 100 位。</p>
+          {% if not audit_table_exists %}
+          <div class="alert alert-warning mb-0">找不到 audit_logs 資料表，無法查詢操作關聯。</div>
+          {% elif not handled_customers %}
+          <div class="text-muted">目前沒有可追溯到顧客的操作紀錄。</div>
+          {% else %}
+          <div class="d-flex flex-wrap gap-2">
+            {% for customer in handled_customers %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.customer_detail', customer_id=customer.id) }}">{{ customer.surname or '' }}{{ customer.firstname or '' }}（#{{ customer.id }}）</a>
+            {% endfor %}
           </div>
           {% endif %}
         </div>
       </div>
-      <div class="text-muted small mt-3">
-        此頁僅供管理員查閱，無法直接修改薪資；薪資核算請返回員工管理。
-        帳號建立日期不一定等於實際入職日期。
-      </div>
     </div>
   </div>
+
+  <div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <h5 class="fw-bold mb-0"><i class="bi bi-cart me-2"></i>訂單操作紀錄</h5>
+      <span class="text-muted small">共 {{ audit_totals['order']['actions'] }} 次操作／{{ audit_totals['order']['records'] }} 張訂單；顯示最近 100 次</span>
+    </div>
+    <div class="card-body p-0">
+      {% if not audit_table_exists %}<div class="alert alert-warning m-3">找不到 audit_logs 資料表。</div>
+      {% elif not order_operations %}<div class="text-muted p-4 text-center">尚無可查詢的訂單操作紀錄。</div>
+      {% else %}<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+        <thead class="table-light"><tr><th>操作時間</th><th>動作</th><th>訂單編號</th><th>顧客</th><th class="text-end">訂單金額</th><th>目前狀態</th><th>操作內容</th></tr></thead>
+        <tbody>{% for event in order_operations %}<tr>
+          <td class="text-nowrap">{{ event.operated_at.strftime('%Y-%m-%d %H:%M') if event.operated_at else '—' }}</td>
+          <td><span class="badge bg-secondary">{{ {'create':'建立','update':'更新','archive':'封存','delete':'刪除'}.get(event.action, event.action) }}</span></td>
+          <td>#{{ event.order_id or '—' }}</td>
+          <td>{% if event.customer_id %}<a href="{{ url_for('admin.customer_detail', customer_id=event.customer_id) }}">{{ event.surname or '' }}{{ event.firstname or '' }}</a>{% else %}<span class="text-muted">已不存在／無法關聯</span>{% endif %}</td>
+          <td class="text-end text-nowrap">{% if event.total_amount is not none %}NT$ {{ '{:,.0f}'.format(event.total_amount) }}{% else %}—{% endif %}</td>
+          <td>{{ event.status or '紀錄已不存在' }}{% if event.deleted_at %}（已封存）{% endif %}</td>
+          <td class="small text-break">{{ event.details or '—' }}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>{% endif %}
+    </div>
+  </div>
+
+  <div class="card border-0 shadow-sm mt-4">
+    <div class="card-header bg-white py-3 d-flex flex-wrap align-items-center justify-content-between gap-2">
+      <h5 class="fw-bold mb-0"><i class="bi bi-calendar2-week me-2"></i>預約操作紀錄</h5>
+      <span class="text-muted small">共 {{ audit_totals['booking']['actions'] }} 次操作／{{ audit_totals['booking']['records'] }} 筆預約；顯示最近 100 次</span>
+    </div>
+    <div class="card-body p-0">
+      {% if not audit_table_exists %}<div class="alert alert-warning m-3">找不到 audit_logs 資料表。</div>
+      {% elif not booking_operations %}<div class="text-muted p-4 text-center">尚無可查詢的預約操作紀錄。</div>
+      {% else %}<div class="table-responsive"><table class="table table-hover align-middle mb-0">
+        <thead class="table-light"><tr><th>操作時間</th><th>動作</th><th>預約編號</th><th>顧客</th><th>課程</th><th>預約時段</th><th class="text-end">金額</th><th>目前狀態</th><th>操作內容</th></tr></thead>
+        <tbody>{% for event in booking_operations %}<tr>
+          <td class="text-nowrap">{{ event.operated_at.strftime('%Y-%m-%d %H:%M') if event.operated_at else '—' }}</td>
+          <td><span class="badge bg-secondary">{{ {'create':'建立','update':'更新','delete':'刪除'}.get(event.action, event.action) }}</span></td>
+          <td>#{{ event.booking_id or '—' }}</td>
+          <td>{% if event.customer_id %}<a href="{{ url_for('admin.customer_detail', customer_id=event.customer_id) }}">{{ event.surname or '' }}{{ event.firstname or '' }}</a>{% else %}<span class="text-muted">已不存在／無法關聯</span>{% endif %}</td>
+          <td>{{ event.course_name or '—' }}</td>
+          <td class="text-nowrap">{{ event.appointment_at.strftime('%Y-%m-%d %H:%M') if event.appointment_at else '—' }}</td>
+          <td class="text-end text-nowrap">{% if event.total_amount is not none %}NT$ {{ '{:,.0f}'.format(event.total_amount) }}{% else %}—{% endif %}</td>
+          <td>{{ event.status or '紀錄已不存在' }}</td>
+          <td class="small text-break">{{ event.details or '—' }}</td>
+        </tr>{% endfor %}</tbody>
+      </table></div>{% endif %}
+    </div>
+  </div>
+  <p class="text-muted small mt-3">資料依 <code>audit_logs.user_id</code> 的操作者身分關聯，僅顯示已寫入的操作事件；並非客戶或交易負責人的正式指派紀錄。訂單、預約金額與狀態顯示目前資料，非操作當下快照。已刪除或缺少稽核紀錄的交易，可能無法完整追溯。</p>
 </div>
 {% endblock %}
