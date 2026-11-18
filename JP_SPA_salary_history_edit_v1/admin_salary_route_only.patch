@@ -1,0 +1,87 @@
+--- a/project/admin.py
++++ b/project/admin.py
+@@ -2546,6 +2546,84 @@
+     return redirect(url_for('admin.dashboard', tab='employees'))
+ 
+ 
++@admin_bp.route('/employee/<int:emp_id>/salary/history/update', methods=['POST'])
++@admin_required
++def recalculate_employee_salary(emp_id):
++    """Correct one existing monthly salary record; do not create a duplicate."""
++    month = (request.form.get('salary_month') or '').strip()
++    if not month or len(month) > 32:
++        flash('薪資月份不正確', 'error')
++        return redirect(url_for('admin.employee_detail', emp_id=emp_id))
++
++    def amount(field, label):
++        raw = (request.form.get(field) or '').strip() or '0'
++        try:
++            parsed = Decimal(raw)
++            if not parsed.is_finite() or parsed != parsed.quantize(Decimal('0.01')):
++                raise ValueError()
++            return parsed
++        except (ArithmeticError, ValueError, TypeError):
++            raise ValueError(f'{label}必須是有效金額，最多兩位小數')
++
++    cursor = None
++    try:
++        base = amount('base_salary', '底薪')
++        personal = amount('personal_bonus', '個人獎金')
++        team = amount('team_bonus', '團體獎金')
++        other_amount = amount('other_bonus_amount', '其他獎金')
++        other_name = (request.form.get('other_bonus_name') or '').strip()
++        total = base + personal + team + other_amount
++
++        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
++        cursor.execute("""
++            SELECT id FROM users
++            WHERE id=%s AND role IN ('admin', 'staff')
++        """, (emp_id,))
++        if cursor.fetchone() is None:
++            raise ValueError('找不到該員工')
++
++        # Scope both the lock and the update to the specific employee and month.
++        cursor.execute("""
++            SELECT total_salary FROM employee_salaries
++            WHERE user_id=%s AND salary_month=%s FOR UPDATE
++        """, (emp_id, month))
++        matches = cursor.fetchall()
++        if len(matches) != 1:
++            raise ValueError('該月份沒有唯一的薪資紀錄，未進行修改；請先確認資料表是否有重複月份')
++        previous_total = matches[0]['total_salary']
++
++        cursor.execute("""
++            UPDATE employee_salaries
++            SET base_salary=%s, personal_bonus=%s, team_bonus=%s,
++                other_bonus_name=%s, other_bonus_amount=%s, total_salary=%s
++            WHERE user_id=%s AND salary_month=%s
++        """, (base, personal, team, other_name, other_amount, total, emp_id, month))
++        database.connection.commit()
++
++        # Audit after commit; a logging problem must not erase a successful fix.
++        try:
++            log_activity('update', 'employee_salary', emp_id, {
++                'salary_month': month,
++                'previous_total': str(previous_total),
++                'recalculated_total': str(total)
++            })
++        except Exception:
++            current_app.logger.warning('Salary correction audit failed for employee %s', emp_id)
++        flash(f'薪資已重新核算並儲存：{month}', 'success')
++    except ValueError as exc:
++        database.connection.rollback()
++        flash(str(exc), 'error')
++    except Exception:
++        database.connection.rollback()
++        current_app.logger.exception('Employee salary correction failed')
++        flash('薪資更新失敗，請查看伺服器紀錄', 'error')
++    finally:
++        if cursor is not None:
++            cursor.close()
++
++    return redirect(url_for('admin.employee_detail', emp_id=emp_id))
++
++
+ @admin_bp.route('/employee/<int:emp_id>/update', methods=['POST'])
+ @admin_required
+ def update_employee(emp_id):

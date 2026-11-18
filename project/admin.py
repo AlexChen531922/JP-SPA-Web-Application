@@ -8,6 +8,7 @@ from functools import wraps
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 import os
+import json
 import secrets
 import cloudinary
 import cloudinary.uploader
@@ -2253,98 +2254,128 @@ def update_order_events(order_id):
 @admin_bp.route('/booking/add-manual', methods=['POST'])
 @staff_required
 def add_booking_manual():
-    """管理員手動建立/補登預約 (支援多筆)"""
+    """管理員手動建立/補登預約 (支援多客戶同行、儲值金扣款與寄店扣料)"""
     try:
-        customer_id = request.form.get('customer_id')
         send_notification = request.form.get('send_notification') == 'on'
 
-        # 接收陣列資料
+        # 接收陣列資料 (每一列代表一位客戶的一個預約)
+        customer_ids = request.form.getlist('customer_ids[]')
         course_ids = request.form.getlist('course_ids[]')
         appointment_times = request.form.getlist('appointment_times[]')
-        sessions_list = request.form.getlist('sessions_list[]')
         amounts = request.form.getlist('amounts[]')
-        # is_first_times 透過前端 JS 處理成 0 或 1 傳送，確保順序正確
         is_first_times = request.form.getlist('is_first_times[]')
 
-        if not customer_id or not course_ids:
-            flash('請選擇客戶與至少一項課程', 'error')
+        # 新增的進階欄位 (費用與扣料)
+        service_fee_ids = request.form.getlist('service_fee_ids[]')
+        payment_methods = request.form.getlist('payment_methods[]')
+        stored_value_amounts = request.form.getlist('stored_value_amounts[]')
+        inventory_deductions = request.form.getlist(
+            'inventory_deductions[]')  # 前端傳來的 JSON 字串
+
+        if not customer_ids or not course_ids:
+            flash('請至少填寫一筆預約資料', 'error')
             return redirect(url_for('admin.dashboard', tab='bookings'))
 
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-
-        # 1. 取得客戶資料 (發送通知用)
-        cursor.execute(
-            "SELECT firstname, email, line_id FROM users WHERE id = %s", (customer_id,))
-        user = cursor.fetchone()
-
         success_count = 0
 
-        # 2. 迴圈處理每一筆預約
         for i, course_id in enumerate(course_ids):
-            if not course_id:
+            # 防呆：確保該列的客戶與課程都有選擇
+            if not course_id or i >= len(customer_ids) or not customer_ids[i]:
                 continue
 
-            appt_time_str = appointment_times[i]
+            c_id = int(customer_ids[i])
+            appt_time_str = appointment_times[i] if i < len(
+                appointment_times) else None
             if not appt_time_str:
                 continue
 
-            sessions = int(sessions_list[i])
-            total_amount = float(amounts[i])
-            # 轉換字串 '1'/'0' 為布林值
-            is_first = True if is_first_times[i] == '1' else False
-
-            # 處理時間
             appt_time = datetime.strptime(appt_time_str, '%Y-%m-%dT%H:%M')
+            total_amount = float(amounts[i]) if i < len(amounts) else 0.0
+            is_first = True if i < len(
+                is_first_times) and is_first_times[i] == '1' else False
 
-            # 寫入預約
+            # 費用與付款處理
+            s_fee_id = int(service_fee_ids[i]) if i < len(
+                service_fee_ids) and service_fee_ids[i] else None
+            p_method = payment_methods[i] if i < len(
+                payment_methods) and payment_methods[i] else 'offline'
+            sv_amount = float(stored_value_amounts[i]) if i < len(
+                stored_value_amounts) and stored_value_amounts[i] else 0.0
+
+            # 確保儲值金餘額足夠
+            if sv_amount > 0:
+                from project.stored_value import ensure_wallet
+                current_balance = ensure_wallet(cursor, c_id)
+                if Decimal(str(sv_amount)) > current_balance:
+                    raise ValueError(f'客戶儲值餘額不足，無法完成扣款 (需 {sv_amount})')
+
+            # 寫入預約單
             cursor.execute("""
                 INSERT INTO bookings 
-                (customer_id, course_id, schedule_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at)
-                VALUES (%s, %s, NULL, %s, %s, %s, %s, 'confirmed', %s)
-            """, (customer_id, course_id, total_amount, is_first, sessions, sessions, appt_time))
+                (customer_id, course_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at,
+                 payment_method, stored_value_amount, service_fee_id)
+                VALUES (%s, %s, %s, %s, 1, 1, 'confirmed', %s, %s, %s, %s)
+            """, (c_id, course_id, total_amount, is_first, appt_time, p_method, sv_amount, s_fee_id))
 
             booking_id = cursor.lastrowid
 
-            # 自動建立對應的 shop_schedule (佔用時段)
-            # 預設先抓1小時，或可從 DB 撈課程長度優化
-            end_time = appt_time + timedelta(minutes=60)
+            # 處理寄店扣料 (Inventory Deduction)
+            if i < len(inventory_deductions) and inventory_deductions[i]:
+                deductions = json.loads(inventory_deductions[i])
+                for d in deductions:
+                    inv_id = d.get('inv_id')
+                    deduct_amt = float(d.get('amount', 0))
+                    if inv_id and deduct_amt > 0:
+                        cursor.execute("""
+                            UPDATE customer_inventory 
+                            SET remaining_amount = GREATEST(0, remaining_amount - %s)
+                            WHERE id = %s AND customer_id = %s
+                        """, (deduct_amt, inv_id, c_id))
 
+            # 執行儲值金扣款
+            if sv_amount > 0:
+                from project.stored_value import change_balance
+                change_balance(cursor, c_id, Decimal(
+                    str(sv_amount)), 'spend', get_current_user_id(), booking_id, 1, '預約課程儲值扣款')
+
+            # 佔用全店時段排班
+            end_time = appt_time + timedelta(minutes=60)
             cursor.execute("""
                 INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
                 VALUES (%s, %s, 1, 1, 1)
                 ON DUPLICATE KEY UPDATE current_bookings = current_bookings + 1
             """, (appt_time, end_time))
 
-            # 取得 schedule_id
             cursor.execute(
                 "SELECT id FROM shop_schedules WHERE start_time = %s", (appt_time,))
             schedule_row = cursor.fetchone()
             if schedule_row:
-                schedule_id = schedule_row['id']
                 cursor.execute(
-                    "UPDATE bookings SET global_schedule_id = %s WHERE id = %s", (schedule_id, booking_id))
+                    "UPDATE bookings SET global_schedule_id = %s WHERE id = %s", (schedule_row['id'], booking_id))
 
-            # 記錄 Log
             log_activity('create', 'booking', booking_id, {
-                         'type': 'manual_multi', 'time': appt_time_str})
-
+                         'type': 'manual_advanced', 'time': appt_time_str})
             success_count += 1
 
-            # 發送通知 (逐筆發送，避免漏訊)
-            if send_notification and user:
+            # 發送通知
+            if send_notification:
                 try:
-                    # 取得課程名稱
+                    cursor.execute(
+                        "SELECT firstname, email, line_id FROM users WHERE id = %s", (c_id,))
+                    user = cursor.fetchone()
                     cursor.execute(
                         "SELECT name FROM courses WHERE id = %s", (course_id,))
                     c_row = cursor.fetchone()
                     course_name = c_row['name'] if c_row else '課程'
 
                     from project.notifications import notify_booking_confirmed
-                    customer_data = {
-                        'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
-                    time_str = appt_time.strftime('%Y-%m-%d %H:%M')
-                    notify_booking_confirmed(
-                        booking_id, customer_data, course_name, time_str)
+                    if user:
+                        customer_data = {
+                            'email': user['email'], 'firstname': user['firstname'], 'line_id': user['line_id']}
+                        time_str = appt_time.strftime('%Y-%m-%d %H:%M')
+                        notify_booking_confirmed(
+                            booking_id, customer_data, course_name, time_str)
                 except Exception as e:
                     print(f"Notification Error: {e}")
 
@@ -2352,9 +2383,9 @@ def add_booking_manual():
         cursor.close()
 
         if send_notification:
-            flash(f'成功建立 {success_count} 筆預約並發送通知', 'success')
+            flash(f'成功建立 {success_count} 筆預約並已發送通知', 'success')
         else:
-            flash(f'成功補登 {success_count} 筆預約', 'success')
+            flash(f'成功建立 {success_count} 筆預約', 'success')
 
     except Exception as e:
         database.connection.rollback()
@@ -2699,7 +2730,8 @@ def update_employee_employment_dates(emp_id):
                 'fields': ['hire_date', 'termination_date']
             })
         except Exception:
-            current_app.logger.warning('Employment date audit failed for employee %s', emp_id)
+            current_app.logger.warning(
+                'Employment date audit failed for employee %s', emp_id)
         flash('入職／離職日期已更新', 'success')
     except ValueError as exc:
         flash(str(exc), 'error')
@@ -2801,7 +2833,8 @@ def recalculate_employee_salary(emp_id):
                 'recalculated_total': str(total)
             })
         except Exception:
-            current_app.logger.warning('Salary correction audit failed for employee %s', emp_id)
+            current_app.logger.warning(
+                'Salary correction audit failed for employee %s', emp_id)
         flash(f'薪資已重新核算並儲存：{month}', 'success')
     except ValueError as exc:
         database.connection.rollback()
@@ -2883,3 +2916,27 @@ def update_employee(emp_id):
         flash(f'更新失敗: {str(e)}', 'error')
 
     return redirect(url_for('admin.dashboard', tab='employees'))
+
+
+@admin_bp.route('/api/customer/<int:customer_id>/inventory')
+@staff_required
+def get_customer_inventory(customer_id):
+    """AJAX：動態取得客戶目前的寄店產品與剩餘量"""
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    cursor.execute("""
+        SELECT ci.id as inventory_id, p.id as product_id, p.name as product_name, 
+               ci.remaining_amount, p.unit
+        FROM customer_inventory ci
+        JOIN products p ON ci.product_id = p.id
+        WHERE ci.customer_id = %s AND ci.remaining_amount > 0
+        ORDER BY ci.created_at ASC
+    """, (customer_id,))
+    items = cursor.fetchall()
+    cursor.close()
+
+    # 處理 Decimal 轉 float，避免 JSON 報錯
+    for item in items:
+        if isinstance(item['remaining_amount'], Decimal):
+            item['remaining_amount'] = float(item['remaining_amount'])
+
+    return jsonify(items)
