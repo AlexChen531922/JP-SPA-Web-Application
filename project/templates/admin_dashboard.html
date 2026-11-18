@@ -16,7 +16,8 @@
 </div>
 
 <ul class="nav nav-tabs mb-4" id="adminTabs" role="tablist">
-  <li class="nav-item"><a class="nav-link" href="{{ url_for('checklist.index') }}"><i class="bi bi-clipboard2-check"></i> 門市檢核</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('checklist.index') }}"><i
+        class="bi bi-clipboard2-check"></i> 門市檢核</a></li>
   <li class="nav-item">
     <button class="nav-link {% if not tab or tab == 'overview' %}active{% endif %}" data-bs-toggle="tab"
       data-bs-target="#overview">
@@ -72,6 +73,20 @@
       data-bs-target="#inventory">
       <i class="bi bi-boxes"></i> 庫存管理
     </button>
+  <li class="nav-item">
+    <button class="nav-link {% if tab == 'service_fees' %}active{% endif %}" data-bs-toggle="tab"
+      data-bs-target="#service_fees">
+      <i class="bi bi-magic"></i> 手技費管理
+    </button>
+  </li>
+  {% if session.get('user', {}).get('role') == 'admin' %}
+  <li class="nav-item">
+    <button class="nav-link {% if tab == 'employees' %}active{% endif %}" data-bs-toggle="tab"
+      data-bs-target="#employees">
+      <i class="bi bi-person-vcard"></i> 員工與薪資
+    </button>
+  </li>
+  {% endif %}
   </li>
   {% if session.get('user', {}).get('role') == 'admin' %}
   <li class="nav-item">
@@ -488,7 +503,8 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>
         <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-cart"></i> 訂單管理</h4>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin.dashboard',tab='orders',show_deleted=0 if show_deleted_orders else 1) }}">
+        <a class="btn btn-sm btn-outline-secondary"
+          href="{{ url_for('admin.dashboard',tab='orders',show_deleted=0 if show_deleted_orders else 1) }}">
           {{ '返回有效訂單' if show_deleted_orders else '檢視已封存訂單' }}
         </a>
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addOrderModal">
@@ -525,9 +541,13 @@
               <td>{{ order.id }}</td>
               <td>{{ order.firstname }} {{ order.surname }}</td>
               <td>NT$ {{ '{:,.0f}'.format(order.total_amount) }}
-                {% if order.stored_value_amount %}<div class="small text-success">儲值扣款：NT$ {{ '{:,.2f}'.format(order.stored_value_amount) }}</div>{% endif %}
-                {% if order.other_payment_amount is not none %}<div class="small text-muted">其他付款：NT$ {{ '{:,.2f}'.format(order.other_payment_amount) }}
-                {% if order.other_payment_method %}（{{ {'cash':'現金','credit_card':'信用卡','bank_transfer':'銀行轉帳','other':'其他'}.get(order.other_payment_method,order.other_payment_method) }}）{% endif %}</div>{% endif %}
+                {% if order.stored_value_amount %}<div class="small text-success">儲值扣款：NT$ {{
+                  '{:,.2f}'.format(order.stored_value_amount) }}</div>{% endif %}
+                {% if order.other_payment_amount is not none %}<div class="small text-muted">其他付款：NT$ {{
+                  '{:,.2f}'.format(order.other_payment_amount) }}
+                  {% if order.other_payment_method %}（{{
+                  {'cash':'現金','credit_card':'信用卡','bank_transfer':'銀行轉帳','other':'其他'}.get(order.other_payment_method,order.other_payment_method)
+                  }}）{% endif %}</div>{% endif %}
               </td>
               <td>
                 {% if show_deleted_orders %}<span class="badge bg-secondary">已封存／已取消</span>{% else %}
@@ -561,18 +581,32 @@
                   <i class="bi bi-eye"></i>
                 </button>
                 {% if not show_deleted_orders %}
-                <button type="button" class="btn btn-sm btn-outline-primary" title="關聯活動" data-bs-toggle="modal" data-bs-target="#orderEventsModal{{ order.id }}">活動</button>
+                <button type="button" class="btn btn-sm btn-outline-primary" title="關聯活動" data-bs-toggle="modal"
+                  data-bs-target="#orderEventsModal{{ order.id }}">活動</button>
                 <div class="modal fade" id="orderEventsModal{{ order.id }}" tabindex="-1">
-                  <div class="modal-dialog"><div class="modal-content"><form method="POST" action="{{ url_for('admin.update_order_events', order_id=order.id) }}">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <div class="modal-header"><h5 class="modal-title">訂單 #{{ order.id }} 關聯活動</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-                    <div class="modal-body"><p class="small text-muted">可複選，也可全部不勾選。</p>
-                      {% for e in events %}
-                      <div class="form-check"><input class="form-check-input" type="checkbox" name="event_ids[]" value="{{ e.id }}" id="oe{{ order.id }}-{{ e.id }}" {% if e.id in (order_event_map.get(order.id, [])|map(attribute='event_id')|list) %}checked{% endif %}>
-                        <label class="form-check-label" for="oe{{ order.id }}-{{ e.id }}">{{ e.title }}</label></div>
-                      {% else %}<p class="text-muted">目前沒有活動可選</p>{% endfor %}
-                    </div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button class="btn btn-primary">儲存活動</button></div>
-                  </form></div></div>
+                  <div class="modal-dialog">
+                    <div class="modal-content">
+                      <form method="POST" action="{{ url_for('admin.update_order_events', order_id=order.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <div class="modal-header">
+                          <h5 class="modal-title">訂單 #{{ order.id }} 關聯活動</h5><button type="button" class="btn-close"
+                            data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                          <p class="small text-muted">可複選，也可全部不勾選。</p>
+                          {% for e in events %}
+                          <div class="form-check"><input class="form-check-input" type="checkbox" name="event_ids[]"
+                              value="{{ e.id }}" id="oe{{ order.id }}-{{ e.id }}" {% if e.id in
+                              (order_event_map.get(order.id, [])|map(attribute='event_id' )|list) %}checked{% endif %}>
+                            <label class="form-check-label" for="oe{{ order.id }}-{{ e.id }}">{{ e.title }}</label>
+                          </div>
+                          {% else %}<p class="text-muted">目前沒有活動可選</p>{% endfor %}
+                        </div>
+                        <div class="modal-footer"><button type="button" class="btn btn-secondary"
+                            data-bs-dismiss="modal">取消</button><button class="btn btn-primary">儲存活動</button></div>
+                      </form>
+                    </div>
+                  </div>
                 </div>
                 <form method="POST" action="{{ url_for('admin.delete_order', order_id=order.id) }}" class="d-inline"
                   onsubmit="return confirm('確定封存這筆訂單？必須先將訂單取消（退庫存／儲值金），封存後仍保留歷史紀錄。');">
@@ -682,8 +716,10 @@
     <div class="d-flex justify-content-between align-items-center mb-3">
       <h4 class="fw-bold mb-0"><i class="bi bi-people"></i> 客戶管理</h4>
       <div class="d-flex flex-wrap gap-2 ms-auto me-2">
-        <input id="customerSearch" type="search" class="form-control form-control-sm" style="min-width:210px" placeholder="搜尋姓名或電話（任意字元）" aria-label="搜尋客戶姓名或電話" oninput="filterAndSortCustomers()">
-        <select id="customerSort" class="form-select form-select-sm" style="min-width:170px" aria-label="客戶排序" onchange="filterAndSortCustomers()">
+        <input id="customerSearch" type="search" class="form-control form-control-sm" style="min-width:210px"
+          placeholder="搜尋姓名或電話（任意字元）" aria-label="搜尋客戶姓名或電話" oninput="filterAndSortCustomers()">
+        <select id="customerSort" class="form-select form-select-sm" style="min-width:170px" aria-label="客戶排序"
+          onchange="filterAndSortCustomers()">
           <option value="created_desc">建立時間：新到舊</option>
           <option value="created_asc">建立時間：舊到新</option>
           <option value="name_asc">姓名：正序</option>
@@ -714,7 +750,10 @@
             </thead>
             <tbody id="customerSearchRows">
               {% for customer in customers_list %}
-              <tr class="customer-search-row" data-name="{{ (customer.surname or '') ~ (customer.firstname or '') }}" data-phone="{{ customer.phone or '' }}" data-created="{{ customer.created_at.isoformat() if customer.created_at else '' }}" data-updated="{{ customer.updated_at.isoformat() if customer.updated_at else '' }}">
+              <tr class="customer-search-row" data-name="{{ (customer.surname or '') ~ (customer.firstname or '') }}"
+                data-phone="{{ customer.phone or '' }}"
+                data-created="{{ customer.created_at.isoformat() if customer.created_at else '' }}"
+                data-updated="{{ customer.updated_at.isoformat() if customer.updated_at else '' }}">
                 <td>
                   <div class="fw-bold">{{ customer.surname }}{{ customer.firstname }}</div>
                   <small class="text-muted" style="font-size:0.8em;">{{ customer.username }}</small>
@@ -851,7 +890,8 @@
             <form method="POST" action="{{ url_for('admin.delete_event', event_id=event.id) }}" class="d-inline"
               onsubmit="return confirm('確認處理這筆活動？未關聯訂單的活動會永久刪除；已關聯訂單的活動只會封存，保留歷史紀錄。')">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除／封存活動"><i class="bi bi-trash"></i></button>
+              <button type="submit" class="btn btn-sm btn-outline-danger" title="刪除／封存活動"><i
+                  class="bi bi-trash"></i></button>
             </form>
             {% endif %}
           </td>
@@ -955,7 +995,9 @@
                   {% endif %}
                 </td>
                 <!-- 下方的欄位 td 保持不變即可 -->
-                <td class="fw-bold"><a href="{{ url_for('admin.product_inventory_history', product_id=prod.id) }}" class="text-decoration-none" title="查看進出貨與客戶／訂單紀錄">{{ prod.name }} <i class="bi bi-clock-history"></i></a></td>
+                <td class="fw-bold"><a href="{{ url_for('admin.product_inventory_history', product_id=prod.id) }}"
+                    class="text-decoration-none" title="查看進出貨與客戶／訂單紀錄">{{ prod.name }} <i
+                      class="bi bi-clock-history"></i></a></td>
                 <td>
                   {% if prod.category_name %}
                   <span class="badge bg-secondary bg-opacity-10 text-dark border">{{ prod.category_name }}</span>
@@ -1617,7 +1659,8 @@
               <select name="customer_id" class="form-select" required>
                 <option value="">請選擇客戶...</option>
                 {% for c in customers %}
-                <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,'0.00') }}">{{ c.firstname }} {{ c.surname }} ({{ c.username }})</option>
+                <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,'0.00') }}">{{ c.firstname }} {{
+                  c.surname }} ({{ c.username }})</option>
                 {% endfor %}
               </select>
             </div>
@@ -1631,7 +1674,8 @@
           <div class="mb-3"><label class="form-label fw-bold">相關活動（可複選、可留空）</label>
             <select name="event_ids[]" class="form-select" multiple size="4" aria-label="選擇訂單相關活動">
               {% for e in events %}<option value="{{ e.id }}">{{ e.title }}</option>{% endfor %}
-            </select><div class="form-text">按住 Ctrl 可選擇多個活動；不選代表不關聯。</div>
+            </select>
+            <div class="form-text">按住 Ctrl 可選擇多個活動；不選代表不關聯。</div>
           </div>
           <label class="form-label fw-bold">訂單內容</label>
           <div class="table-responsive bg-light p-3 rounded mb-3">
@@ -1664,12 +1708,17 @@
             <p class="small mb-2">客戶可用儲值：NT$ <strong id="manualAvailableBalance">0.00</strong></p>
             <div class="row g-2">
               <div class="col-md-6"><label class="form-label" for="storedValueAmount">本次使用儲值金</label>
-                <input id="storedValueAmount" class="form-control" name="stored_value_amount" type="number" min="0" step="0.01" value="0" required></div>
+                <input id="storedValueAmount" class="form-control" name="stored_value_amount" type="number" min="0"
+                  step="0.01" value="0" required>
+              </div>
               <div class="col-md-6"><label class="form-label" for="otherPaymentMethod">剩餘金額付款方式</label>
                 <select id="otherPaymentMethod" class="form-select" name="other_payment_method">
-                  <option value="cash">現金</option><option value="credit_card">信用卡</option>
-                  <option value="bank_transfer">銀行轉帳</option><option value="other">其他</option>
-                </select></div>
+                  <option value="cash">現金</option>
+                  <option value="credit_card">信用卡</option>
+                  <option value="bank_transfer">銀行轉帳</option>
+                  <option value="other">其他</option>
+                </select>
+              </div>
             </div>
             <div class="small text-muted mt-2">其餘應付：NT$ <span id="manualOtherPayment">0.00</span>（最終金額由後端核對）</div>
           </div>
@@ -1687,6 +1736,177 @@
     </div>
   </div>
 </div>
+
+<!-- 手技費管理區塊 -->
+<div class="tab-pane fade {% if tab == 'service_fees' %}show active{% endif %}" id="service_fees">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="fw-bold mb-0"><i class="bi bi-magic"></i> 手技費管理</h4>
+    <form action="{{ url_for('admin.add_service_fee') }}" method="POST" class="d-flex gap-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="name" class="form-control" placeholder="手技名稱" required>
+      <input type="number" name="price" class="form-control" placeholder="金額" required>
+      <button type="submit" class="btn btn-primary text-nowrap">新增手技</button>
+    </form>
+  </div>
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+      <table class="table table-hover mb-0">
+        <thead class="table-light">
+          <tr>
+            <th>名稱</th>
+            <th>金額</th>
+            <th class="text-end">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for fee in service_fees %}
+          <tr>
+            <td>{{ fee.name }}</td>
+            <td>NT$ {{ '{:,.0f}'.format(fee.price) }}</td>
+            <td class="text-end">
+              <form action="{{ url_for('admin.delete_service_fee', fee_id=fee.id) }}" method="POST"
+                onsubmit="return confirm('確定停用？')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 停用</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ⭐ 員工與薪資管理區塊 (加上 Admin 權限判斷，徹底隱藏原始碼) -->
+{% if session.get('user', {}).get('role') == 'admin' %}
+<div class="tab-pane fade {% if tab == 'employees' %}show active{% endif %}" id="employees">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <h4 class="fw-bold mb-0"><i class="bi bi-person-vcard"></i> 員工管理與薪資核算</h4>
+    <button class="btn btn-success" onclick="exportExcel('employeeTable', '員工資料表')">匯出 Excel</button>
+  </div>
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-0">
+
+      <table class="table table-hover align-middle mb-0" id="employeeTable">
+        <thead class="table-light">
+          <tr>
+            <th>姓名</th>
+            <th>帳號</th>
+            <th>職稱</th>
+            <th>權限</th>
+            <th>電話</th>
+            <th class="text-end">操作 (編輯/薪資)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for emp in employees %}
+          <tr>
+            <td class="fw-bold">{{ emp.surname }}{{ emp.firstname }}</td>
+            <td class="text-muted"><small>{{ emp.username }}</small></td>
+            <td>{{ emp.job_title or '未設定' }}</td>
+            <td><span class="badge bg-primary">{{ emp.role }}</span></td>
+            <td>{{ emp.phone or '-' }}</td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-outline-primary me-1" data-bs-toggle="modal"
+                data-bs-target="#editEmployeeModal{{ emp.id }}">
+                <i class="bi bi-pencil"></i> 編輯
+              </button>
+              <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal"
+                data-bs-target="#salaryModal{{ emp.id }}">
+                <i class="bi bi-currency-dollar"></i> 核算薪資
+              </button>
+            </td>
+          </tr>
+
+          <!-- 編輯員工資料的 Modal -->
+          <div class="modal fade" id="editEmployeeModal{{ emp.id }}" tabindex="-1">
+            <div class="modal-dialog">
+              <div class="modal-content text-start">
+                <form action="{{ url_for('admin.update_employee', emp_id=emp.id) }}" method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <div class="modal-header">
+                    <h5 class="modal-title">編輯員工：{{ emp.username }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <div class="modal-body">
+                    <div class="row g-2 mb-3">
+                      <div class="col-6">
+                        <label class="form-label">姓氏</label>
+                        <input type="text" name="surname" class="form-control" value="{{ emp.surname }}" required>
+                      </div>
+                      <div class="col-6">
+                        <label class="form-label">名字</label>
+                        <input type="text" name="firstname" class="form-control" value="{{ emp.firstname }}" required>
+                      </div>
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">職稱</label>
+                      <input type="text" name="job_title" class="form-control" value="{{ emp.job_title or '' }}"
+                        placeholder="例如：資深芳療師">
+                    </div>
+                    <div class="mb-3">
+                      <label class="form-label">電話</label>
+                      <input type="tel" name="phone" class="form-control" value="{{ emp.phone or '' }}">
+                    </div>
+                    <hr>
+                    <div class="mb-3">
+                      <label class="form-label text-danger fw-bold"><i class="bi bi-key"></i> 強制重設密碼</label>
+                      <input type="text" name="password" class="form-control" placeholder="若不修改密碼，請保持空白">
+                      <div class="form-text">輸入新密碼將直接覆蓋該員工原有的密碼。</div>
+                    </div>
+                  </div>
+                  <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="submit" class="btn btn-primary">儲存修改</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </div>
+
+          <!-- 核算薪資 Modal -->
+          <div class="modal fade" id="salaryModal{{ emp.id }}">
+            <div class="modal-dialog">
+              <div class="modal-content text-start">
+                <form action="{{ url_for('admin.update_employee_salary', emp_id=emp.id) }}" method="POST">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <div class="modal-header">
+                    <h5 class="modal-title">核算薪資：{{ emp.firstname }}</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <div class="modal-body">
+                    <label class="form-label">月份 (YYYY-MM)</label>
+                    <input type="month" name="salary_month" class="form-control mb-2" required>
+                    <div class="row g-2">
+                      <div class="col-6"><label>底薪</label><input type="number" name="base_salary" class="form-control"
+                          value="0"></div>
+                      <div class="col-6"><label>個人業績獎金</label><input type="number" name="personal_bonus"
+                          class="form-control" value="0"></div>
+                      <div class="col-6"><label>團體業績獎金</label><input type="number" name="team_bonus"
+                          class="form-control" value="0"></div>
+                      <div class="col-6"><label>其他獎金金額</label><input type="number" name="other_bonus_amount"
+                          class="form-control" value="0"></div>
+                      <div class="col-12"><label>其他獎金名目</label><input type="text" name="other_bonus_name"
+                          class="form-control" placeholder="例如: 全勤、三節..."></div>
+                    </div>
+                  </div>
+                  <div class="modal-footer"><button type="submit" class="btn btn-primary w-100">結算並儲存</button></div>
+                </form>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </tbody>
+      </table>
+
+    </div>
+  </div>
+</div>
+{% endif %}
+<!-- ⭐ 員工區塊結束 -->
+
+
 
 <div class="modal fade" id="addBookingModal" tabindex="-1">
   <div class="modal-dialog modal-xl">
@@ -2140,15 +2360,15 @@
       const selected = customerSelect.selectedOptions[0];
       const balance = Number(selected?.dataset.balance || 0);
       const amount = Number(useInput.value || 0);
-      const total = Number((totalLabel?.textContent || '0').replace(/,/g,'')) || 0;
+      const total = Number((totalLabel?.textContent || '0').replace(/,/g, '')) || 0;
       balanceLabel.textContent = balance.toFixed(2);
       remaining.textContent = Math.max(0, total - amount).toFixed(2);
-      useInput.max = Math.max(0, Math.min(balance,total)).toFixed(2);
+      useInput.max = Math.max(0, Math.min(balance, total)).toFixed(2);
       useInput.setCustomValidity(amount < 0 || amount > balance || amount > total ? '儲值扣款不可超過餘額或訂單金額' : '');
     }
     customerSelect.addEventListener('change', refresh);
     useInput.addEventListener('input', refresh);
-    new MutationObserver(refresh).observe(totalLabel, {childList:true,characterData:true,subtree:true});
+    new MutationObserver(refresh).observe(totalLabel, { childList: true, characterData: true, subtree: true });
     refresh();
   })();
 

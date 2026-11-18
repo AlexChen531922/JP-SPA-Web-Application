@@ -99,11 +99,15 @@ def dashboard():
         "SELECT COUNT(*) as count FROM blog_posts WHERE status = 'published'")
     post_count = cursor.fetchone()['count']
 
-    # 2. 營收計算 (Revenue)
+  # 2. 營收計算 (Revenue) - ⭐ 排除店內損耗 (email = store@jparomatic.local)
     cursor.execute("""
         SELECT
-            (SELECT COALESCE(SUM(total_amount), 0) FROM orders WHERE status != 'cancelled' AND deleted_at IS NULL) +
-            (SELECT COALESCE(SUM(total_amount), 0) FROM bookings WHERE status != 'cancelled')
+            (SELECT COALESCE(SUM(o.total_amount), 0) 
+             FROM orders o JOIN users u ON o.customer_id = u.id 
+             WHERE o.status != 'cancelled' AND o.deleted_at IS NULL AND u.email != 'store@jparomatic.local') +
+            (SELECT COALESCE(SUM(b.total_amount), 0) 
+             FROM bookings b JOIN users u ON b.customer_id = u.id
+             WHERE b.status != 'cancelled' AND u.email != 'store@jparomatic.local')
         as total_revenue
     """)
     res = cursor.fetchone()
@@ -368,6 +372,21 @@ def dashboard():
         'net_profit': net_profit
     }
 
+    # ================= 新增：員工與手技費資料 =================
+    cursor.execute(
+        "SELECT * FROM users WHERE role IN ('admin', 'staff') ORDER BY role, firstname")
+    employees = cursor.fetchall()
+
+    # 取得員工當月薪資紀錄 (或歷史紀錄)
+    cursor.execute(
+        "SELECT * FROM employee_salaries ORDER BY salary_month DESC")
+    salaries = cursor.fetchall()
+
+    # 取得手技費列表
+    cursor.execute("SELECT * FROM service_fees WHERE is_active = 1")
+    service_fees = cursor.fetchall()
+    # ========================================================
+
     return render_template(
         'admin_dashboard.html',
         tab=tab,
@@ -393,6 +412,9 @@ def dashboard():
         order_items_map=order_items_map,
         order_event_map=order_event_map,
         audit_logs=audit_logs,
+        employees=employees,
+        salaries=salaries,
+        service_fees=service_fees
         now_str=now.strftime('%Y-%m-%dT%H:%M')
     )
 
@@ -984,7 +1006,8 @@ def delete_event(event_id):
     event_title = None
     try:
         # Lock the parent row: a concurrent order adding an FK must wait.
-        cursor.execute('SELECT id,title,is_archived FROM events WHERE id=%s FOR UPDATE', (event_id,))
+        cursor.execute(
+            'SELECT id,title,is_archived FROM events WHERE id=%s FOR UPDATE', (event_id,))
         event = cursor.fetchone()
         if not event:
             flash('活動不存在或已刪除', 'warning')
@@ -992,10 +1015,12 @@ def delete_event(event_id):
             flash('這筆活動已封存', 'info')
         else:
             event_title = event['title']
-            cursor.execute('SELECT COUNT(*) AS n FROM order_events WHERE event_id=%s', (event_id,))
+            cursor.execute(
+                'SELECT COUNT(*) AS n FROM order_events WHERE event_id=%s', (event_id,))
             linked_orders = cursor.fetchone()['n']
             if linked_orders:
-                cursor.execute('UPDATE events SET is_archived=1 WHERE id=%s', (event_id,))
+                cursor.execute(
+                    'UPDATE events SET is_archived=1 WHERE id=%s', (event_id,))
                 action = 'archive'
             else:
                 cursor.execute('DELETE FROM events WHERE id=%s', (event_id,))
@@ -1003,14 +1028,17 @@ def delete_event(event_id):
                     raise RuntimeError('活動刪除未成功，請重新載入後再試')
                 action = 'delete'
             database.connection.commit()
-            flash('活動已封存，歷史訂單關聯保留' if action == 'archive' else '活動已永久刪除', 'success')
+            flash('活動已封存，歷史訂單關聯保留' if action ==
+                  'archive' else '活動已永久刪除', 'success')
     except MySQLdb.IntegrityError:
         database.connection.rollback()
-        current_app.logger.exception('Event deletion blocked by database constraint: %s', event_id)
+        current_app.logger.exception(
+            'Event deletion blocked by database constraint: %s', event_id)
         flash('活動仍被其他資料參照，未刪除任何資料；請查看 Railway 執行日誌', 'error')
     except Exception:
         database.connection.rollback()
-        current_app.logger.exception('Failed to delete or archive event %s', event_id)
+        current_app.logger.exception(
+            'Failed to delete or archive event %s', event_id)
         flash('活動刪除／封存失敗，請查看 Railway 執行日誌', 'error')
     finally:
         cursor.close()
@@ -2457,3 +2485,112 @@ def reorder_products():
         database.connection.rollback()
         print(f"Reorder Error: {e}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    # =====================================================
+# HR & SERVICE FEE MANAGEMENT
+# =====================================================
+
+
+@admin_bp.route('/service-fee/add', methods=['POST'])
+@staff_required
+def add_service_fee():
+    name = request.form.get('name')
+    price = request.form.get('price', type=float) or 0.0
+    cursor = database.connection.cursor()
+    cursor.execute(
+        "INSERT INTO service_fees (name, price) VALUES (%s, %s)", (name, price))
+    database.connection.commit()
+    cursor.close()
+    flash('手技費新增成功', 'success')
+    return redirect(url_for('admin.dashboard', tab='service_fees'))
+
+
+@admin_bp.route('/service-fee/<int:fee_id>/delete', methods=['POST'])
+@staff_required
+def delete_service_fee(fee_id):
+    cursor = database.connection.cursor()
+    cursor.execute(
+        "UPDATE service_fees SET is_active = 0 WHERE id = %s", (fee_id,))
+    database.connection.commit()
+    cursor.close()
+    flash('手技費已停用', 'success')
+    return redirect(url_for('admin.dashboard', tab='service_fees'))
+
+
+@admin_bp.route('/employee/<int:emp_id>/salary', methods=['POST'])
+@admin_required
+def update_employee_salary(emp_id):
+    """更新或新增員工當月薪資"""
+    month = request.form.get('salary_month')  # YYYY-MM
+    base = request.form.get('base_salary', type=float) or 0
+    personal = request.form.get('personal_bonus', type=float) or 0
+    team = request.form.get('team_bonus', type=float) or 0
+    other_name = request.form.get('other_bonus_name', '')
+    other_amount = request.form.get('other_bonus_amount', type=float) or 0
+
+    total = base + personal + team + other_amount
+
+    cursor = database.connection.cursor()
+    cursor.execute("""
+        INSERT INTO employee_salaries 
+        (user_id, salary_month, base_salary, personal_bonus, team_bonus, other_bonus_name, other_bonus_amount, total_salary)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE 
+        base_salary=%s, personal_bonus=%s, team_bonus=%s, other_bonus_name=%s, other_bonus_amount=%s, total_salary=%s
+    """, (emp_id, month, base, personal, team, other_name, other_amount, total,
+          base, personal, team, other_name, other_amount, total))
+    database.connection.commit()
+    cursor.close()
+
+    flash('薪資結算已更新', 'success')
+    return redirect(url_for('admin.dashboard', tab='employees'))
+
+
+@admin_bp.route('/employee/<int:emp_id>/update', methods=['POST'])
+@admin_required
+def update_employee(emp_id):
+    """Admin 修改員工基本資料與重設密碼"""
+    try:
+        firstname = request.form.get('firstname', '').strip()
+        surname = request.form.get('surname', '').strip()
+        phone = request.form.get('phone', '').strip()
+        job_title = request.form.get('job_title', '').strip()
+        password = request.form.get('password', '').strip()
+
+        if not firstname:
+            flash('名字為必填欄位', 'error')
+            return redirect(url_for('admin.dashboard', tab='employees'))
+
+        cursor = database.connection.cursor()
+
+        # 若有填寫密碼，則進行安全加密並一起更新
+        if password:
+            hashed_password = generate_password_hash(password)
+            cursor.execute("""
+                UPDATE users 
+                SET firstname=%s, surname=%s, phone=%s, job_title=%s, password_hash=%s 
+                WHERE id=%s AND role IN ('staff', 'admin')
+            """, (firstname, surname, phone, job_title, hashed_password, emp_id))
+            flash_msg = '員工資料與密碼已成功更新！'
+        else:
+            # 未填寫密碼，只更新基本資料
+            cursor.execute("""
+                UPDATE users 
+                SET firstname=%s, surname=%s, phone=%s, job_title=%s 
+                WHERE id=%s AND role IN ('staff', 'admin')
+            """, (firstname, surname, phone, job_title, emp_id))
+            flash_msg = '員工基本資料已更新！'
+
+        database.connection.commit()
+        cursor.close()
+
+        # 記錄稽核 (Audit Log)
+        log_activity('update', 'employee', emp_id, {
+                     'name': f"{surname}{firstname}"})
+        flash(flash_msg, 'success')
+
+    except Exception as e:
+        database.connection.rollback()
+        flash(f'更新失敗: {str(e)}', 'error')
+
+    return redirect(url_for('admin.dashboard', tab='employees'))
