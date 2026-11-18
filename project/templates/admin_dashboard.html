@@ -2735,16 +2735,6 @@
     });
   }
 
-  // 2. 更新下方所有課程與產品的「所屬客戶」下拉選單
-  const custs = getSelectedCustomers();
-  const selects = document.querySelectorAll('.row-cust-select');
-  selects.forEach(sel => {
-    const currentVal = sel.value;
-    sel.innerHTML = custs.map(c => `<option value="${c.id}">${c.label}</option>`).join('');
-    if (currentVal && custs.find(c => c.id === currentVal)) sel.value = currentVal;
-  });
-  }
-
   // --- 課程與產品列 ---
   function addCourseRow() {
     const tbody = document.getElementById('courseTbody');
