@@ -17,6 +17,7 @@ from project.extensions import database
 from project.db import get_current_user_id, get_current_user_role
 import MySQLdb.cursors
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 from project.stored_value import (money, ensure_wallet, change_balance, lock_order,
                                   cancel_order, restore_order, archive_order)
 # from project.services import admin_update_order_with_inventory
@@ -34,6 +35,67 @@ cloudinary.config(
 admin_bp = Blueprint('admin', __name__)
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
+
+# Customer-owned stored products use independent capacity units; products.unit
+# continues to mean pieces/bottles for merchandise inventory and orders.
+def _capacity_from_form(form, *, required=False):
+    raw = (form.get('capacity_per_unit') or '').strip()
+    unit = (form.get('capacity_unit') or '').strip()
+    if not raw and not unit and not required:
+        return None, None
+    if not raw or unit not in ('ml', 'g'):
+        raise ValueError('單件容量與 ml/g 單位必須一起填寫')
+    capacity = _positive_decimal(raw, '單件容量')
+    return capacity, unit
+
+
+def _positive_decimal(raw, label):
+    text = str(raw or '').strip()
+    if not re.fullmatch(r'\d{1,8}(?:\.\d{1,2})?', text):
+        raise ValueError(f'{label}必須是正數，最多兩位小數')
+    amount = Decimal(text)
+    if amount <= 0 or amount > Decimal('99999999.99'):
+        raise ValueError(f'{label}超出有效範圍')
+    return amount
+
+
+def _request_key(form):
+    key = (form.get('request_key') or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9_-]{20,64}', key):
+        raise ValueError('表單已過期，請重新整理後再送出')
+    return key
+
+
+def _taipei_today():
+    return datetime.now(ZoneInfo('Asia/Taipei')).date()
+
+
+def _inventory_request(cursor, customer_id, action, key, booking_id=None, usage_date=None, notes=''):
+    # Insert the idempotency token inside the same transaction as the ledger.
+    cursor.execute('''INSERT INTO customer_inventory_requests
+        (request_key, customer_id, action, booking_id, usage_date, notes, operated_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+        (key, customer_id, action, booking_id, usage_date, notes, get_current_user_id()))
+    return cursor.lastrowid
+
+
+def _inventory_ledger(cursor, operation_id, inventory_id, delta, before, after, unit):
+    cursor.execute('''INSERT INTO customer_inventory_movements
+        (request_id, inventory_id, delta_amount, before_amount, after_amount, capacity_unit)
+        VALUES (%s, %s, %s, %s, %s, %s)''',
+        (operation_id, inventory_id, delta, before, after, unit))
+
+
+def _duplicate_inventory_request(exc):
+    return getattr(exc, 'args', (None,))[0] == 1062
+
+
+def _inventory_form_redirect(customer_id, booking_id=None):
+    params = {'customer_id': customer_id, 'tab': 'inventory'}
+    if booking_id:
+        params['booking_id'] = booking_id
+    return redirect(url_for('admin.customer_detail', **params))
+
 
 
 def allowed_file(filename):
@@ -207,6 +269,7 @@ def dashboard():
         SELECT
             p.id, p.name, p.stock_quantity, p.cost, p.price,
             p.last_purchase_date, p.last_sale_date, p.unit,
+            p.capacity_per_unit, p.capacity_unit,
             p.image, p.description, c.name as category_name,
             (SELECT notes FROM inventory_logs WHERE product_id = p.id ORDER BY created_at DESC LIMIT 1) as latest_note
         FROM products p
@@ -430,6 +493,7 @@ def add_product_modal():
         cost = request.form.get('cost') or 0
         stock = request.form.get('stock') or 0
         description = request.form.get('description')
+        capacity, capacity_unit = _capacity_from_form(request.form)
 
         image_url = None
         if 'image' in request.files:
@@ -441,11 +505,11 @@ def add_product_modal():
         sql = """
             INSERT INTO products
             (name, category_id, price, cost, stock_quantity,
-             description, image, is_active, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW())
+             description, image, is_active, created_at, capacity_per_unit, capacity_unit)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NOW(), %s, %s)
         """
         cursor.execute(sql, (name, category_id, price, cost,
-                       stock, description, image_url, 1))
+                       stock, description, image_url, 1, capacity, capacity_unit))
 
         new_id = cursor.lastrowid
         # 初始庫存也應具有可追溯的入庫流水。
@@ -454,9 +518,10 @@ def add_product_modal():
             raise ValueError('初始庫存不得為負數')
         if initial_stock:
             cursor.execute("""INSERT INTO inventory_logs
-                (product_id, change_amount, change_type, notes, created_by)
-                VALUES (%s, %s, 'adjustment', '新產品初始庫存', %s)""",
-                           (new_id, initial_stock, get_current_user_id()))
+                (product_id, change_amount, change_type, notes, created_by,
+                 capacity_per_unit_snapshot, capacity_unit_snapshot)
+                VALUES (%s, %s, 'adjustment', '新產品初始庫存', %s, %s, %s)""",
+                            (new_id, initial_stock, get_current_user_id(), capacity, capacity_unit))
         database.connection.commit()
         cursor.close()
 
@@ -494,6 +559,22 @@ def update_product_modal(product_id):
         stock_difference = stock - int(current_prod['stock_quantity'] or 0)
         description = request.form.get('description')
         is_active = 1 if request.form.get('is_active') else 0
+        capacity, capacity_unit = _capacity_from_form(request.form)
+        old_capacity = current_prod.get('capacity_per_unit')
+        old_unit = current_prod.get('capacity_unit')
+        changed_capacity = (capacity != old_capacity or capacity_unit != old_unit)
+        if changed_capacity:
+            # Historical purchased / stored products must retain their size.
+            cursor.execute('''SELECT COUNT(*) AS n FROM customer_inventory
+                              WHERE product_id=%s''', (product_id,))
+            if cursor.fetchone()['n']:
+                raise ValueError('已有寄店紀錄，不能改變容量規格；請建立不同規格商品')
+            if old_capacity is not None:
+                cursor.execute('SELECT 1 FROM order_items WHERE product_id=%s LIMIT 1', (product_id,))
+                if cursor.fetchone():
+                    raise ValueError('已有購買紀錄，不能改變既有容量規格；請建立不同規格商品')
+                if int(current_prod.get('stock_quantity') or 0) > 0:
+                    raise ValueError('仍有商品庫存，不能改變既有容量規格；請建立不同規格商品')
 
         # 如果是 Staff (表單沒傳 cost)，則使用資料庫舊值
         if 'cost' in request.form:
@@ -512,20 +593,23 @@ def update_product_modal(product_id):
             sql = """
                 UPDATE products
                 SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s,
-                    description=%s, is_active=%s, image=%s, updated_at=NOW()
+                    description=%s, is_active=%s, image=%s,
+                    capacity_per_unit=%s, capacity_unit=%s, updated_at=NOW()
                 WHERE id=%s
             """
             cursor.execute(sql, (name, category_id, price, cost,
-                           stock, description, is_active, image_url, product_id))
+                           stock, description, is_active, image_url,
+                           capacity, capacity_unit, product_id))
         else:
             sql = """
                 UPDATE products
                 SET name=%s, category_id=%s, price=%s, cost=%s, stock_quantity=%s,
-                    description=%s, is_active=%s, updated_at=NOW()
+                    description=%s, is_active=%s,
+                    capacity_per_unit=%s, capacity_unit=%s, updated_at=NOW()
                 WHERE id=%s
             """
             cursor.execute(sql, (name, category_id, price, cost,
-                           stock, description, is_active, product_id))
+                           stock, description, is_active, capacity, capacity_unit, product_id))
 
         if stock_difference:
             cursor.execute("""INSERT INTO inventory_logs
@@ -1068,8 +1152,9 @@ def restock_product():
         quantity = request.form.get('quantity', type=int)
         new_cost = request.form.get('cost', type=float)  # 本次進貨單價
         notes = request.form.get('notes', '').strip()
+        incoming_capacity, incoming_unit = _capacity_from_form(request.form)
 
-        if not product_id or quantity <= 0:
+        if not product_id or quantity is None or quantity <= 0:
             flash('請輸入有效的產品與數量', 'error')
             return redirect(url_for('admin.dashboard', tab='inventory'))
 
@@ -1079,13 +1164,29 @@ def restock_product():
         # 1. 先查詢目前的庫存與成本
         # 注意：這裡使用 FOR UPDATE 鎖定行，避免並發寫入導致計算錯誤
         cursor.execute(
-            "SELECT stock_quantity, cost FROM products WHERE id = %s FOR UPDATE", (product_id,))
+            "SELECT stock_quantity, cost, capacity_per_unit, capacity_unit FROM products WHERE id = %s FOR UPDATE", (product_id,))
         current_data = cursor.fetchone()
 
         if not current_data:
             cursor.close()
             flash('找不到該產品', 'error')
             return redirect(url_for('admin.dashboard', tab='inventory'))
+
+        # If a size is supplied, it is the incoming batch specification.
+        # Never combine batches of different sizes under one product ID.
+        configured_capacity = current_data['capacity_per_unit']
+        configured_unit = current_data['capacity_unit']
+        if incoming_capacity is not None:
+            if configured_capacity is not None and (
+                incoming_capacity != configured_capacity or incoming_unit != configured_unit
+            ):
+                raise ValueError('進貨容量與此產品既有規格不同，請新增另一個產品規格')
+            if configured_capacity is None:
+                cursor.execute('''UPDATE products
+                    SET capacity_per_unit=%s, capacity_unit=%s WHERE id=%s''',
+                    (incoming_capacity, incoming_unit, product_id))
+        elif configured_capacity is not None:
+            incoming_capacity, incoming_unit = configured_capacity, configured_unit
 
         # 處理資料庫可能回傳 None 的情況
         current_qty = current_data['stock_quantity'] if current_data['stock_quantity'] is not None else 0
@@ -1124,9 +1225,11 @@ def restock_product():
 
         cursor.execute("""
             INSERT INTO inventory_logs
-            (product_id, change_amount, change_type, notes, created_by)
-            VALUES (%s, %s, 'purchase', %s, %s)
-        """, (product_id, quantity, log_note, get_current_user_id()))
+            (product_id, change_amount, change_type, notes, created_by,
+             capacity_per_unit_snapshot, capacity_unit_snapshot)
+            VALUES (%s, %s, 'purchase', %s, %s, %s, %s)
+        """, (product_id, quantity, log_note, get_current_user_id(),
+                 incoming_capacity, incoming_unit))
 
         database.connection.commit()
         cursor.close()
@@ -1206,7 +1309,7 @@ def product_inventory_history(product_id):
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
         cursor.execute(
-            'SELECT id, name, stock_quantity, unit FROM products WHERE id=%s', (product_id,))
+            'SELECT id, name, stock_quantity, unit, capacity_per_unit, capacity_unit FROM products WHERE id=%s', (product_id,))
         product = cursor.fetchone()
         if not product:
             flash('找不到該產品', 'error')
@@ -1793,6 +1896,62 @@ def customer_detail(customer_id):
         cursor.execute("SELECT * FROM customer_sources ORDER BY id")
         customer_sources = cursor.fetchall()
 
+        # 5. 客戶寄店產品與來源購買明細
+        cursor.execute("""
+            SELECT ci.id, ci.product_id, ci.order_item_id, ci.deposited_units,
+                   ci.original_amount, ci.remaining_amount, ci.capacity_unit,
+                   ci.created_at, ci.updated_at, p.name AS product_name
+            FROM customer_inventory ci
+            JOIN products p ON p.id=ci.product_id
+            WHERE ci.customer_id=%s
+            ORDER BY (ci.remaining_amount > 0) DESC, ci.created_at DESC, ci.id DESC
+        """, (customer_id,))
+        customer_inventory = cursor.fetchall()
+
+        # Source is a specific completed order line, not merely a product name.
+        # Never offer the same purchased unit for deposit twice.
+        cursor.execute("""
+            SELECT oi.id AS order_item_id, oi.order_id, oi.product_id,
+                   oi.quantity AS purchased_units, p.name AS product_name,
+                   p.capacity_per_unit, p.capacity_unit,
+                   COALESCE(SUM(ci.deposited_units), 0) AS deposited_units
+            FROM order_items oi
+            JOIN orders o ON o.id=oi.order_id
+            JOIN products p ON p.id=oi.product_id
+            LEFT JOIN customer_inventory ci ON ci.order_item_id=oi.id
+            WHERE o.customer_id=%s AND o.deleted_at IS NULL AND o.status='completed'
+            GROUP BY oi.id, oi.order_id, oi.product_id, oi.quantity, p.name,
+                     p.capacity_per_unit, p.capacity_unit
+            ORDER BY oi.id DESC
+        """, (customer_id,))
+        purchased_products = cursor.fetchall()
+        for item in purchased_products:
+            item['available_units'] = int(item['purchased_units']) - int(item['deposited_units'])
+
+        cursor.execute('''SELECT b.id, b.status, c.name AS course_name,
+                                 COALESCE(s.start_time, b.booking_date, b.created_at) AS session_time
+                          FROM bookings b
+                          JOIN courses c ON c.id=b.course_id
+                          LEFT JOIN shop_schedules s ON s.id=b.global_schedule_id
+                          WHERE b.customer_id=%s AND b.status='completed'
+                          ORDER BY session_time DESC''', (customer_id,))
+        inventory_bookings = cursor.fetchall()
+
+        cursor.execute('''SELECT m.id, m.inventory_id, m.delta_amount,
+                                 m.before_amount, m.after_amount, m.capacity_unit,
+                                 m.created_at, r.action, r.usage_date, r.notes,
+                                 r.booking_id, c.name AS course_name,
+                                 CONCAT(COALESCE(u.surname,''),COALESCE(u.firstname,'')) AS operator_name
+                          FROM customer_inventory_movements m
+                          JOIN customer_inventory_requests r ON r.id=m.request_id
+                          JOIN customer_inventory ci ON ci.id=m.inventory_id
+                          LEFT JOIN bookings b ON b.id=r.booking_id
+                          LEFT JOIN courses c ON c.id=b.course_id
+                          LEFT JOIN users u ON u.id=r.operated_by
+                          WHERE ci.customer_id=%s
+                          ORDER BY m.created_at DESC, m.id DESC LIMIT 200''', (customer_id,))
+        inventory_history = cursor.fetchall()
+
     finally:
         cursor.close()
 
@@ -1805,8 +1964,241 @@ def customer_detail(customer_id):
         product_orders=product_orders,
         order_items_map=order_items_map,
         course_bookings=course_bookings,
-        customer_sources=customer_sources
+        customer_sources=customer_sources,
+        customer_inventory=customer_inventory,
+        purchased_products=purchased_products,
+        inventory_bookings=inventory_bookings,
+        inventory_history=inventory_history,
+        inventory_booking_id=request.args.get('booking_id', type=int),
+        inventory_today=_taipei_today().isoformat(),
+        deposit_request_key=secrets.token_urlsafe(24),
+        deduct_request_key=secrets.token_urlsafe(24),
+        adjust_request_keys={inv['id']: secrets.token_urlsafe(24)
+                             for inv in customer_inventory}
     )
+
+
+@admin_bp.route('/customer/<int:customer_id>/inventory/add', methods=['POST'])
+@staff_required
+def add_customer_inventory(customer_id):
+    # Deposit multiple actually purchased order-line units atomically.
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        key = _request_key(request.form)
+        selected = request.form.getlist('deposit_order_item_ids[]')
+        if not selected or len(selected) > 100:
+            raise ValueError('請至少勾選一項已購買產品')
+        ids = []
+        for raw_id in selected:
+            try:
+                item_id = int(raw_id)
+            except (ValueError, TypeError):
+                raise ValueError('產品項目無效')
+            if item_id <= 0 or item_id in ids:
+                raise ValueError('產品項目重複或無效')
+            ids.append(item_id)
+        ids.sort()  # deterministic locking order
+        database.connection.begin()
+        request_id = _inventory_request(cursor, customer_id, 'deposit', key)
+        for item_id in ids:
+            units_raw = (request.form.get(f'deposit_units_{item_id}') or '').strip()
+            if not re.fullmatch(r'[1-9]\\d{0,5}', units_raw):
+                raise ValueError('寄店件數必須是正整數')
+            units = int(units_raw)
+            cursor.execute('''SELECT oi.id, oi.order_id, oi.product_id,
+                                     oi.quantity, p.capacity_per_unit, p.capacity_unit
+                              FROM order_items oi
+                              JOIN orders o ON o.id=oi.order_id
+                              JOIN products p ON p.id=oi.product_id
+                              WHERE oi.id=%s AND o.customer_id=%s
+                                AND o.deleted_at IS NULL AND o.status='completed'
+                              FOR UPDATE''', (item_id, customer_id))
+            source = cursor.fetchone()
+            if not source:
+                raise ValueError('來源訂單不存在、未完成或不屬於此客戶')
+            capacity = source['capacity_per_unit']
+            unit = source['capacity_unit']
+            if capacity is None or unit not in ('g', 'ml') or capacity <= 0:
+                raise ValueError('產品尚未設定單件容量與單位，無法寄店')
+            # Legacy rows have no verifiable source order line. Prevent over-allocation.
+            cursor.execute('''SELECT COUNT(*) AS n FROM customer_inventory
+                              WHERE customer_id=%s AND product_id=%s
+                                AND order_item_id IS NULL''',
+                           (customer_id, source['product_id']))
+            if cursor.fetchone()['n']:
+                raise ValueError('此產品有尚未對應來源訂單的舊寄店紀錄，請先人工核對')
+            cursor.execute('''SELECT COALESCE(SUM(deposited_units),0) AS used
+                              FROM customer_inventory WHERE order_item_id=%s''', (item_id,))
+            allocated = int(cursor.fetchone()['used'])
+            if allocated + units > int(source['quantity']):
+                raise ValueError('寄店件數超過此訂單明細尚可寄店的數量')
+            initial = capacity * units
+            if initial > Decimal('99999999.99'):
+                raise ValueError('寄店容量超出可儲存範圍')
+            cursor.execute('''INSERT INTO customer_inventory
+                (customer_id, product_id, order_id, order_item_id, deposited_units,
+                 original_amount, remaining_amount, capacity_unit)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (customer_id, source['product_id'], source['order_id'], item_id,
+                 units, initial, initial, unit))
+            inventory_id = cursor.lastrowid
+            _inventory_ledger(cursor, request_id, inventory_id, initial, Decimal('0'), initial, unit)
+        database.connection.commit()
+        flash('所選產品已加入客戶寄店庫存', 'success')
+    except MySQLdb.IntegrityError as exc:
+        database.connection.rollback()
+        if _duplicate_inventory_request(exc):
+            flash('此筆寄店操作已處理，沒有重複加入', 'info')
+        else:
+            current_app.logger.exception('Deposit failed for customer %s', customer_id)
+            flash('寄店新增失敗，請查看伺服器紀錄', 'error')
+    except ValueError as exc:
+        database.connection.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        database.connection.rollback()
+        current_app.logger.exception('Deposit failed for customer %s', customer_id)
+        flash('寄店新增失敗，請查看伺服器紀錄', 'error')
+    finally:
+        cursor.close()
+    return _inventory_form_redirect(customer_id)
+
+
+@admin_bp.route('/customer/<int:customer_id>/inventory/deduct', methods=['POST'])
+@staff_required
+def deduct_customer_inventory(customer_id):
+    # Record multiple course-end consumptions as one atomic, idempotent POST.
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    booking_id = request.form.get('booking_id', type=int)
+    try:
+        key = _request_key(request.form)
+        date_raw = (request.form.get('usage_date') or '').strip()
+        try:
+            used_on = datetime.strptime(date_raw, '%Y-%m-%d').date()
+        except ValueError:
+            raise ValueError('請輸入有效使用日期')
+        if used_on > _taipei_today():
+            raise ValueError('使用日期不可晚於今日')
+        if not booking_id:
+            raise ValueError('必須選擇已完成的課程預約')
+        selected = request.form.getlist('inv_ids[]')
+        if not selected or len(selected) > 100:
+            raise ValueError('請選擇要扣除的寄店產品')
+        deduction_map = {}
+        for raw_id in selected:
+            try:
+                inv_id = int(raw_id)
+            except (ValueError, TypeError):
+                raise ValueError('寄店產品編號不正確')
+            if inv_id <= 0 or inv_id in deduction_map:
+                raise ValueError('扣料項目重複或無效')
+            raw_amount = (request.form.get(f'amount_{inv_id}') or '').strip()
+            if not raw_amount:
+                continue
+            deduction_map[inv_id] = _positive_decimal(raw_amount, '扣除容量')
+        if not deduction_map:
+            raise ValueError('請填寫至少一項扣除容量')
+        notes = (request.form.get('notes') or '').strip()[:500]
+        database.connection.begin()
+        cursor.execute('''SELECT id FROM bookings WHERE id=%s AND customer_id=%s
+                          AND status='completed' FOR UPDATE''', (booking_id, customer_id))
+        if not cursor.fetchone():
+            raise ValueError('預約不存在、未完成或不是此客戶的課程')
+        operation_id = _inventory_request(cursor, customer_id, 'deduct', key,
+                                          booking_id, used_on, notes)
+        for inv_id in sorted(deduction_map):
+            amount = deduction_map[inv_id]
+            cursor.execute('''SELECT id, remaining_amount, capacity_unit
+                              FROM customer_inventory
+                              WHERE id=%s AND customer_id=%s FOR UPDATE''', (inv_id, customer_id))
+            record = cursor.fetchone()
+            if not record or record['capacity_unit'] not in ('ml', 'g'):
+                raise ValueError('寄店產品不存在或尚未完成容量單位核對')
+            before = record['remaining_amount']
+            if before < amount:
+                raise ValueError('寄店剩餘容量不足；請重新整理後確認')
+            cursor.execute('''UPDATE customer_inventory
+                SET remaining_amount=remaining_amount-%s, updated_at=NOW()
+                WHERE id=%s AND customer_id=%s AND remaining_amount >= %s''',
+                (amount, inv_id, customer_id, amount))
+            if cursor.rowcount != 1:
+                raise ValueError('寄店容量已被其他人更新，請重新整理')
+            _inventory_ledger(cursor, operation_id, inv_id, -amount, before,
+                              before-amount, record['capacity_unit'])
+        database.connection.commit()
+        flash('本次課程扣料已儲存，剩餘容量已同步更新', 'success')
+    except MySQLdb.IntegrityError as exc:
+        database.connection.rollback()
+        if _duplicate_inventory_request(exc):
+            flash('此筆扣料操作已處理，沒有再次扣除', 'info')
+        else:
+            current_app.logger.exception('Deduct failed for customer %s', customer_id)
+            flash('扣料失敗，請查看伺服器紀錄', 'error')
+    except ValueError as exc:
+        database.connection.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        database.connection.rollback()
+        current_app.logger.exception('Deduct failed for customer %s', customer_id)
+        flash('扣料失敗，請查看伺服器紀錄', 'error')
+    finally:
+        cursor.close()
+    return _inventory_form_redirect(customer_id, booking_id)
+
+
+@admin_bp.route('/customer/<int:customer_id>/inventory/<int:inv_id>/adjust', methods=['POST'])
+@admin_required
+def adjust_customer_inventory(customer_id, inv_id):
+    # Explicit corrective adjustment, never overwrite the prior ledger history.
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+    try:
+        key = _request_key(request.form)
+        new_raw = (request.form.get('new_remaining') or '').strip()
+        if not re.fullmatch(r'\d{1,8}(?:\.\d{1,2})?', new_raw):
+            raise ValueError('更正剩餘容量格式不正確')
+        new_amount = Decimal(new_raw)
+        if new_amount > Decimal('99999999.99'):
+            raise ValueError('更正剩餘容量超出範圍')
+        reason = (request.form.get('reason') or '').strip()
+        if len(reason) < 3 or len(reason) > 500:
+            raise ValueError('請填寫至少 3 字的更正原因（最多 500 字）')
+        database.connection.begin()
+        op_id = _inventory_request(cursor, customer_id, 'adjust', key, notes=reason)
+        cursor.execute('''SELECT original_amount, remaining_amount, capacity_unit
+                          FROM customer_inventory WHERE id=%s AND customer_id=%s
+                          FOR UPDATE''', (inv_id, customer_id))
+        record = cursor.fetchone()
+        if not record or record['capacity_unit'] not in ('ml', 'g'):
+            raise ValueError('找不到可更正的寄店產品')
+        before = record['remaining_amount']
+        if new_amount > record['original_amount']:
+            raise ValueError('剩餘容量不能高於此批寄店原始容量')
+        if new_amount == before:
+            raise ValueError('更正後容量與原值相同，沒有需要儲存的異動')
+        cursor.execute('''UPDATE customer_inventory SET remaining_amount=%s,
+                          updated_at=NOW() WHERE id=%s AND customer_id=%s''',
+                       (new_amount, inv_id, customer_id))
+        _inventory_ledger(cursor, op_id, inv_id, new_amount-before, before,
+                          new_amount, record['capacity_unit'])
+        database.connection.commit()
+        flash('寄店剩餘容量已更正並保留稽核紀錄', 'success')
+    except MySQLdb.IntegrityError as exc:
+        database.connection.rollback()
+        if _duplicate_inventory_request(exc):
+            flash('此筆更正已處理，沒有重複調整', 'info')
+        else:
+            current_app.logger.exception('Adjust failed for customer %s', customer_id)
+            flash('寄店更正失敗，請查看伺服器紀錄', 'error')
+    except ValueError as exc:
+        database.connection.rollback()
+        flash(str(exc), 'error')
+    except Exception:
+        database.connection.rollback()
+        current_app.logger.exception('Adjust failed for customer %s', customer_id)
+        flash('寄店更正失敗，請查看伺服器紀錄', 'error')
+    finally:
+        cursor.close()
+    return _inventory_form_redirect(customer_id)
 
 
 @admin_bp.route('/customer/<int:customer_id>/stored-value/add', methods=['POST'])
@@ -2272,9 +2664,10 @@ def add_booking_manual():
         payment_methods = request.form.getlist('payment_methods[]')
         stored_value_amounts = request.form.getlist('stored_value_amounts[]')
 
-        # 寄店扣料獨立陣列
-        inv_cust_ids = request.form.getlist('inv_cust_ids[]')
-        inv_jsons = request.form.getlist('inv_jsons[]')
+        # 寄店扣料只允許在課程完成後，由客戶詳情寄店產品頁處理。
+        # 不接受舊版表單隱藏欄位，以免尚未服務就誤扣容量。
+        if any(v and v != '[]' for v in request.form.getlist('inv_jsons[]')):
+            raise ValueError('新預約不可提前扣寄店容量，請完成課程後使用寄店產品頁')
 
         if not customer_ids or not item_ids:
             flash('請至少填寫一筆預約或購買資料', 'error')
@@ -2282,24 +2675,6 @@ def add_booking_manual():
 
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
         success_count = 0
-
-        # 1. 優先處理「寄店扣料」
-        for i, c_id in enumerate(inv_cust_ids):
-            if not c_id:
-                continue
-            js_str = inv_jsons[i]
-            if js_str and js_str != '[]':
-                import json
-                deductions = json.loads(js_str)
-                for d in deductions:
-                    inv_id = d.get('inv_id')
-                    deduct_amt = float(d.get('amount', 0))
-                    if inv_id and deduct_amt > 0:
-                        cursor.execute("""
-                            UPDATE customer_inventory
-                            SET remaining_amount = GREATEST(0, remaining_amount - %s)
-                            WHERE id = %s AND customer_id = %s
-                        """, (deduct_amt, inv_id, c_id))
 
         # 2. 處理表格內的項目 (課程與產品)
         for i, item_id in enumerate(item_ids):
@@ -2936,11 +3311,12 @@ def get_customer_inventory(customer_id):
     """AJAX：動態取得客戶目前的寄店產品與剩餘量"""
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("""
-        SELECT ci.id as inventory_id, p.id as product_id, p.name as product_name, 
-               ci.remaining_amount, p.unit
+        SELECT ci.id as inventory_id, p.id as product_id, p.name as product_name,
+               ci.remaining_amount, ci.capacity_unit AS unit
         FROM customer_inventory ci
         JOIN products p ON ci.product_id = p.id
         WHERE ci.customer_id = %s AND ci.remaining_amount > 0
+          AND ci.capacity_unit IN ('g', 'ml')
         ORDER BY ci.created_at ASC
     """, (customer_id,))
     items = cursor.fetchall()

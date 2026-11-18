@@ -15,33 +15,58 @@
 
     <!-- 客戶儲值金（Staff/Admin 可儲值，永久有效） -->
     <div class="card border-primary mb-4">
-      <div class="card-body">
-        <h4 class="h5">客戶儲值金</h4>
-        <p class="fs-4 fw-bold">可用餘額：NT$ {{ '{:,.2f}'.format(stored_value_balance) }}</p>
-        <form method="POST" action="{{ url_for('admin.add_customer_stored_value', customer_id=customer.id) }}" class="row g-2 align-items-end">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="request_key" value="{{ stored_value_request_key }}">
-          <div class="col-md-3"><label class="form-label" for="topupAmount">儲值金額</label>
-            <input id="topupAmount" type="number" name="amount" step="0.01" min="0.01" max="99999999.99" required class="form-control"></div>
-          <div class="col-md-6"><label class="form-label" for="topupNotes">備註（選填）</label>
-            <input id="topupNotes" type="text" name="notes" maxlength="500" class="form-control"></div>
-          <div class="col-md-3"><button type="submit" class="btn btn-primary w-100" >確認儲值</button></div>
-        </form>
-        <div class="table-responsive mt-3"><table class="table table-sm table-striped">
-          <thead><tr><th>日期</th><th>交易類型</th><th>金額</th><th>異動後餘額</th><th>訂單</th><th>備註</th></tr></thead>
-          <tbody>{% for tx in stored_value_history %}
-            <tr><td>{{ tx.created_at }}</td><td>{{ {'topup':'儲值','spend':'訂單扣款','refund':'訂單取消退款','restore_spend':'恢復訂單扣款'}.get(tx.action,tx.action) }}</td>
-              <td>{{ '{:+,.2f}'.format(tx.amount) }}</td><td>{{ '{:,.2f}'.format(tx.balance_after) }}</td>
-              <td>{{ tx.related_order_id or '—' }}</td><td>{{ tx.notes or '' }}</td></tr>
-          {% else %}<tr><td colspan="6" class="text-muted">尚無儲值交易紀錄</td></tr>{% endfor %}</tbody>
-        </table></div>
-      </div>
+        <div class="card-body">
+            <h4 class="h5">客戶儲值金</h4>
+            <p class="fs-4 fw-bold">可用餘額：NT$ {{ '{:,.2f}'.format(stored_value_balance) }}</p>
+            <form method="POST" action="{{ url_for('admin.add_customer_stored_value', customer_id=customer.id) }}"
+                class="row g-2 align-items-end">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="request_key" value="{{ stored_value_request_key }}">
+                <div class="col-md-3"><label class="form-label" for="topupAmount">儲值金額</label>
+                    <input id="topupAmount" type="number" name="amount" step="0.01" min="0.01" max="99999999.99"
+                        required class="form-control">
+                </div>
+                <div class="col-md-6"><label class="form-label" for="topupNotes">備註（選填）</label>
+                    <input id="topupNotes" type="text" name="notes" maxlength="500" class="form-control">
+                </div>
+                <div class="col-md-3"><button type="submit" class="btn btn-primary w-100">確認儲值</button></div>
+            </form>
+            <div class="table-responsive mt-3">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>日期</th>
+                            <th>交易類型</th>
+                            <th>金額</th>
+                            <th>異動後餘額</th>
+                            <th>訂單</th>
+                            <th>備註</th>
+                        </tr>
+                    </thead>
+                    <tbody>{% for tx in stored_value_history %}
+                        <tr>
+                            <td>{{ tx.created_at }}</td>
+                            <td>{{
+                                {'topup':'儲值','spend':'訂單扣款','refund':'訂單取消退款','restore_spend':'恢復訂單扣款'}.get(tx.action,tx.action)
+                                }}</td>
+                            <td>{{ '{:+,.2f}'.format(tx.amount) }}</td>
+                            <td>{{ '{:,.2f}'.format(tx.balance_after) }}</td>
+                            <td>{{ tx.related_order_id or '—' }}</td>
+                            <td>{{ tx.notes or '' }}</td>
+                        </tr>
+                        {% else %}<tr>
+                            <td colspan="6" class="text-muted">尚無儲值交易紀錄</td>
+                        </tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     </div>
 
     <!-- 頁籤導覽列 -->
     <ul class="nav nav-tabs mb-4" id="customerTab" role="tablist">
         <li class="nav-item">
-            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#info">
+            <button class="nav-link {% if request.args.get('tab') != 'inventory' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#info">
                 <i class="bi bi-person-badge"></i> 基本資料與編輯
             </button>
         </li>
@@ -57,13 +82,19 @@
                     course_bookings|length }}</span>
             </button>
         </li>
+        <li class="nav-item">
+            <button class="nav-link {% if request.args.get('tab') == 'inventory' %}active{% endif %}"
+                data-bs-toggle="tab" data-bs-target="#customerInventory">
+                <i class="bi bi-box-seam"></i> 寄店產品
+            </button>
+        </li>
     </ul>
 
     <!-- 頁籤內容區 -->
     <div class="tab-content bg-white p-4 border border-top-0 rounded-bottom shadow-sm mt-n4">
 
         <!-- 1. 基本資料與編輯表單 -->
-        <div class="tab-pane fade show active" id="info">
+        <div class="tab-pane fade {% if request.args.get('tab') != 'inventory' %}show active{% endif %}" id="info">
             <form method="POST" action="{{ url_for('admin.update_customer', customer_id=customer.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
@@ -222,6 +253,163 @@
             {% endif %}
         </div>
 
+        <!-- 4. 客戶寄店產品：與基本資料相同，直接於頁籤編輯，不使用 Modal -->
+        <div class="tab-pane fade {% if request.args.get('tab') == 'inventory' %}show active{% endif %}"
+             id="customerInventory">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h5 class="fw-bold text-primary mb-0"><i class="bi bi-box-seam"></i> 客戶寄店產品</h5>
+                <span class="text-muted small">產品數量（件）與剩餘容量（g／ml）分開管理</span>
+            </div>
+
+            <section class="card mb-4 border-0 bg-light">
+                <div class="card-body">
+                    <h6 class="fw-bold">一、從已完成的購買訂單選擇寄店產品（可多選）</h6>
+                    <p class="small text-muted">每個訂單明細只可以寄店尚未寄過的件數。未設定單件容量的產品須先至庫存管理填寫規格。</p>
+                    <form method="POST" action="{{ url_for('admin.add_customer_inventory', customer_id=customer.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="request_key" value="{{ deposit_request_key }}">
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead><tr><th>選取</th><th>來源訂單／產品</th><th>每件容量</th><th>可寄件數</th><th>本次寄店件數</th></tr></thead>
+                                <tbody>
+                                    {% for p in purchased_products %}
+                                    <tr>
+                                        <td>
+                                          {% if p.available_units > 0 and p.capacity_per_unit and p.capacity_unit in ['ml','g'] %}
+                                          <input class="form-check-input" type="checkbox" name="deposit_order_item_ids[]"
+                                                 value="{{ p.order_item_id }}" aria-label="寄店 {{ p.product_name }}">
+                                          {% else %}—{% endif %}
+                                        </td>
+                                        <td><strong>{{ p.product_name }}</strong><div class="small text-muted">訂單 #{{ p.order_id }}／項目 #{{ p.order_item_id }}</div></td>
+                                        <td>{% if p.capacity_per_unit and p.capacity_unit %}{{ p.capacity_per_unit }} {{ p.capacity_unit }}{% else %}<span class="text-warning">尚未設定容量</span>{% endif %}</td>
+                                        <td>{{ p.available_units }}</td>
+                                        <td>
+                                            {% if p.available_units > 0 and p.capacity_per_unit and p.capacity_unit in ['ml','g'] %}
+                                            <input type="number" name="deposit_units_{{ p.order_item_id }}" min="1" max="{{ p.available_units }}"
+                                                   step="1" value="1" class="form-control form-control-sm" style="max-width:110px">
+                                            {% else %}<span class="text-muted">不可新增</span>{% endif %}
+                                        </td>
+                                    </tr>
+                                    {% else %}<tr><td colspan="5" class="text-muted">目前沒有可寄店的已完成產品訂單</td></tr>{% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="text-end"><button type="submit" class="btn btn-primary">儲存所選寄店產品</button></div>
+                    </form>
+                </div>
+            </section>
+
+            <section class="card mb-4">
+                <div class="card-body">
+                    <h6 class="fw-bold">二、課程完成後直接扣料（可同時扣多項產品）</h6>
+                    <p class="small text-muted">請先將預約狀態改為「已完成」。扣料在同一筆資料庫交易中完成，容量不足則整筆不扣。</p>
+                    <form method="POST" action="{{ url_for('admin.deduct_customer_inventory', customer_id=customer.id) }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="request_key" value="{{ deduct_request_key }}">
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-7">
+                                <label class="form-label">使用課程（已完成的預約）</label>
+                                <select name="booking_id" class="form-select" required>
+                                    <option value="">請選擇課程預約</option>
+                                    {% for b in inventory_bookings %}
+                                    <option value="{{ b.id }}" {% if inventory_booking_id == b.id %}selected{% endif %}>
+                                        #{{ b.id }} {{ b.course_name }} — {{ b.session_time.strftime('%Y-%m-%d') if b.session_time else '未設定日期' }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-5">
+                                <label class="form-label">實際使用日期</label>
+                                <input name="usage_date" type="date" class="form-control" value="{{ inventory_today }}"
+                                       max="{{ inventory_today }}" required>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle">
+                                <thead><tr><th>寄店批次／產品</th><th>原始容量</th><th>剩餘容量</th><th>本次扣除</th></tr></thead>
+                                <tbody>
+                                    {% for inv in customer_inventory %}
+                                    <tr class="{% if inv.remaining_amount <= 0 %}text-muted{% endif %}">
+                                        <td>
+                                            <strong>{{ inv.product_name }}</strong><div class="small text-muted">批次 #{{ inv.id }}{% if inv.order_item_id %}／來源項目 #{{ inv.order_item_id }}{% endif %}</div>
+                                        </td>
+                                        <td>{{ inv.original_amount }} {{ inv.capacity_unit or '未核對' }}</td>
+                                        <td>
+                                            {{ inv.remaining_amount }} {{ inv.capacity_unit or '' }}
+                                            {% if inv.remaining_amount <= 0 %}<span class="badge bg-secondary">已用罄</span>{% endif %}
+                                        </td>
+                                        <td>
+                                            {% if inv.remaining_amount > 0 and inv.capacity_unit in ['ml','g'] %}
+                                            <input type="hidden" name="inv_ids[]" value="{{ inv.id }}">
+                                            <div class="input-group input-group-sm" style="max-width:205px">
+                                                <input name="amount_{{ inv.id }}" type="number" class="form-control" min="0.01"
+                                                       max="{{ inv.remaining_amount }}" step="0.01" placeholder="不扣則留空">
+                                                <span class="input-group-text">{{ inv.capacity_unit }}</span>
+                                            </div>
+                                            {% else %}—{% endif %}
+                                        </td>
+                                    </tr>
+                                    {% else %}<tr><td colspan="4" class="text-muted">此客戶尚無寄店產品</td></tr>{% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">本次扣料備註（選填）</label>
+                            <input type="text" name="notes" maxlength="500" class="form-control" placeholder="例如：芳療課程實際使用量">
+                        </div>
+                        <div class="text-end"><button type="submit" class="btn btn-warning" {% if not inventory_bookings %}disabled{% endif %}>確認並儲存本次扣料</button></div>
+                    </form>
+                </div>
+            </section>
+
+            {% if session.get('user', {}).get('role') == 'admin' %}
+            <section class="card mb-4 border-warning">
+                <div class="card-body">
+                    <h6 class="fw-bold">三、剩餘容量更正（僅 Admin）</h6>
+                    <p class="small text-muted">誤扣或盤點需要修正時在此直接編輯。更正必須填原因，且保留原始扣料歷史。</p>
+                    {% for inv in customer_inventory if inv.capacity_unit in ['ml','g'] %}
+                    <form method="POST" action="{{ url_for('admin.adjust_customer_inventory', customer_id=customer.id, inv_id=inv.id) }}"
+                          class="row g-2 align-items-end pb-3 mb-3 border-bottom">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="request_key" value="{{ adjust_request_keys[inv.id] }}">
+                        <div class="col-md-4"><label class="form-label">{{ inv.product_name }}（批次 #{{ inv.id }}）</label>
+                          <div class="small text-muted">目前 {{ inv.remaining_amount }}／原始 {{ inv.original_amount }} {{ inv.capacity_unit }}</div></div>
+                        <div class="col-md-2"><label class="form-label">修正後餘量</label>
+                          <input name="new_remaining" type="number" class="form-control" min="0" max="{{ inv.original_amount }}" step="0.01" value="{{ inv.remaining_amount }}" required></div>
+                        <div class="col-md-4"><label class="form-label">更正原因（必填）</label>
+                          <input name="reason" type="text" class="form-control" minlength="3" maxlength="500" required></div>
+                        <div class="col-md-2"><button type="submit" class="btn btn-outline-warning w-100">儲存更正</button></div>
+                    </form>
+                    {% else %}<p class="text-muted">目前沒有可更正的寄店批次</p>{% endfor %}
+                </div>
+            </section>
+            {% endif %}
+
+            <section class="card">
+                <div class="card-body">
+                    <h6 class="fw-bold">四、寄店與扣料歷史</h6>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped align-middle">
+                            <thead><tr><th>異動時間</th><th>使用日期</th><th>類型</th><th>寄店批次</th><th>課程</th><th>容量變化</th><th>更正／操作備註</th><th>操作人</th></tr></thead>
+                            <tbody>
+                            {% for entry in inventory_history %}
+                                <tr>
+                                    <td>{{ entry.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                    <td>{{ entry.usage_date or '—' }}</td>
+                                    <td>{{ {'deposit':'寄店新增','deduct':'課程扣料','adjust':'容量更正'}.get(entry.action, entry.action) }}</td>
+                                    <td>#{{ entry.inventory_id }}</td>
+                                    <td>{{ entry.course_name or '—' }}{% if entry.booking_id %} #{{ entry.booking_id }}{% endif %}</td>
+                                    <td class="{% if entry.delta_amount < 0 %}text-danger{% else %}text-success{% endif %}">{{ '%+.2f'|format(entry.delta_amount|float) }} {{ entry.capacity_unit }}（剩 {{ entry.after_amount }}）</td>
+                                    <td>{{ entry.notes or '—' }}</td>
+                                    <td>{{ entry.operator_name or '—' }}</td>
+                                </tr>
+                            {% else %}<tr><td colspan="8" class="text-muted">目前沒有新版本的寄店異動流水；舊紀錄如有，仍保留於既有寄店資料表。</td></tr>{% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -694,6 +694,12 @@
                 'total_amount': booking.total_amount,
                 'is_first_time': booking.is_first_time
                 } %}
+                {% if booking.status == 'completed' %}
+                <a class="btn btn-sm btn-outline-warning" title="從客戶寄店產品扣料"
+                   href="{{ url_for('admin.customer_detail', customer_id=booking.customer_id, tab='inventory', booking_id=booking.id) }}">
+                   <i class="bi bi-box-seam"></i> 寄店扣料
+                </a>
+                {% endif %}
                 <button type="button" class="btn btn-sm btn-outline-info"
                   onclick="openBookingDetailModal({{ safe_booking_data | tojson | forceescape }})">
                   <i class="bi bi-eye"></i>
@@ -950,6 +956,7 @@
                 <th class="text-danger">成本價</th>
                 {% endif %}
                 <th>售價</th>
+                <th>單件容量</th>
                 <th>庫存</th>
                 <th>描述</th>
                 <th>最後進貨</th>
@@ -1009,6 +1016,7 @@
                 <td class="text-danger">NT$ {{ '{:,.0f}'.format(prod.cost or 0) }}</td>
                 {% endif %}
                 <td>NT$ {{ '{:,.0f}'.format(prod.price) }} / {{ prod.unit or '件' }}</td>
+                <td>{% if prod.capacity_per_unit and prod.capacity_unit %}{{ prod.capacity_per_unit }} {{ prod.capacity_unit }}{% else %}—{% endif %}</td>
                 <td>
                   {% if prod.stock_quantity <= 0 %} <span class="badge bg-danger">缺貨</span>
                     {% elif prod.stock_quantity < 10 %} <span class="badge bg-warning text-dark">{{ prod.stock_quantity
@@ -1104,7 +1112,9 @@
             <div class="col-md-4"><label class="text-danger">成本</label><input name="cost" type="number"
                 class="form-control"></div>
             {% endif %}
-            <div class="col-md-4"><label>庫存</label><input name="stock" type="number" class="form-control"></div>
+            <div class="col-md-4"><label>庫存件數</label><input name="stock" type="number" min="0" step="1" class="form-control"></div>
+            <div class="col-md-4"><label>每件容量（寄店用）</label><input name="capacity_per_unit" type="number" min="0.01" step="0.01" class="form-control" placeholder="例如 500"></div>
+            <div class="col-md-4"><label>容量單位</label><select name="capacity_unit" class="form-select"><option value="">不適用</option><option value="ml">ml（毫升）</option><option value="g">g（公克）</option></select></div>
             <div class="col-12"><label>描述</label><textarea name="description" class="form-control"></textarea></div>
             <div class="col-12"><label>圖片</label><input type="file" name="image" class="form-control"></div>
           </div>
@@ -1143,8 +1153,10 @@
               <input name="cost" id="edit_product_cost" type="number" class="form-control">
             </div>
             {% endif %}
-            <div class="col-md-4"><label>庫存</label><input name="stock" id="edit_product_stock" type="number"
+            <div class="col-md-4"><label>庫存件數</label><input name="stock" id="edit_product_stock" type="number"
                 class="form-control"></div>
+            <div class="col-md-4"><label>每件容量（寄店用）</label><input name="capacity_per_unit" id="edit_product_capacity" type="number" min="0.01" step="0.01" class="form-control"></div>
+            <div class="col-md-4"><label>容量單位</label><select name="capacity_unit" id="edit_product_capacity_unit" class="form-select"><option value="">不適用</option><option value="ml">ml（毫升）</option><option value="g">g（公克）</option></select></div>
             <div class="col-12"><label>描述</label><textarea name="description" id="edit_product_description"
                 class="form-control"></textarea></div>
             <div class="col-6"><label>圖片</label><input type="file" name="image" class="form-control"></div>
@@ -1607,10 +1619,10 @@
         <div class="modal-body">
           <div class="mb-3">
             <label class="form-label fw-bold">選擇產品</label>
-            <select name="product_id" class="form-select" required>
+            <select name="product_id" class="form-select" onchange="syncRestockCapacity(this)" required>
               <option value="">請選擇...</option>
               {% for p in inventory_products %}
-              <option value="{{ p.id }}">{{ p.name }} (現有: {{ p.stock_quantity }})</option>
+              <option value="{{ p.id }}" data-capacity="{{ p.capacity_per_unit or '' }}" data-capacity-unit="{{ p.capacity_unit or '' }}">{{ p.name }} (現有: {{ p.stock_quantity }})</option>
               {% endfor %}
             </select>
           </div>
@@ -1625,6 +1637,13 @@
               <input type="number" name="cost" class="form-control" placeholder="選填，將更新成本">
             </div>
             {% endif %}
+          </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6"><label class="form-label">本批單件容量</label>
+              <input name="capacity_per_unit" id="restock_capacity" type="number" step="0.01" min="0.01" class="form-control" placeholder="例如：500"></div>
+            <div class="col-6"><label class="form-label">容量單位</label>
+              <select name="capacity_unit" id="restock_capacity_unit" class="form-select"><option value="">不適用</option><option value="ml">ml（毫升）</option><option value="g">g（公克）</option></select></div>
+            <p class="small text-muted mb-0">本批容量必須符合該產品已設定規格，規格不同請新增不同產品。</p>
           </div>
           <div class="mb-3">
             <label class="form-label">備註 / 批號</label>
@@ -1960,14 +1979,11 @@
         <button type="button" class="btn btn-sm btn-outline-primary mb-4" onclick="addBookingCustomerRow()">+
           新增同行客戶</button>
 
-        <!-- 2. 預約課程 & 寄店扣料 -->
-        <div class="d-flex justify-content-between align-items-end mb-2 border-top pt-3">
+        <!-- 2. 建立預約不預先扣料；待課程狀態完成後進客戶寄店 Tab 處理 -->
+        <div class="border-top pt-3 mb-2">
           <h6 class="fw-bold text-primary mb-0">2. 預約課程 <span class="text-danger">*</span></h6>
-          <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm"
-            onclick="openInventoryModal()"><i class="bi bi-box-seam"></i> 帶入寄店扣料</button>
+          <p class="small text-muted mb-1">寄店容量在課程結束後，由「預約管理 → 寄店扣料」直接進入客戶寄店頁籤登記。</p>
         </div>
-        <div id="invDeductDisplay" class="text-danger small fw-bold mb-2"></div>
-        <div id="invHiddenContainer"></div> <!-- 隱藏的扣料陣列 -->
 
         <div class="table-responsive bg-light p-2 rounded mb-4 border">
           <table class="table table-sm align-middle mb-0">
@@ -2029,30 +2045,6 @@
 </div>
 </div>
 
-<!-- 寄店扣料 Modal (多人同視窗) -->
-<div class="modal fade" id="inventoryDeductModal" tabindex="-1" style="z-index: 1060;">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header bg-secondary text-white">
-        <h5 class="modal-title"><i class="bi bi-box-seam"></i> 帶入寄店產品扣料</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="inventoryLoading" class="text-center py-4 d-none">
-          <div class="spinner-border text-primary"></div>
-        </div>
-        <div id="inventoryEmpty" class="text-center py-4 text-muted d-none"><i
-            class="bi bi-inbox fs-1"></i><br>目前選擇的客戶皆無寄店產品</div>
-        <div id="inventoryList"></div> <!-- 這裡會動態載入每位客戶的庫存 -->
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="button" class="btn btn-success px-4" onclick="confirmInventoryDeduction()">確認扣料</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- 提供搜尋的資料清單 (不可見) -->
 <datalist id="dl-customers">
   {% for c in customers_list %}
@@ -2082,36 +2074,6 @@
   <option data-id="{{ f.id }}" data-price="{{ f.price }}" value="{{ f.name }}"></option>
   {% endfor %}
 </datalist>
-
-<!-- ⭐ 新增：寄店產品專用扣料 Modal -->
-<div class="modal fade" id="inventoryDeductModal" tabindex="-1" style="z-index: 1060;">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header bg-secondary text-white">
-        <h5 class="modal-title"><i class="bi bi-box-seam"></i> 選擇寄店產品扣料</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <input type="hidden" id="currentDeductRowId">
-        <!-- 讀取動畫 -->
-        <div id="inventoryLoading" class="text-center py-4 d-none">
-          <div class="spinner-border text-primary" role="status"></div>
-          <div class="mt-2 text-muted fw-bold">讀取客戶專屬庫存中...</div>
-        </div>
-        <!-- 無庫存提示 -->
-        <div id="inventoryEmpty" class="text-center py-4 text-muted d-none">
-          <i class="bi bi-inbox fs-1"></i><br>此客戶目前沒有寄店產品
-        </div>
-        <!-- 庫存列表 -->
-        <div id="inventoryList"></div>
-      </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="button" class="btn btn-success px-4" onclick="confirmInventoryDeduction()">確認扣料</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 {% endblock %}
 
@@ -2181,6 +2143,8 @@
         setVal('edit_product_price', product.price);
         setVal('edit_product_cost', product.cost);
         setVal('edit_product_stock', product.stock_quantity);
+        setVal('edit_product_capacity', product.capacity_per_unit);
+        setVal('edit_product_capacity_unit', product.capacity_unit);
         setVal('edit_product_unit', product.unit);
         setVal('edit_product_description', product.description);
         setVal('edit_product_current_image', product.image);
@@ -2372,7 +2336,15 @@
     var modal = new bootstrap.Modal(document.getElementById('restockModal'));
     modal.show();
     var select = document.querySelector('#restockModal select[name="product_id"]');
-    if (select) select.value = pid;
+    if (select) { select.value = pid; syncRestockCapacity(select); }
+  }
+
+  function syncRestockCapacity(select) {
+    const option = select.options[select.selectedIndex];
+    const size = document.getElementById('restock_capacity');
+    const unit = document.getElementById('restock_capacity_unit');
+    if (size) size.value = option?.dataset.capacity || '';
+    if (unit) unit.value = option?.dataset.capacityUnit || '';
   }
 
   function openEditEventModal(evt) {
@@ -2668,8 +2640,6 @@
         document.getElementById('bookingCustomerList').innerHTML = '';
         document.getElementById('courseTbody').innerHTML = '';
         document.getElementById('productTbody').innerHTML = '';
-        document.getElementById('invDeductDisplay').innerHTML = '';
-        document.getElementById('invHiddenContainer').innerHTML = '';
         addBookingCustomerRow(); // 預設第一位客戶
         addCourseRow();          // 預設一堂課程
       });
@@ -2975,76 +2945,7 @@
     if (remainEl) remainEl.innerText = Math.floor(globalRemain).toLocaleString();
   }
 
-  // --- 寄店扣料 AJAX ---
-  let invModalInstance = null;
-  function openInventoryModal() {
-    const custs = getSelectedCustomers();
-    if (custs.length === 0) { alert('請先在第一區塊搜尋並選擇客戶！'); return; }
-
-    document.getElementById('inventoryLoading').classList.remove('d-none');
-    document.getElementById('inventoryEmpty').classList.add('d-none');
-    document.getElementById('inventoryList').innerHTML = '';
-    if (!invModalInstance) invModalInstance = new bootstrap.Modal(document.getElementById('inventoryDeductModal'));
-    invModalInstance.show();
-
-    // 同時撈取所有選擇客戶的庫存
-    const promises = custs.map(c => fetch(`/admin/api/customer/${c.id}/inventory`).then(r => r.json()).then(data => ({ cust: c, data: data })));
-
-    Promise.all(promises).then(results => {
-      document.getElementById('inventoryLoading').classList.add('d-none');
-      let hasAny = false;
-      let html = '';
-
-      results.forEach(res => {
-        if (res.data.length > 0) {
-          hasAny = true;
-          html += `<h6 class="fw-bold mt-3 text-primary"><i class="bi bi-person"></i> ${res.cust.label} 的寄店產品</h6>`;
-          html += `<table class="table table-sm mb-0 align-middle"><thead><tr class="table-light"><th>產品名稱</th><th>剩餘量</th><th style="width:140px">本次扣除</th></tr></thead><tbody>`;
-          res.data.forEach(item => {
-            html += `<tr>
-                         <td>${item.product_name}</td>
-                         <td class="text-primary">${item.remaining_amount}${item.unit}</td>
-                         <td><div class="input-group input-group-sm"><input type="number" class="form-control deduct-inp border-warning" data-custid="${res.cust.id}" data-invid="${item.inventory_id}" data-name="${item.product_name}" data-unit="${item.unit}" max="${item.remaining_amount}" min="0" step="0.1"><span class="input-group-text bg-warning text-dark">${item.unit}</span></div></td>
-                     </tr>`;
-          });
-          html += `</tbody></table>`;
-        }
-      });
-
-      if (!hasAny) document.getElementById('inventoryEmpty').classList.remove('d-none');
-      else document.getElementById('inventoryList').innerHTML = html;
-    });
-  }
-
-  function confirmInventoryDeduction() {
-    const inputs = document.querySelectorAll('.deduct-inp');
-    let grouped = {};
-    let displayTexts = [];
-
-    inputs.forEach(inp => {
-      const amt = parseFloat(inp.value);
-      if (amt > 0) {
-        const cid = inp.dataset.custid;
-        if (!grouped[cid]) grouped[cid] = [];
-        grouped[cid].push({ inv_id: parseInt(inp.dataset.invid), amount: amt });
-        const custLabel = getSelectedCustomers().find(c => c.id === cid)?.label || '客戶';
-        displayTexts.push(`[${custLabel}] ${inp.dataset.name} -${amt}${inp.dataset.unit}`);
-      }
-    });
-
-    const container = document.getElementById('invHiddenContainer');
-    container.innerHTML = '';
-    for (let cid in grouped) {
-      container.innerHTML += `<input type="hidden" name="inv_cust_ids[]" value="${cid}">`;
-      container.innerHTML += `<input type="hidden" name="inv_jsons[]" value='${JSON.stringify(grouped[cid])}'>`;
-    }
-
-    const display = document.getElementById('invDeductDisplay');
-    if (displayTexts.length > 0) display.innerHTML = `<i class="bi bi-check-circle-fill"></i> 已選擇扣料: ` + displayTexts.join(', ');
-    else display.innerHTML = '';
-
-    invModalInstance.hide();
-  }
+  // 寄店產品扣料已改在客戶詳情頁完成，並由 Flask 原子交易寫入流水。
   // ================= 過濾訂單 (前端即時搜尋) =================
   function filterOrders() {
     const keyword = document.getElementById('orderSearchFilter').value.toLowerCase();

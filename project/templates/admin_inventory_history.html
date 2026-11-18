@@ -4,7 +4,7 @@
 <div class="container py-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
     <div><h2 class="h4">{{ product.name }} — 庫存交易紀錄</h2>
-      <div class="text-muted">目前庫存：{{ product.stock_quantity }} {{ product.unit or '件' }}</div></div>
+      <div class="text-muted">目前庫存：{{ product.stock_quantity }} {{ product.unit or '件' }}{% if product.capacity_per_unit %}／每件 {{ product.capacity_per_unit }} {{ product.capacity_unit }}{% endif %}</div></div>
     <a href="{{ url_for('admin.dashboard', tab='inventory') }}" class="btn btn-outline-secondary">返回庫存管理</a>
   </div>
   <div class="table-responsive"><table class="table table-striped align-middle">
