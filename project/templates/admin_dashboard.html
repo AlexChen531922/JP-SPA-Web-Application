@@ -1990,7 +1990,7 @@
         <!-- 3. 加購產品 -->
         <h6 class="fw-bold text-primary mb-2">3. 加購產品 <span class="text-muted small fw-normal">(選填，若有寄店扣料則無需加購)</span>
         </h6>
-        <div class="table-responsive bg-light p-2 rounded border">
+        <div class="table-responsive bg-light p-2 rounded border mb-3">
           <table class="table table-sm align-middle mb-0">
             <thead class="table-light">
               <tr>
@@ -2007,7 +2007,14 @@
           <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addProductRow()">+
             增加一筆產品</button>
         </div>
-      </div>
+
+        <!-- ⭐ 移出區塊：全場總計顯示區 (獨立於加購區塊外) -->
+        <div class="text-end mt-4 border-top pt-3">
+          <h5 class="fw-bold text-dark mb-2">全場應付總額: NT$ <span id="globalTotalAmount">0</span></h5>
+          <h5 class="fw-bold text-danger mb-0">未付尾款總計: NT$ <span id="globalRemainingAmount">0</span></h5>
+        </div>
+
+      </div> <!-- /.modal-body 結束 -->
 
       <div class="modal-footer">
         <div class="form-check form-switch me-auto">
@@ -2019,6 +2026,7 @@
       </div>
     </form>
   </div>
+</div>
 </div>
 
 <!-- 寄店扣料 Modal (多人同視窗) -->
@@ -2783,7 +2791,7 @@
            </div>
         </td>
 
-        <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+        <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove(); calcGlobalTotal();"><i class="bi bi-trash"></i></button></td>
      `;
     tbody.appendChild(tr);
     onCustomerChange(); // 自動載入選項
@@ -2830,7 +2838,7 @@
            </div>
         </td>
         
-        <td class="text-end align-middle"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+        <td class="text-end align-middle"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove(); calcGlobalTotal();"><i class="bi bi-trash"></i></button></td>
      `;
     tbody.appendChild(tr);
     onCustomerChange();
@@ -2879,23 +2887,24 @@
       const isFirst = tr.querySelector('.row-first-time').checked;
       tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
 
-      // 課程基本費用
+      // 課程基本費
       courseBasePrice = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
-
-      // 取得手技費
       feePrice = parseFloat(tr.dataset.feePrice) || 0;
 
-      // 總金額「只顯示」課程金額 (手技費不加上去)
+      // 總金額輸入框只顯示課程金額
       tr.querySelector('.row-amount').value = courseBasePrice;
 
-      // 但計算尾款時，應收總額是 課程 + 手技
+      // 但這列的真正應付總額是 課程 + 手技
       totalAmountForRemain = courseBasePrice + feePrice;
     } else {
-      // 產品列
+      // 產品列的總額直接抓金額欄位
       totalAmountForRemain = parseFloat(tr.querySelector('.row-amount').value) || 0;
     }
 
-    // 處理儲值金與餘額
+    // 將真實應付總額存在該列 (給全場加總用)
+    tr.dataset.realTotal = totalAmountForRemain;
+
+    // 處理儲值金與該列餘額顯示
     const custSelect = tr.querySelector('.row-cust-select');
     if (!custSelect) return;
 
@@ -2903,21 +2912,19 @@
     const custOption = document.querySelector(`datalist#dl-customers option[data-id="${custId}"]`);
     const maxBal = custOption ? parseFloat(custOption.dataset.balance || 0) : 0;
 
-    // 更新可用餘額顯示
     const balDisplay = tr.querySelector('.row-bal-display');
     if (balDisplay) balDisplay.innerText = Math.floor(maxBal).toLocaleString();
 
     const svInput = tr.querySelector('.sv-input');
     if (svInput) {
-      // [新增邏輯]：如果是課程，且手技費大於 0，預設將手技費帶入「本次扣除金額」(前提是餘額夠扣)
+      // 若為課程且有手技費，預設將手技費帶入扣款 (僅當使用者沒手動修改時)
       if (isCourse && feePrice > 0 && document.activeElement !== svInput) {
-        // 只有在使用者沒有「正在手動輸入」儲值金時，才自動帶入手技費
         svInput.value = Math.min(feePrice, maxBal);
       }
 
       let svUse = parseFloat(svInput.value) || 0;
 
-      // 防呆：不能扣超過可用餘額，也不能扣超過應付總額
+      // 防呆
       if (svUse > maxBal) {
         svUse = maxBal;
         svInput.value = maxBal;
@@ -2927,13 +2934,45 @@
         svInput.value = totalAmountForRemain;
       }
 
-      // 計算未付餘額 (應付總額 - 儲值扣抵)
+      // [修正] 計算該列未付餘額 (應付總額 - 儲值扣款)
       const remain = totalAmountForRemain - svUse;
       const remainDisplay = tr.querySelector('.row-remain-amount');
       if (remainDisplay) {
         remainDisplay.innerText = Math.floor(remain).toLocaleString();
       }
     }
+
+    // 每次單列計算完，觸發一次全場加總
+    calcGlobalTotal();
+  }
+
+  // ⭐ 新增：計算全場總計 (加總所有列)
+  function calcGlobalTotal() {
+    let globalTotal = 0;
+    let globalSvUsed = 0;
+
+    // 遍歷所有課程與產品列
+    const allRows = document.querySelectorAll('#courseTbody tr, #productTbody tr');
+    allRows.forEach(tr => {
+      // 取得該列真實應付總額 (課程+手技 或 產品金額)
+      const rowTotal = parseFloat(tr.dataset.realTotal) || 0;
+      globalTotal += rowTotal;
+
+      // 取得該列使用的儲值金
+      const svInput = tr.querySelector('.sv-input');
+      const rowSv = svInput ? (parseFloat(svInput.value) || 0) : 0;
+      globalSvUsed += rowSv;
+    });
+
+    // 未付尾款 = 全場總額 - 全場儲值扣抵
+    const globalRemain = globalTotal - globalSvUsed;
+
+    // 顯示到畫面上
+    const totalEl = document.getElementById('globalTotalAmount');
+    const remainEl = document.getElementById('globalRemainingAmount');
+
+    if (totalEl) totalEl.innerText = Math.floor(globalTotal).toLocaleString();
+    if (remainEl) remainEl.innerText = Math.floor(globalRemain).toLocaleString();
   }
 
   // --- 寄店扣料 AJAX ---
