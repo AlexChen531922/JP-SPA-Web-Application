@@ -1941,39 +1941,84 @@
 
 
 
-<!-- ⭐ 全新升級：專業預約單 Modal -->
+<!-- ⭐ 建立或補登預約 Modal -->
 <div class="modal fade" id="addBookingModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <div class="modal-content bg-light">
-      <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="advancedBookingForm">
+    <div class="modal-content">
+      <form action="{{ url_for('admin.add_booking_manual') }}" method="POST">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單 (支援同行拆單 / 寄店扣料)</h5>
+          <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立或補登預約</h5>
           <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
         </div>
-        <div class="modal-body pb-4">
-          <!-- 這裡會動態載入預約卡片 -->
-          <div id="bookingItemsContainer"></div>
 
-          <button type="button" class="btn btn-outline-primary w-100 mt-2 fw-bold shadow-sm" onclick="addBookingItem()">
-            <i class="bi bi-person-plus-fill"></i> 新增一位同行客戶
-          </button>
-
-          <div class="form-check form-switch mt-4 bg-white p-3 rounded shadow-sm border border-info">
-            <input class="form-check-input ms-0 me-2" type="checkbox" name="send_notification" id="bookingNotifSwitch"
-              checked>
-            <label class="form-check-label fw-bold text-info" for="bookingNotifSwitch">發送預約確認通知 (LINE/Email)</label>
-            <div class="text-muted small ms-4 mt-1">若為補登歷史資料請取消勾選；代客預約請保持勾選。</div>
-          </div>
+        <div class="modal-body pb-4" id="bookingCustomersContainer">
+          <!-- 這裡會動態載入客戶區塊 -->
         </div>
-        <div class="modal-footer bg-white">
+
+        <div class="modal-footer">
+          <div class="form-check form-switch me-auto">
+            <input class="form-check-input" type="checkbox" name="send_notification" checked>
+            <label class="form-check-label fw-bold text-info">發送 LINE/Email 通知</label>
+          </div>
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-          <button type="submit" class="btn btn-primary px-5 fw-bold">確認結帳並建立</button>
+          <button type="submit" class="btn btn-primary px-4">確認結帳建立</button>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+<!-- 寄店扣料 Modal -->
+<div class="modal fade" id="inventoryDeductModal" tabindex="-1" style="z-index: 1060;">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header bg-secondary text-white">
+        <h5 class="modal-title"><i class="bi bi-box-seam"></i> 帶入寄店產品扣料</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="currentDeductBlockId">
+        <div id="inventoryLoading" class="text-center py-4 d-none">
+          <div class="spinner-border text-primary"></div>
+        </div>
+        <div id="inventoryEmpty" class="text-center py-4 text-muted d-none"><i
+            class="bi bi-inbox fs-1"></i><br>此客戶目前沒有寄店產品</div>
+        <div id="inventoryList"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-success px-4" onclick="confirmInventoryDeduction()">確認扣料</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 提供搜尋的資料清單 (不可見) -->
+<datalist id="dl-customers">
+  {% for c in customers_list %}
+  <option data-id="{{ c.id }}" data-balance="{{ stored_balances.get(c.id, '0') }}"
+    value="{{ c.surname }}{{ c.firstname }} ({{ c.phone }})"></option>
+  {% endfor %}
+</datalist>
+
+<datalist id="dl-items">
+  {% for c in courses %}
+  <option data-type="course" data-id="{{ c.id }}" data-price="{{ c.regular_price }}" data-exp="{{ c.experience_price }}"
+    value="[課程] {{ c.name }}"></option>
+  {% endfor %}
+  {% for p in inventory_products %}
+  <option data-type="product" data-id="{{ p.id }}" data-price="{{ p.price }}" data-exp="{{ p.price }}"
+    value="[產品] {{ p.name }}"></option>
+  {% endfor %}
+</datalist>
+
+<datalist id="dl-fees">
+  <option data-price="0" value="無手技費"></option>
+  {% for f in service_fees %}
+  <option data-id="{{ f.id }}" data-price="{{ f.price }}" value="{{ f.name }}"></option>
+  {% endfor %}
+</datalist>
 
 <!-- ⭐ 新增：寄店產品專用扣料 Modal -->
 <div class="modal fade" id="inventoryDeductModal" tabindex="-1" style="z-index: 1060;">
@@ -2547,287 +2592,213 @@
     }
   });
 
-  // ================= 3. 全新專業預約單邏輯 (支援拆單/扣料) =================
-  let allCustData = [];
-  let allFeeData = [];
+  // ================= 3. 混合式預約單邏輯 (搜尋/課程/產品) =================
+  let blockCount = 0;
 
-  // 網頁載入時，將 HTML 的資料轉為 JS 陣列
   document.addEventListener('DOMContentLoaded', () => {
-    const cNodes = document.querySelectorAll('#customer-data-source div');
-    cNodes.forEach(n => allCustData.push({ id: n.dataset.id, name: n.dataset.name, balance: parseFloat(n.dataset.balance || 0) }));
-
-    const fNodes = document.querySelectorAll('#service-fee-data-source div');
-    fNodes.forEach(n => allFeeData.push({ id: n.dataset.id, name: n.dataset.name, price: parseFloat(n.dataset.price || 0) }));
-
-    // Modal 打開時預設新增一張卡片
     const bookingModalEl = document.getElementById('addBookingModal');
     if (bookingModalEl) {
       bookingModalEl.addEventListener('show.bs.modal', function () {
-        const container = document.getElementById('bookingItemsContainer');
-        if (container && container.children.length === 0) {
-          addBookingItem();
+        const container = document.getElementById('bookingCustomersContainer');
+        if (container.children.length === 0) {
+          addCustomerBlock();
         }
       });
     }
   });
 
-  const allCourses = Array.from(document.querySelectorAll('#course-data-source div')).map(el => {
-    return {
-      id: parseInt(el.dataset.id), name: el.dataset.name, duration: parseInt(el.dataset.duration),
-      price: parseFloat(el.dataset.price), expPrice: parseFloat(el.dataset.expPrice)
-    };
-  });
+  function addCustomerBlock() {
+    blockCount++;
+    const blockId = 'custBlock_' + blockCount;
+    const html = `
+     <div class="customer-booking-block mb-4 pb-4 border-bottom border-2" id="${blockId}">
+        <div class="mb-3 w-50">
+           <label class="form-label fw-bold text-primary">1. 選擇客戶 <span class="text-danger">*</span></label>
+           <div class="d-flex align-items-center gap-2 mb-1">
+              <input type="text" class="form-control cust-search-input border-primary" list="dl-customers" placeholder="輸入姓名或電話搜尋..." onchange="syncCustomer(this)" required>
+              <input type="hidden" class="cust-id-val">
+              <button type="button" class="btn btn-outline-danger btn-sm text-nowrap" onclick="document.getElementById('${blockId}').remove()"><i class="bi bi-trash"></i> 移除</button>
+           </div>
+           <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCustomerBlock()">+ 新增同行客戶</button>
+           <div class="text-muted small mt-2">可用儲值金: NT$ <span class="cust-balance-txt fw-bold text-success">0</span></div>
+        </div>
 
-  function addBookingItem() {
-    const container = document.getElementById('bookingItemsContainer');
-    if (!container) return;
-    const rowId = 'bk_row_' + Date.now();
+        <div class="d-flex justify-content-between align-items-end mb-2">
+           <label class="form-label fw-bold text-primary mb-0">2. 預約與購買內容</label>
+           <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm" onclick="openInventoryModal('${blockId}')"><i class="bi bi-box-seam"></i> 帶入寄店扣料</button>
+        </div>
+        
+        <input type="hidden" name="inv_cust_ids[]" class="inv-cust-id">
+        <input type="hidden" name="inv_jsons[]" class="inv-hidden" value="[]">
+        <div class="inv-display text-danger small fw-bold mb-2"></div>
 
-    let custOpts = '<option value="">請先選擇客戶...</option>';
-    allCustData.forEach(c => custOpts += `<option value="${c.id}" data-balance="${c.balance}">${c.name}</option>`);
+        <div class="table-responsive bg-light p-2 rounded">
+           <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                 <tr>
+                    <th style="width: 25%">項目 (可搜課程/產品) <span class="text-danger">*</span></th>
+                    <th style="width: 20%">時間 (純買產品可略)</th>
+                    <th style="width: 15%">金額</th>
+                    <th style="width: 20%">儲值扣款 / 付款方式</th>
+                    <th style="width: 15%">手技 / 體驗</th>
+                    <th style="width: 5%"></th>
+                 </tr>
+              </thead>
+              <tbody class="items-tbody"></tbody>
+           </table>
+           <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addItemRow('${blockId}')">+ 增加一筆項目</button>
+        </div>
+     </div>`;
+    document.getElementById('bookingCustomersContainer').insertAdjacentHTML('beforeend', html);
+    addItemRow(blockId);
+  }
 
-    let courseOpts = '<option value="">請選擇課程...</option>';
-    allCourses.forEach(c => courseOpts += `<option value="${c.id}" data-price="${c.price}" data-exp="${c.expPrice}">${c.name} (${c.duration}分)</option>`);
-
-    let feeOpts = '<option value="">無手技費</option>';
-    allFeeData.forEach(f => feeOpts += `<option value="${f.id}" data-price="${f.price}">${f.name} (+NT$ ${f.price})</option>`);
-
+  function addItemRow(blockId) {
+    const tbody = document.getElementById(blockId).querySelector('.items-tbody');
+    const custId = document.getElementById(blockId).querySelector('.cust-id-val').value;
     const nowStr = new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 
-    const html = `
-    <div class="card shadow-sm mb-4 border-secondary booking-card" id="${rowId}">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
-        <h6 class="mb-0 fw-bold text-primary"><i class="bi bi-person-bounding-box"></i> 客戶預約卡</h6>
-        <button type="button" class="btn btn-sm btn-outline-danger" onclick="document.getElementById('${rowId}').remove()"><i class="bi bi-trash"></i> 移除此人</button>
-      </div>
-      <div class="card-body">
-        <div class="row g-3">
-          <div class="col-md-4">
-             <label class="form-label small fw-bold">1. 選擇客戶 <span class="text-danger">*</span></label>
-             <select name="customer_ids[]" class="form-select form-select-sm cust-select border-primary" onchange="onBookingCustChange('${rowId}')" required>
-                ${custOpts}
-             </select>
-             <div class="text-muted small mt-1">可用儲值金: <span class="fw-bold text-success">NT$ <span class="cust-balance-display">0</span></span></div>
-          </div>
-          <div class="col-md-4">
-             <label class="form-label small fw-bold">2. 選擇課程 <span class="text-danger">*</span></label>
-             <select name="course_ids[]" class="form-select form-select-sm course-select" onchange="calcBookingRow('${rowId}')" required>
-                ${courseOpts}
-             </select>
-          </div>
-          <div class="col-md-4">
-             <label class="form-label small fw-bold">3. 預約時間 <span class="text-danger">*</span></label>
-             <input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" value="${nowStr}" required>
-          </div>
-          
-          <div class="col-md-3">
-             <label class="form-label small fw-bold">4. 首次體驗價</label>
-             <div class="form-check form-switch ms-1 mt-1">
-                <input type="checkbox" class="form-check-input first-time-check" onchange="calcBookingRow('${rowId}')">
-                <input type="hidden" name="is_first_times[]" class="first-time-hidden" value="0">
-                <label class="form-check-label small text-muted">啟用體驗價</label>
-             </div>
-          </div>
-          <div class="col-md-3">
-             <label class="form-label small fw-bold">5. 指定手技費</label>
-             <select name="service_fee_ids[]" class="form-select form-select-sm fee-select" onchange="calcBookingRow('${rowId}')">
-                ${feeOpts}
-             </select>
-          </div>
-          <div class="col-md-3">
-             <label class="form-label small fw-bold text-success">6. 儲值金扣款</label>
-             <input type="number" name="stored_value_amounts[]" class="form-control form-control-sm sv-input border-success" value="0" min="0" step="1" oninput="calcBookingRow('${rowId}')">
-          </div>
-          <div class="col-md-3">
-             <label class="form-label small fw-bold">7. 剩餘付款方式</label>
-             <select name="payment_methods[]" class="form-select form-select-sm">
-                <option value="offline">現金 / 線下</option>
-                <option value="credit_card">信用卡</option>
-                <option value="transfer">匯款</option>
-             </select>
-          </div>
-
-          <!-- 寄店扣料與總結 -->
-          <div class="col-12 border-top pt-3 mt-3">
-             <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
-                 <div>
-                     <button type="button" class="btn btn-sm btn-warning fw-bold text-dark shadow-sm" onclick="openInventoryModal('${rowId}')">
-                        <i class="bi bi-box-seam"></i> 帶入寄店產品扣料
-                     </button>
-                     <div class="inv-display mt-2 text-danger small fw-bold"></div>
-                     <input type="hidden" name="inventory_deductions[]" class="inv-hidden" value="[]">
-                 </div>
-                 <div class="text-end">
-                     <h5 class="fw-bold mb-0 text-primary">本筆實收金額: NT$ <span class="row-final-amount">0</span></h5>
-                     <input type="hidden" name="amounts[]" class="amount-hidden" value="0">
-                 </div>
-             </div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-    container.insertAdjacentHTML('beforeend', html);
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <input type="hidden" name="customer_ids[]" class="row-cust-id" value="${custId}">
+        <td>
+           <input type="text" class="form-control form-control-sm border-primary" list="dl-items" placeholder="輸入搜尋..." onchange="syncItem(this)" required>
+           <input type="hidden" name="item_types[]" class="row-item-type">
+           <input type="hidden" name="item_ids[]" class="row-item-id">
+        </td>
+        <td><input type="datetime-local" name="appointment_times[]" class="form-control form-control-sm" value="${nowStr}"></td>
+        <td><input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary" required></td>
+        <td>
+           <input type="number" name="stored_value_amounts[]" class="form-control form-control-sm border-success mb-1" placeholder="儲值扣款" value="0">
+           <select name="payment_methods[]" class="form-select form-select-sm">
+              <option value="offline">現金 / 線下</option>
+              <option value="credit_card">信用卡</option>
+              <option value="transfer">匯款</option>
+           </select>
+        </td>
+        <td>
+           <input type="text" class="form-control form-control-sm mb-1" list="dl-fees" placeholder="搜尋手技費..." onchange="syncFee(this)">
+           <input type="hidden" name="service_fee_ids[]" class="row-fee-id">
+           <div class="form-check ms-1 mt-1">
+              <input type="checkbox" class="form-check-input row-first-time" onchange="calcItemPrice(this.closest('tr'))">
+              <input type="hidden" name="is_first_times[]" class="row-first-hidden" value="0">
+              <label class="form-check-label small text-muted">體驗價</label>
+           </div>
+        </td>
+        <td><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove()"><i class="bi bi-trash"></i></button></td>
+     `;
+    tbody.appendChild(tr);
   }
 
-  function onBookingCustChange(rowId) {
-    const row = document.getElementById(rowId);
-    const sel = row.querySelector('.cust-select');
-    const opt = sel.options[sel.selectedIndex];
-
-    // 更新顯示的儲值餘額
-    const bal = opt && opt.value ? (opt.dataset.balance || 0) : 0;
-    row.querySelector('.cust-balance-display').innerText = parseFloat(bal).toLocaleString();
-
-    // 切換客戶時，清空寄店扣料紀錄，避免扣錯人
-    row.querySelector('.inv-hidden').value = '[]';
-    row.querySelector('.inv-display').innerText = '';
-
-    calcBookingRow(rowId);
+  // --- 關鍵字搜尋連動邏輯 ---
+  function syncCustomer(input) {
+    const dl = document.getElementById('dl-customers');
+    const opt = Array.from(dl.options).find(o => o.value === input.value);
+    const block = input.closest('.customer-booking-block');
+    if (opt) {
+      block.querySelector('.cust-id-val').value = opt.dataset.id;
+      block.querySelector('.cust-balance-txt').innerText = Math.floor(parseFloat(opt.dataset.balance || 0)).toLocaleString();
+      block.querySelectorAll('.row-cust-id').forEach(el => el.value = opt.dataset.id);
+      block.querySelector('.inv-cust-id').value = opt.dataset.id;
+    } else {
+      block.querySelector('.cust-id-val').value = '';
+      block.querySelector('.cust-balance-txt').innerText = '0';
+    }
   }
 
-  function calcBookingRow(rowId) {
-    const row = document.getElementById(rowId);
-
-    const courseSel = row.querySelector('.course-select');
-    const courseOpt = courseSel.options[courseSel.selectedIndex];
-    const feeSel = row.querySelector('.fee-select');
-    const feeOpt = feeSel.options[feeSel.selectedIndex];
-
-    const isFirst = row.querySelector('.first-time-check').checked;
-    row.querySelector('.first-time-hidden').value = isFirst ? '1' : '0';
-
-    let coursePrice = 0;
-    if (courseOpt && courseOpt.value) {
-      coursePrice = isFirst ? parseFloat(courseOpt.dataset.exp || 0) : parseFloat(courseOpt.dataset.price || 0);
+  function syncItem(input) {
+    const dl = document.getElementById('dl-items');
+    const opt = Array.from(dl.options).find(o => o.value === input.value);
+    const tr = input.closest('tr');
+    if (opt) {
+      tr.querySelector('.row-item-type').value = opt.dataset.type;
+      tr.querySelector('.row-item-id').value = opt.dataset.id;
+      tr.dataset.regPrice = opt.dataset.price;
+      tr.dataset.expPrice = opt.dataset.exp || opt.dataset.price;
+      calcItemPrice(tr);
     }
-
-    let feePrice = 0;
-    if (feeOpt && feeOpt.value) {
-      feePrice = parseFloat(feeOpt.dataset.price || 0);
-    }
-
-    let total = coursePrice + feePrice;
-
-    // 處理儲值金限制
-    const svInput = row.querySelector('.sv-input');
-    const custSel = row.querySelector('.cust-select');
-    const custOpt = custSel.options[custSel.selectedIndex];
-    const maxBal = custOpt && custOpt.value ? parseFloat(custOpt.dataset.balance || 0) : 0;
-
-    let svUse = parseFloat(svInput.value || 0);
-
-    // 不能扣超過餘額
-    if (svUse > maxBal) {
-      svUse = maxBal;
-      svInput.value = maxBal;
-    }
-    // 不能扣超過總應收
-    if (svUse > total) {
-      svUse = total;
-      svInput.value = total;
-    }
-
-    let finalAmt = total - svUse;
-
-    row.querySelector('.row-final-amount').innerText = finalAmt.toLocaleString();
-    row.querySelector('.amount-hidden').value = finalAmt;
   }
 
-  // --- AJAX 寄店扣料 Modal 邏輯 ---
+  function syncFee(input) {
+    const dl = document.getElementById('dl-fees');
+    const opt = Array.from(dl.options).find(o => o.value === input.value);
+    const tr = input.closest('tr');
+    if (opt) {
+      tr.querySelector('.row-fee-id').value = opt.dataset.id || '';
+      tr.dataset.feePrice = opt.dataset.price || 0;
+      calcItemPrice(tr);
+    }
+  }
+
+  function calcItemPrice(tr) {
+    const isFirst = tr.querySelector('.row-first-time').checked;
+    tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
+
+    const base = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
+    const fee = parseFloat(tr.dataset.feePrice) || 0;
+    tr.querySelector('.row-amount').value = base + fee;
+  }
+
+  // --- 寄店扣料 AJAX 邏輯 ---
   let invModalInstance = null;
+  function openInventoryModal(blockId) {
+    if (!invModalInstance) invModalInstance = new bootstrap.Modal(document.getElementById('inventoryDeductModal'));
 
-  function openInventoryModal(rowId) {
-    if (!invModalInstance) {
-      invModalInstance = new bootstrap.Modal(document.getElementById('inventoryDeductModal'));
-    }
-
-    const row = document.getElementById(rowId);
-    const custSel = row.querySelector('.cust-select');
-    const custId = custSel.value;
+    const block = document.getElementById(blockId);
+    const custId = block.querySelector('.cust-id-val').value;
 
     if (!custId) {
-      alert('請先在左上方選擇客戶，才能查詢寄店庫存！');
+      alert('請先在左方搜尋並選擇客戶！');
       return;
     }
-
-    document.getElementById('currentDeductRowId').value = rowId;
+    document.getElementById('currentDeductBlockId').value = blockId;
     document.getElementById('inventoryLoading').classList.remove('d-none');
     document.getElementById('inventoryEmpty').classList.add('d-none');
     document.getElementById('inventoryList').innerHTML = '';
-
     invModalInstance.show();
 
-    // 呼叫我們剛剛建立的後端 API
     fetch(`/admin/api/customer/${custId}/inventory`)
       .then(res => res.json())
       .then(data => {
         document.getElementById('inventoryLoading').classList.add('d-none');
         if (data.length === 0) {
-          document.getElementById('inventoryEmpty').classList.remove('d-none');
-          return;
+          document.getElementById('inventoryEmpty').classList.remove('d-none'); return;
         }
-
-        // 讀取該列是否已經有暫存的扣料紀錄
         let currentDeducts = [];
-        try {
-          currentDeducts = JSON.parse(row.querySelector('.inv-hidden').value);
-        } catch (e) { }
+        try { currentDeducts = JSON.parse(block.querySelector('.inv-hidden').value); } catch (e) { }
 
-        let html = '<table class="table table-sm align-middle mt-3"><thead><tr class="table-light"><th>寄店產品</th><th>剩餘量</th><th style="width:140px">本次消耗扣除</th></tr></thead><tbody>';
+        let html = '<table class="table table-sm mt-3"><thead><tr><th>寄店產品</th><th>剩餘</th><th>本次扣除</th></tr></thead><tbody>';
         data.forEach(item => {
           let existing = currentDeducts.find(d => d.inv_id == item.inventory_id);
           let val = existing ? existing.amount : '';
-
-          html += `
-            <tr>
-               <td class="fw-bold">${item.product_name}</td>
-               <td class="text-primary">${item.remaining_amount} ${item.unit}</td>
-               <td>
-                  <div class="input-group input-group-sm">
-                     <input type="number" class="form-control deduct-input border-warning" data-invid="${item.inventory_id}" data-name="${item.product_name}" data-unit="${item.unit}" max="${item.remaining_amount}" min="0" step="0.1" value="${val}">
-                     <span class="input-group-text bg-warning text-dark">${item.unit}</span>
-                  </div>
-               </td>
-            </tr>`;
+          html += `<tr><td class="fw-bold">${item.product_name}</td><td class="text-primary">${item.remaining_amount} ${item.unit}</td>
+               <td><div class="input-group input-group-sm">
+                  <input type="number" class="form-control deduct-input" data-invid="${item.inventory_id}" data-name="${item.product_name}" data-unit="${item.unit}" max="${item.remaining_amount}" min="0" step="0.1" value="${val}">
+                  <span class="input-group-text">${item.unit}</span></div></td></tr>`;
         });
         html += '</tbody></table>';
         document.getElementById('inventoryList').innerHTML = html;
       })
-      .catch(err => {
-        console.error('API 讀取錯誤', err);
-        document.getElementById('inventoryLoading').classList.add('d-none');
-        document.getElementById('inventoryList').innerHTML = '<div class="text-danger p-3 text-center">網路讀取失敗，請重試</div>';
-      });
+      .catch(err => console.error(err));
   }
 
   function confirmInventoryDeduction() {
-    const rowId = document.getElementById('currentDeductRowId').value;
-    const row = document.getElementById(rowId);
-    if (!row) return;
-
+    const blockId = document.getElementById('currentDeductBlockId').value;
+    const block = document.getElementById(blockId);
     const inputs = document.querySelectorAll('#inventoryList .deduct-input');
-    let result = [];
-    let displayTexts = [];
+    let result = [], displayTexts = [];
 
     inputs.forEach(inp => {
       const amt = parseFloat(inp.value);
       if (amt > 0) {
         result.push({ inv_id: parseInt(inp.dataset.invid), amount: amt });
-        displayTexts.push(`<span class="badge bg-warning text-dark fs-6 shadow-sm me-1">${inp.dataset.name} -${amt}${inp.dataset.unit}</span>`);
+        displayTexts.push(`<span class="badge bg-warning text-dark me-1">${inp.dataset.name} -${amt}${inp.dataset.unit}</span>`);
       }
     });
 
-    // 儲存成 JSON 放到隱藏欄位，準備傳給後端
-    row.querySelector('.inv-hidden').value = JSON.stringify(result);
-
-    // 顯示在畫面上給芳療師確認
-    const displayDiv = row.querySelector('.inv-display');
-    if (displayTexts.length > 0) {
-      displayDiv.innerHTML = '<i class="bi bi-check-circle-fill"></i> 本次將扣除: ' + displayTexts.join(' ');
-    } else {
-      displayDiv.innerHTML = '';
-    }
-
+    block.querySelector('.inv-hidden').value = JSON.stringify(result);
+    const displayDiv = block.querySelector('.inv-display');
+    displayDiv.innerHTML = displayTexts.length > 0 ? '<i class="bi bi-check-circle-fill"></i> 扣除: ' + displayTexts.join(' ') : '';
     invModalInstance.hide();
   }
   // ================= 過濾訂單 (前端即時搜尋) =================
