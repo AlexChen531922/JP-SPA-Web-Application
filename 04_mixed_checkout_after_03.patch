@@ -1,0 +1,777 @@
+diff --git a/project/admin.py b/project/admin.py
+index 49fa380..de7a425 100644
+--- a/project/admin.py
++++ b/project/admin.py
+@@ -466,6 +466,7 @@ def dashboard():
+         inventory_products=inventory_products,
+         customers=customers,
+         manual_order_request_key=secrets.token_urlsafe(24),
++        manual_booking_request_key=secrets.token_urlsafe(24),
+         stored_balances=stored_balances,
+         orders=orders,
+         show_deleted_orders=show_deleted_orders,
+@@ -1355,6 +1356,12 @@ def update_order_status(order_id):
+         old_status = order['status']
+         if old_status != new_status:
+             if new_status == 'cancelled':
++                cursor.execute('''SELECT COUNT(*) AS count FROM manual_checkout_payments
++                                  WHERE order_id=%s AND method IN
++                                    ('cash','credit_card','bank_transfer','other')
++                                    AND status='recorded' ''', (order_id,))
++                if cursor.fetchone()['count']:
++                    raise ValueError('訂單有人工記錄的實際收款，須先確認退款，不能直接取消')
+                 cancel_order(cursor, order, get_current_user_id())
+             elif old_status == 'cancelled':
+                 # Stock and stored-value are both charged before the order can be restored.
+@@ -1419,6 +1426,15 @@ def update_booking_status(booking_id):
+         if not locked_booking:
+             raise ValueError('預約不存在')
+ 
++        # 有已收款或待核銷寄店抵扣的預約，不可直接取消而不作退款／沖銷。
++        if status == 'cancelled' and locked_booking['status'] != 'cancelled':
++            cursor.execute('''SELECT stored_value_amount, other_payment_amount,
++                                     deposit_credit_amount FROM bookings WHERE id=%s''', (booking_id,))
++            pay = cursor.fetchone()
++            if any(Decimal(str(pay[f] or 0)) > 0 for f in
++                   ('stored_value_amount','other_payment_amount','deposit_credit_amount')):
++                raise ValueError('此預約已有付款或待核銷寄店抵扣，須先處理退款與沖銷，不能直接取消')
++
+         # 1. ⭐ 獲取預約詳細資訊 (包含課程名稱、時間、客戶資料)
+         cursor.execute("""
+             SELECT b.status, b.global_schedule_id, c.name as course_name, s.start_time,
+@@ -2645,139 +2661,235 @@ def update_order_events(order_id):
+     return redirect(url_for('admin.dashboard', tab='orders'))
+ 
+ 
+-@admin_bp.route('/booking/add-manual', methods=['POST'])
+-@staff_required
+-def add_booking_manual():
+-    """管理員手動建立預約 (支援同行拆單、搜尋客戶、課程與產品混合結帳)"""
++def _manual_payment_entries(raw, item_type, total, service_fee, cursor, customer_id):
++    '''Validate independent payment lines server-side; never trust JS totals.'''
++    if not raw or len(raw) > 6000:
++        raise ValueError('付款明細不存在或過長，請重新開啟表單')
+     try:
+-        send_notification = request.form.get('send_notification') == 'on'
+-
+-        # 接收陣列資料
+-        customer_ids = request.form.getlist('customer_ids[]')
+-        item_types = request.form.getlist(
+-            'item_types[]')  # 'course' 或 'product'
+-        item_ids = request.form.getlist('item_ids[]')
+-        appointment_times = request.form.getlist('appointment_times[]')
+-        amounts = request.form.getlist('amounts[]')
+-        is_first_times = request.form.getlist('is_first_times[]')
+-        service_fee_ids = request.form.getlist('service_fee_ids[]')
+-        payment_methods = request.form.getlist('payment_methods[]')
+-        stored_value_amounts = request.form.getlist('stored_value_amounts[]')
+-
+-        # 寄店扣料只允許在課程完成後，由客戶詳情寄店產品頁處理。
+-        # 不接受舊版表單隱藏欄位，以免尚未服務就誤扣容量。
+-        if any(v and v != '[]' for v in request.form.getlist('inv_jsons[]')):
+-            raise ValueError('新預約不可提前扣寄店容量，請完成課程後使用寄店產品頁')
++        entries = json.loads(raw)
++    except (TypeError, json.JSONDecodeError) as exc:
++        raise ValueError('付款明細格式不正確') from exc
++    if not isinstance(entries, list) or len(entries) > 20:
++        raise ValueError('單項目付款方式最多 20 筆')
++    allowed = {'cash', 'credit_card', 'bank_transfer', 'other', 'stored_value', 'deposit_credit'}
++    result = []
++    for entry in entries:
++        if not isinstance(entry, dict) or entry.get('method') not in allowed:
++            raise ValueError('包含不支援的付款方式')
++        # Save only positive payment amounts. Zero lines are UI placeholders.
++        amount = money(entry.get('amount', '0'))
++        if amount < 0 or amount != amount.to_integral_value():
++            raise ValueError('每種付款方式的金額須為非負整數（元）')
++        if amount == 0:
++            continue
++        method = entry['method']
++        if method == 'deposit_credit':
++            if item_type != 'course':
++                raise ValueError('寄店產品抵扣只能用於課程，不可直接抵扣加購商品')
++            if service_fee <= 0:
++                raise ValueError('使用寄店產品抵扣時，請先選擇手技費')
++        result.append((method, amount))
++    if sum((a for _, a in result), Decimal('0')) > total:
++        raise ValueError('各付款方式與寄店抵扣合計不得超過本項目總額')
++    deposit_amount = sum((a for m, a in result if m == 'deposit_credit'), Decimal('0'))
++    if deposit_amount > 0:
++        if deposit_amount > total - service_fee:
++            raise ValueError('寄店產品抵扣不得超過課程總價扣除手技費的部分')
++        cursor.execute('''SELECT id FROM customer_inventory
++                          WHERE customer_id=%s AND remaining_amount > 0
++                            AND capacity_unit IN ('ml','g') LIMIT 1''', (customer_id,))
++        if not cursor.fetchone():
++            raise ValueError('此客戶沒有可用的寄店產品，不能建立寄店抵扣')
++    return result
+ 
+-        if not customer_ids or not item_ids:
+-            flash('請至少填寫一筆預約或購買資料', 'error')
+-            return redirect(url_for('admin.dashboard', tab='bookings'))
+ 
+-        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+-        success_count = 0
++def _manual_payment_summary(entries, total):
++    stored = sum((a for m, a in entries if m == 'stored_value'), Decimal('0'))
++    deposit = sum((a for m, a in entries if m == 'deposit_credit'), Decimal('0'))
++    offline = [(m, a) for m, a in entries if m not in ('stored_value', 'deposit_credit')]
++    paid_other = sum((a for _, a in offline), Decimal('0'))
++    remaining = total - stored - deposit - paid_other
++    methods = sorted(set(m for m, _ in entries))
++    method = methods[0] if len(methods) == 1 else ('mixed' if methods else 'offline')
++    other_method = offline[0][0] if len(set(m for m, _ in offline)) == 1 else ('mixed' if offline else None)
++    return stored, deposit, paid_other, remaining, method, other_method
+ 
+-        # 2. 處理表格內的項目 (課程與產品)
+-        for i, item_id in enumerate(item_ids):
+-            if not item_id or i >= len(customer_ids) or not customer_ids[i]:
+-                continue
+ 
+-            c_id = int(customer_ids[i])
+-            i_type = item_types[i] if i < len(item_types) else 'course'
+-            appt_time_str = appointment_times[i] if i < len(
+-                appointment_times) else None
+-            total_amount = float(amounts[i]) if i < len(
+-                amounts) and amounts[i] else 0.0
+-            is_first = True if i < len(
+-                is_first_times) and is_first_times[i] == '1' else False
+-            s_fee_id = int(service_fee_ids[i]) if i < len(
+-                service_fee_ids) and service_fee_ids[i] else None
+-            p_method = payment_methods[i] if i < len(
+-                payment_methods) and payment_methods[i] else 'offline'
+-            sv_amount = float(stored_value_amounts[i]) if i < len(
+-                stored_value_amounts) and stored_value_amounts[i] else 0.0
+-
+-            # 📌 狀況 A：購買的是「課程」 -> 寫入 Booking
+-            if i_type == 'course':
+-                appt_time = datetime.strptime(
+-                    appt_time_str, '%Y-%m-%dT%H:%M') if appt_time_str else datetime.now()
+-                cursor.execute("""
+-                    INSERT INTO bookings
+-                    (customer_id, course_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at,
+-                     payment_method, stored_value_amount, service_fee_id)
+-                    VALUES (%s, %s, %s, %s, 1, 1, 'confirmed', %s, %s, %s, %s)
+-                """, (c_id, item_id, total_amount, is_first, appt_time, p_method, sv_amount, s_fee_id))
+-                ref_id = cursor.lastrowid
++@admin_bp.route('/booking/add-manual', methods=['POST'])
++@staff_required
++def add_booking_manual():
++    # Create multiple bookings/products with itemized payments in ONE atomic transaction.
+ 
+-                # 排班佔位
+-                end_time = appt_time + timedelta(minutes=60)
+-                cursor.execute("""
+-                    INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
+-                    VALUES (%s, %s, 1, 1, 1) ON DUPLICATE KEY UPDATE current_bookings = current_bookings + 1
+-                """, (appt_time, end_time))
+-                cursor.execute(
+-                    "SELECT id FROM shop_schedules WHERE start_time = %s", (appt_time,))
+-                schedule_row = cursor.fetchone()
+-                if schedule_row:
+-                    cursor.execute(
+-                        "UPDATE bookings SET global_schedule_id = %s WHERE id = %s", (schedule_row['id'], ref_id))
+-
+-                log_activity('create', 'booking', ref_id, {
+-                             'type': 'manual_advanced', 'time': appt_time_str})
+-
+-            # 📌 狀況 B：購買的是「產品」 -> 寫入 Order 並扣除產品庫存
+-            elif i_type == 'product':
+-                other_amount = max(0.0, total_amount - sv_amount)
+-                payment_method_db = 'stored_value' if other_amount == 0 else (
+-                    'mixed' if sv_amount > 0 else p_method)
+-                other_payment_method = p_method if other_amount > 0 else None
++    # A deposit credit is provisional until a completed course's g/ml use is recorded;
++    # It does NOT consume customer_inventory during booking creation.
++    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
++    try:
++        key = (request.form.get('booking_request_key') or '').strip()
++        if not re.fullmatch(r'[A-Za-z0-9_-]{20,64}', key):
++            raise ValueError('表單已過期，請重新整理後再建立預約')
++        raw_rows = request.form.get('manual_rows_json') or ''
++        if not raw_rows or len(raw_rows) > 50000:
++            raise ValueError('預約付款明細不完整，請重新整理後操作')
++        try:
++            rows = json.loads(raw_rows)
++        except json.JSONDecodeError as exc:
++            raise ValueError('預約付款資料格式不正確') from exc
++        if not isinstance(rows, list) or not (1 <= len(rows) <= 50):
++            raise ValueError('請建立 1～50 筆課程或產品')
++        if any(not isinstance(row, dict) for row in rows):
++            raise ValueError('預約表單列格式不正確')
++        if any(v and v != '[]' for v in request.form.getlist('inv_jsons[]')):
++            raise ValueError('寄店容量必須在課程完成後登記，不可於預約時扣除')
+ 
+-                cursor.execute("""
+-                    INSERT INTO orders (customer_id, total_amount, status, created_at, stored_value_amount, other_payment_amount, other_payment_method, payment_method)
+-                    VALUES (%s, %s, 'completed', NOW(), %s, %s, %s, %s)
+-                """, (c_id, total_amount, sv_amount, other_amount, other_payment_method, payment_method_db))
++        actor = get_current_user_id()
++        if not actor:
++            raise ValueError('找不到目前操作人員')
++        database.connection.begin()
++        cursor.execute('''INSERT INTO manual_checkout_requests(request_key, operated_by)
++                          VALUES (%s, %s)''', (key, actor))
++        request_id = cursor.lastrowid
++        count = 0
++        for i, row in enumerate(rows):
++            item_raw = row.get('item_id')
++            c_id_raw = row.get('customer_id')
++            if not item_raw or not c_id_raw:
++                raise ValueError(f'第 {i + 1} 筆缺少客戶或產品／課程')
++            try:
++                customer_id = int(c_id_raw); item_id = int(item_raw)
++            except (TypeError, ValueError) as exc:
++                raise ValueError(f'第 {i + 1} 筆項目編號不正確') from exc
++            if customer_id <= 0 or item_id <= 0:
++                raise ValueError('客戶或項目編號不正確')
++            cursor.execute("SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
++            if not cursor.fetchone():
++                raise ValueError('客戶不存在或不是客戶帳號')
++            kind = row.get('item_type')
++            if kind not in ('course', 'product'):
++                raise ValueError('項目類型不支援')
++            first_time = row.get('is_first_time') is True
++            fee_id = None
++            fee_amount = Decimal('0')
++            if kind == 'course':
++                cursor.execute('''SELECT regular_price, experience_price FROM courses
++                                  WHERE id=%s AND is_active=1''', (item_id,))
++                course = cursor.fetchone()
++                if not course:
++                    raise ValueError('課程不存在或已下架')
++                reg = money(course['regular_price'])
++                exp = money(course['experience_price']) if course['experience_price'] is not None else None
++                total = exp if first_time and exp is not None and exp > 0 else reg
++                if row.get('service_fee_id'):
++                    fee_id = int(row['service_fee_id'])
++                    cursor.execute('SELECT price FROM service_fees WHERE id=%s AND is_active=1', (fee_id,))
++                    fee_row = cursor.fetchone()
++                    if not fee_row:
++                        raise ValueError('手技費選項不存在或已停用')
++                    fee_amount = money(fee_row['price'])
++                if fee_amount > total:
++                    raise ValueError('手技費不可高於課程總價')
++                if not row.get('appointment_time'):
++                    raise ValueError('請填寫預約時間')
++                appt = datetime.strptime(row['appointment_time'], '%Y-%m-%dT%H:%M')
++            else:
++                if row.get('service_fee_id') or row.get('appointment_time') or first_time:
++                    raise ValueError('產品列不應有課程欄位')
++                cursor.execute('SELECT price FROM products WHERE id=%s AND is_active=1', (item_id,))
++                product = cursor.fetchone()
++                if not product:
++                    raise ValueError('產品不存在或已下架')
++                # Manual product prices were already editable in the existing checkout.
++                total = money(row.get('amount'))
++                if total <= 0 or total != total.to_integral_value():
++                    raise ValueError('加購產品金額必須是正整數（元）')
++            lines = _manual_payment_entries(json.dumps(row.get('payments')), kind, total,
++                                            fee_amount, cursor, customer_id)
++            stored, deposit, other, due, pay_method, other_method = _manual_payment_summary(lines, total)
++            if kind == 'course':
++                cursor.execute('''INSERT INTO bookings
++                    (customer_id, course_id, total_amount, is_first_time,
++                     sessions_purchased, sessions_remaining, status, created_at,
++                     payment_method, stored_value_amount, other_payment_amount,
++                     other_payment_method, service_fee_id, service_fee_amount,
++                     product_fee_amount, deposit_credit_amount, amount_due)
++                    VALUES (%s,%s,%s,%s,1,1,'confirmed',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
++                    (customer_id, item_id, total, first_time, appt, pay_method,
++                     stored, other, other_method, fee_id, fee_amount,
++                     total - fee_amount, deposit, due))
+                 ref_id = cursor.lastrowid
+-
+-                # 寫入 Order Item 並扣除大庫存
+-                cursor.execute("""
+-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
+-                    VALUES (%s, %s, 1, %s, %s)
+-                """, (ref_id, item_id, total_amount, total_amount))
+-
+-                cursor.execute(
+-                    "UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = %s AND stock_quantity >= 1", (item_id,))
++                end_time = appt + timedelta(minutes=60)
++                cursor.execute('''INSERT INTO shop_schedules
++                    (start_time,end_time,max_capacity,current_bookings,is_active)
++                    VALUES (%s,%s,1,1,1)
++                    ON DUPLICATE KEY UPDATE current_bookings=current_bookings+1''',
++                    (appt, end_time))
++                cursor.execute('SELECT id FROM shop_schedules WHERE start_time=%s ORDER BY id LIMIT 1', (appt,))
++                slot = cursor.fetchone()
++                if slot:
++                    cursor.execute('UPDATE bookings SET global_schedule_id=%s WHERE id=%s', (slot['id'], ref_id))
++            else:
++                # Outstanding purchases remain pending rather than falsely 'completed'.
++                status = 'completed' if due == 0 else 'pending'
++                cursor.execute('''INSERT INTO orders
++                    (customer_id,total_amount,status,created_at,stored_value_amount,
++                     other_payment_amount,other_payment_method,payment_method,request_key,amount_due)
++                    VALUES (%s,%s,%s,NOW(),%s,%s,%s,%s,%s,%s)''',
++                    (customer_id,total,status,stored,other,other_method,pay_method,
++                     f'{key}:{i}' if len(key) + len(str(i)) + 1 <= 64 else None, due))
++                ref_id = cursor.lastrowid
++                cursor.execute('''INSERT INTO order_items
++                    (order_id,product_id,quantity,unit_price,subtotal)
++                    VALUES (%s,%s,1,%s,%s)''', (ref_id,item_id,total,total))
++                cursor.execute('''UPDATE products SET stock_quantity=stock_quantity-1,
++                    last_sale_date=NOW() WHERE id=%s AND stock_quantity >= 1''', (item_id,))
+                 if cursor.rowcount != 1:
+-                    raise ValueError(f'產品庫存不足，無法購買')
+-                cursor.execute("""
+-                    INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by)
+-                    VALUES (%s, -1, 'sale', %s, 'Admin Manual Booking (Product)', %s)
+-                """, (item_id, ref_id, get_current_user_id()))
+-
+-                log_activity('create', 'order', ref_id, {
+-                             'type': 'manual_advanced_product'})
+-
+-            # 執行儲值金扣款紀錄
+-                if sv_amount > 0:
+-                    from project.stored_value import change_balance
+-                    if i_type == 'course':
+-                        note = f'預約課程儲值扣款 (預約單號 #{ref_id})'
+-                        # 📌 預約單不是實體訂單(orders)，所以傳入 None 避免 Foreign Key 錯誤
+-                        change_balance(cursor, c_id, Decimal(
+-                            str(sv_amount)), 'spend', get_current_user_id(), None, 1, note)
+-                    else:
+-                        note = '購買產品儲值扣款'
+-                        # 📌 產品結帳有建立 orders，所以 ref_id 是真正的 order_id
+-                        change_balance(cursor, c_id, Decimal(
+-                            str(sv_amount)), 'spend', get_current_user_id(), ref_id, 1, note)
+-
+-            success_count += 1
+-
++                    raise ValueError('產品庫存不足，無法建立加購訂單')
++                cursor.execute('''INSERT INTO inventory_logs
++                    (product_id,change_amount,change_type,reference_id,notes,created_by)
++                    VALUES (%s,-1,'sale',%s,'Admin Manual Booking (Product)',%s)''',
++                    (item_id,ref_id,actor))
++            for method, amount in lines:
++                line_status = 'pending_reconciliation' if method == 'deposit_credit' else 'recorded'
++                cursor.execute('''INSERT INTO manual_checkout_payments
++                    (request_id,booking_id,order_id,method,amount,status,operated_by)
++                    VALUES (%s,%s,%s,%s,%s,%s,%s)''',
++                    (request_id,ref_id if kind == 'course' else None,
++                     ref_id if kind == 'product' else None,method,amount,line_status,actor))
++            if stored > 0:
++                change_balance(cursor,customer_id,-stored,'spend',actor,
++                               ref_id if kind == 'product' else None,
++                               1 if kind == 'product' else None,
++                               f'後台手動{("課程預約" if kind == "course" else "產品訂單")} #{ref_id} 儲值扣款')
++                if kind == 'product':
++                    cursor.execute('UPDATE orders SET financial_revision=1 WHERE id=%s', (ref_id,))
++            # Insert audit using the caller's cursor: log_activity() commits independently.
++            cursor.execute('''INSERT INTO audit_logs
++                (user_id,action,target_type,target_id,details,ip_address)
++                VALUES (%s,'create',%s,%s,%s,%s)''',
++                (actor,'booking' if kind == 'course' else 'order',ref_id,
++                 json.dumps({'type':'manual_mixed_checkout','total':str(total),
++                             'stored_value':str(stored),'deposit_credit_pending':str(deposit),
++                             'other_paid':str(other),'due':str(due),
++                             'payment_methods':[m for m,_ in lines]},ensure_ascii=False),
++                 request.remote_addr))
++            count += 1
+         database.connection.commit()
+-        cursor.close()
+-        flash(f'成功結帳 {success_count} 筆紀錄', 'success')
+-    except Exception as e:
++        flash(f'成功建立 {count} 筆紀錄；寄店抵扣部分仍待課程完成後核銷', 'success')
++    except MySQLdb.IntegrityError as exc:
+         database.connection.rollback()
+-        flash(f'建立失敗: {str(e)}', 'error')
+-
++        if exc.args and exc.args[0] == 1062:
++            flash('這份預約單已提交過，沒有重複建立；請查看預約管理', 'info')
++        else:
++            current_app.logger.exception('Manual checkout database error')
++            flash('建立失敗：資料庫約束檢查未通過', 'error')
++    except (ValueError, TypeError) as exc:
++        database.connection.rollback()
++        flash(f'建立失敗：{exc}', 'error')
++    except Exception:
++        database.connection.rollback()
++        current_app.logger.exception('Manual checkout failed')
++        flash('建立失敗，已取消整筆交易，請查看伺服器紀錄', 'error')
++    finally:
++        cursor.close()
+     return redirect(url_for('admin.dashboard', tab='bookings'))
+ 
+ 
+diff --git a/project/customer.py b/project/customer.py
+index a75536e..719e0ab 100644
+--- a/project/customer.py
++++ b/project/customer.py
+@@ -7,6 +7,7 @@ from project.notifications import send_email
+ import MySQLdb.cursors
+ import threading
+ import re
++from decimal import Decimal
+ 
+ customer_bp = Blueprint('customer', __name__, url_prefix='/customer')
+ 
+@@ -220,6 +221,12 @@ def cancel_order(order_id):
+         order = lock_order(cursor, order_id, user_id)
+         if order['status'] in ('completed','cancelled'):
+             raise ValueError('無法取消此訂單')
++        cursor.execute('''SELECT COUNT(*) AS count FROM manual_checkout_payments
++                          WHERE order_id=%s AND method IN
++                            ('cash','credit_card','bank_transfer','other')
++                            AND status='recorded' ''', (order_id,))
++        if cursor.fetchone()['count']:
++            raise ValueError('此訂單已有人工收款紀錄，請聯絡店家處理退款或取消')
+         cancel_order_with_refund(cursor,order,user_id,'Customer Cancel')
+         database.connection.commit()
+         try:
+@@ -242,13 +249,17 @@ def cancel_booking(booking_id):
+     try:
+         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+         cursor.execute(
+-            "SELECT status, schedule_id, global_schedule_id FROM bookings WHERE id = %s AND customer_id = %s FOR UPDATE", (booking_id, user_id))
++            """SELECT status, schedule_id, global_schedule_id, stored_value_amount, other_payment_amount, deposit_credit_amount FROM bookings WHERE id = %s AND customer_id = %s FOR UPDATE""", (booking_id, user_id))
+         booking = cursor.fetchone()
+ 
+         if not booking or booking['status'] in ['completed', 'cancelled']:
+             flash('無法取消此預約', 'error')
+             return redirect(request.referrer or url_for('customer.dashboard'))
+ 
++        if any(Decimal(str(booking.get(name) or 0)) > 0 for name in
++               ('stored_value_amount', 'other_payment_amount', 'deposit_credit_amount')):
++            raise ValueError('此預約已有付款或待核銷寄店抵扣，請聯絡店家處理退款與沖銷')
++
+         cursor.execute(
+             "UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
+ 
+diff --git a/project/templates/admin_dashboard.html b/project/templates/admin_dashboard.html
+index 171fa5c..f8e09bd 100644
+--- a/project/templates/admin_dashboard.html
++++ b/project/templates/admin_dashboard.html
+@@ -1966,6 +1966,8 @@
+     <!-- 💡 關鍵修正：將 form 本身加上 class="modal-content"，確保 Bootstrap 捲軸正常運作 -->
+     <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="bookingForm" class="modal-content">
+       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
++      <input type="hidden" name="booking_request_key" value="{{ manual_booking_request_key }}">
++      <input type="hidden" name="manual_rows_json" id="manualBookingRowsJson" value="">
+ 
+       <div class="modal-header bg-primary text-white">
+         <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單</h5>
+@@ -2027,7 +2029,8 @@
+         <!-- ⭐ 移出區塊：全場總計顯示區 (獨立於加購區塊外) -->
+         <div class="text-end mt-4 border-top pt-3">
+           <h5 class="fw-bold text-dark mb-2">全場應付總額: NT$ <span id="globalTotalAmount">0</span></h5>
+-          <h5 class="fw-bold text-danger mb-0">未付尾款總計: NT$ <span id="globalRemainingAmount">0</span></h5>
++          <h5 class="fw-bold text-danger mb-1">未付尾款總計: NT$ <span id="globalRemainingAmount">0</span></h5>
++          <p class="small text-warning mb-0">寄店抵扣待課程完成後依實際 g/ml 核銷：NT$ <span id="globalDepositPending">0</span>（不是已收款）</p>
+         </div>
+ 
+       </div> <!-- /.modal-body 結束 -->
+@@ -2745,20 +2748,7 @@
+               <input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary w-50" readonly required>
+            </div>
+            
+-           <!-- 儲值扣款整合區塊 (參考圖片樣式) -->
+-           <div class="border rounded p-2 bg-white mt-1">
+-              <div class="d-flex justify-content-between align-items-center mb-1">
+-                 <small class="text-muted fw-bold">儲值扣款</small>
+-                 <small class="text-muted">儲值可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
+-              </div>
+-              <div class="input-group input-group-sm mb-1">
+-                 <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="本次扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
+-              </div>
+-              <div class="d-flex justify-content-between align-items-center">
+-                 <small class="text-muted">餘額 <span class="row-remain-amount fw-bold text-danger">0</span></small>
+-                 <select name="payment_methods[]" class="form-select form-select-sm w-auto border-0 text-muted" style="background-color: transparent;"><option value="offline">現金</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
+-              </div>
+-           </div>
++           ${bookingPaymentMarkup()}
+         </td>
+ 
+         <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove(); calcGlobalTotal();"><i class="bi bi-trash"></i></button></td>
+@@ -2787,25 +2777,13 @@
+         <td colspan="2">
+            <div class="d-flex align-items-center mb-1">
+               <span class="text-muted small me-2">金額:</span>
+-              <input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary w-50" min="0" step="1" oninput="calcItemPrice(this.closest('tr'))" required>
++              <input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary w-50" oninput="calcItemPrice(this.closest('tr'))" required>
+            </div>
+         </td>
+         
+         <!-- 儲值扣款 (展開填滿剩餘空間) -->
+         <td colspan="2">
+-           <div class="border rounded p-2 bg-white mt-1">
+-              <div class="d-flex justify-content-between align-items-center mb-1">
+-                 <small class="text-muted fw-bold">儲值扣款</small>
+-                 <small class="text-muted">可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
+-              </div>
+-              <div class="input-group input-group-sm mb-1">
+-                 <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
+-              </div>
+-              <div class="d-flex justify-content-between align-items-center">
+-                 <small class="text-muted">餘額 <span class="row-remain-amount fw-bold text-danger">0</span></small>
+-                 <select name="payment_methods[]" class="form-select form-select-sm w-auto border-0 text-muted" style="background-color: transparent;"><option value="offline">現金</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
+-              </div>
+-           </div>
++           ${bookingPaymentMarkup()}
+         </td>
+         
+         <td class="text-end align-middle"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove(); calcGlobalTotal();"><i class="bi bi-trash"></i></button></td>
+@@ -2828,133 +2806,150 @@
+   function syncProduct(input) {
+     const opt = Array.from(document.getElementById('dl-products').options).find(o => o.value === input.value);
+     const tr = input.closest('tr');
+-    const amountInput = tr.querySelector('.row-amount');
+-    if (opt) {
+-      tr.querySelector('.row-item-id').value = opt.dataset.id;
+-      // 預約加購價格以整數元顯示與計算（不把 48000.00 帶入畫面）。
+-      amountInput.value = String(Math.round(Number(opt.dataset.price) || 0));
+-    } else {
+-      tr.querySelector('.row-item-id').value = '';
+-      amountInput.value = '';
+-    }
+-    // 選擇產品後立即重新計算本列及全場金額。
++    tr.querySelector('.row-item-id').value = opt ? opt.dataset.id : '';
++    tr.querySelector('.row-amount').value = opt ? String(Math.round(Number(opt.dataset.price) || 0)) : '';
+     calcItemPrice(tr);
+   }
+ 
+   function syncFee(input) {
+     const opt = Array.from(document.getElementById('dl-fees').options).find(o => o.value === input.value);
+     const tr = input.closest('tr');
+-    if (opt) {
+-      tr.querySelector('.row-fee-id').value = opt.dataset.id || '';
+-      tr.dataset.feePrice = opt.dataset.price || 0;
+-      calcItemPrice(tr);
+-    }
++    tr.querySelector('.row-fee-id').value = opt ? (opt.dataset.id || '') : '';
++    tr.dataset.feePrice = opt ? (opt.dataset.price || '0') : '0';
++    calcItemPrice(tr);
+   }
+ 
++  const bookingMethods = [
++    ['cash', '現金'], ['credit_card', '信用卡'], ['bank_transfer', '匯款'],
++    ['stored_value', '儲值扣款'], ['deposit_credit', '寄店扣料（待核銷）'], ['other', '其他']
++  ];
++  function paymentLineHtml(method = 'cash', amount = '0') {
++    const options = bookingMethods.map(([id, title]) =>
++      `<option value="${id}" ${method === id ? 'selected' : ''}>${title}</option>`).join('');
++    return `<div class="payment-line d-flex gap-1 align-items-center mb-2">
++      <select class="form-select form-select-sm payment-method" aria-label="付款方式" onchange="calcItemPrice(this.closest('tr'))">${options}</select>
++      <input class="form-control form-control-sm payment-amount" type="number" min="0" step="1" value="${amount}" aria-label="付款金額" oninput="calcItemPrice(this.closest('tr'))">
++      <button type="button" class="btn btn-sm btn-outline-danger" title="移除此付款方式" onclick="this.closest('.payment-line').remove();calcItemPrice(this.closest('tr'))">×</button>
++    </div>`;
++  }
++  function bookingPaymentMarkup() {
++    return `<div class="border rounded p-2 bg-white mt-1 booking-payments">
++      <div class="d-flex justify-content-between mb-2"><small class="fw-bold">付款明細（可分筆）</small>
++        <small class="text-muted">儲值可用：NT$ <span class="row-bal-display fw-bold">0</span></small></div>
++      <div class="payment-lines">${paymentLineHtml()}</div>
++      <button class="btn btn-sm btn-outline-secondary" type="button" onclick="addBookingPayment(this.closest('tr'))">+ 新增付款方式</button>
++      <div class="small mt-2">未付尾款：NT$ <strong class="row-remain-amount text-danger">0</strong></div>
++      <div class="small text-warning">寄店待核銷：NT$ <span class="row-deposit-pending">0</span></div>
++      <div class="small text-danger row-pay-error" role="status"></div>
++      </div>`;
++  }
++  function addBookingPayment(tr) {
++    const container = tr.querySelector('.payment-lines');
++    if (container.querySelectorAll('.payment-line').length >= 20) return;
++    container.insertAdjacentHTML('beforeend', paymentLineHtml());
++    calcItemPrice(tr);
++  }
++  function readBookingPayments(tr) {
++    return Array.from(tr.querySelectorAll('.payment-line')).map(line => ({
++      method: line.querySelector('.payment-method').value,
++      amount: line.querySelector('.payment-amount').value || '0'
++    }));
++  }
++  function bookingMoney(value) {
++    const n = Number(value);
++    return Number.isFinite(n) && n >= 0 ? n : NaN;
++  }
+   function calcItemPrice(tr) {
+-    // 判斷是課程還是產品列
+-    const isCourse = tr.querySelector('.row-first-time') !== null;
+-
+-    let totalAmountForRemain = 0;
+-    let feePrice = 0;
+-
++    const isCourse = !!tr.querySelector('.row-first-time');
++    const amountInput = tr.querySelector('.row-amount');
+     if (isCourse) {
+-      if (!tr.dataset.regPrice) return;
+-      const isFirst = tr.querySelector('.row-first-time').checked;
+-      tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
+-
+-      // 課程基本費
+-      const courseBasePrice = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
+-      feePrice = parseFloat(tr.dataset.feePrice) || 0;
+-
+-      // 總金額輸入框只顯示課程金額
+-      tr.querySelector('.row-amount').value = courseBasePrice;
+-
+-      // ⭐ 修正核心：扣款前的原始餘額，就是課程總金額，不把手技費加上去！
+-      totalAmountForRemain = courseBasePrice;
+-    } else {
+-      // 加購產品使用整數元；修改金額後立即更新儲值扣款上限及各項總計。
+-      const amountInput = tr.querySelector('.row-amount');
+-      const entered = Number(amountInput.value);
+-      totalAmountForRemain = Number.isFinite(entered) && entered >= 0 ? Math.round(entered) : 0;
+-      if (amountInput.value !== '') amountInput.value = String(totalAmountForRemain);
+-    }
+-
+-    // 將真實應付總額存在該列 (給全場加總用)
+-    tr.dataset.realTotal = totalAmountForRemain;
+-
+-    // 處理儲值金與該列餘額顯示
+-    const custSelect = tr.querySelector('.row-cust-select');
+-    if (!custSelect) return;
+-
+-    const custId = custSelect.value;
+-    const custOption = document.querySelector(`datalist#dl-customers option[data-id="${custId}"]`);
+-    const maxBal = custOption ? parseFloat(custOption.dataset.balance || 0) : 0;
+-
+-    const balDisplay = tr.querySelector('.row-bal-display');
+-    if (balDisplay) balDisplay.innerText = Math.floor(maxBal).toLocaleString();
+-
+-    const svInput = tr.querySelector('.sv-input');
+-    if (svInput) {
+-      // 若為課程且有手技費，預設將手技費帶入扣款 (僅當使用者沒手動修改時)
+-      if (isCourse && feePrice > 0 && document.activeElement !== svInput) {
+-        // 防呆：帶入的手技費不能超過客戶餘額，也不能超過課程總金額
+-        svInput.value = Math.min(feePrice, maxBal, totalAmountForRemain);
+-      }
+-
+-      let svUse = parseFloat(svInput.value) || 0;
+-
+-      // 防呆限制
+-      if (svUse > maxBal) {
+-        svUse = maxBal;
+-        svInput.value = maxBal;
+-      }
+-      if (svUse > totalAmountForRemain) {
+-        svUse = totalAmountForRemain;
+-        svInput.value = totalAmountForRemain;
+-      }
+-
+-      // ⭐ 正確的餘額計算：總金額 - 儲值扣款
+-      const remain = totalAmountForRemain - svUse;
+-      const remainDisplay = tr.querySelector('.row-remain-amount');
+-      if (remainDisplay) {
+-        remainDisplay.innerText = Math.floor(remain).toLocaleString();
++      const first = tr.querySelector('.row-first-time').checked;
++      tr.querySelector('.row-first-hidden').value = first ? '1' : '0';
++      if (tr.dataset.regPrice) {
++        const v = Number(first && Number(tr.dataset.expPrice) > 0 ? tr.dataset.expPrice : tr.dataset.regPrice);
++        amountInput.value = String(Math.round(v));
+       }
++    } else if (amountInput.value !== '') {
++      const v = Number(amountInput.value);
++      if (Number.isFinite(v) && v >= 0 && Number.isInteger(v)) amountInput.value = String(v);
+     }
+-
+-    // 每次單列計算完，觸發一次全場加總
++    const total = bookingMoney(amountInput.value || 0);
++    const custId = tr.querySelector('.row-cust-select')?.value;
++    const custOption = Array.from(document.querySelectorAll('#dl-customers option'))
++      .find(opt => opt.dataset.id === custId);
++    const balance = Number(custOption?.dataset.balance || 0);
++    tr.querySelector('.row-bal-display').textContent = Math.floor(balance).toLocaleString();
++    let applied = 0, wallet = 0, deposit = 0, error = '';
++    for (const line of readBookingPayments(tr)) {
++      const amount = bookingMoney(line.amount);
++      if (!Number.isInteger(amount)) error = '付款金額須為非負整數';
++      if (!Number.isFinite(amount)) continue;
++      applied += amount;
++      if (line.method === 'stored_value') wallet += amount;
++      if (line.method === 'deposit_credit') deposit += amount;
++    }
++    const fee = isCourse ? Number(tr.dataset.feePrice || 0) : 0;
++    if (deposit > 0 && !isCourse) error = '加購產品不能使用寄店扣料';
++    if (deposit > 0 && (!fee || deposit > total - fee)) error = '寄店抵扣不能超過課程扣除手技費後的金額';
++    if (wallet > balance) error = '儲值扣款超出客戶可用額度';
++    if (applied > total) error = '各付款金額合計超過本列總額';
++    tr.querySelector('.row-pay-error').textContent = error;
++    tr.dataset.paymentInvalid = error ? '1' : '0';
++    tr.querySelector('.row-remain-amount').textContent = Math.max(0, total - applied).toLocaleString();
++    tr.querySelector('.row-deposit-pending').textContent = deposit.toLocaleString();
++    tr.dataset.realTotal = String(total);
+     calcGlobalTotal();
+   }
+-
+-  // ⭐ 新增：計算全場總計 (加總所有列)
+   function calcGlobalTotal() {
+-    let globalTotal = 0;
+-    let globalSvUsed = 0;
+-
+-    // 遍歷所有課程與產品列
+-    const allRows = document.querySelectorAll('#courseTbody tr, #productTbody tr');
+-    allRows.forEach(tr => {
+-      // 直接從目前的課程／加購金額輸入框取值，不依賴先前是否觸發過 change。
+-      const amountInput = tr.querySelector('.row-amount');
+-      const rowTotal = amountInput ? (Number(amountInput.value) || 0) : 0;
+-      if (Number.isFinite(rowTotal) && rowTotal > 0) globalTotal += rowTotal;
+-
+-      // 取得該列使用的儲值金
+-      const svInput = tr.querySelector('.sv-input');
+-      const rowSv = svInput ? (parseFloat(svInput.value) || 0) : 0;
+-      globalSvUsed += rowSv;
++    let total = 0, amountApplied = 0, deposit = 0;
++    document.querySelectorAll('#courseTbody tr, #productTbody tr').forEach(tr => {
++      const amount = bookingMoney(tr.querySelector('.row-amount')?.value || '0');
++      if (Number.isFinite(amount)) total += amount;
++      for (const line of readBookingPayments(tr)) {
++        const n = bookingMoney(line.amount);
++        if (!Number.isFinite(n)) continue;
++        amountApplied += n;
++        if (line.method === 'deposit_credit') deposit += n;
++      }
+     });
+-
+-    // 未付尾款 = 全場總額 - 全場儲值扣抵
+-    const globalRemain = globalTotal - globalSvUsed;
+-
+-    // 顯示到畫面上
+-    const totalEl = document.getElementById('globalTotalAmount');
+-    const remainEl = document.getElementById('globalRemainingAmount');
+-
+-    if (totalEl) totalEl.innerText = Math.floor(globalTotal).toLocaleString();
+-    if (remainEl) remainEl.innerText = Math.floor(globalRemain).toLocaleString();
++    document.getElementById('globalTotalAmount').textContent = total.toLocaleString();
++    document.getElementById('globalRemainingAmount').textContent = Math.max(0, total - amountApplied).toLocaleString();
++    document.getElementById('globalDepositPending').textContent = deposit.toLocaleString();
+   }
++  document.addEventListener('DOMContentLoaded', () => {
++    const form = document.getElementById('bookingForm');
++    if (!form) return;
++    form.addEventListener('submit', (ev) => {
++      const trs = Array.from(document.querySelectorAll('#courseTbody tr, #productTbody tr'));
++      const rows = [];
++      for (const tr of trs) {
++        calcItemPrice(tr);
++        if (tr.dataset.paymentInvalid === '1') {
++          ev.preventDefault();
++          alert('請修正各筆付款明細的紅色錯誤訊息');
++          return;
++        }
++        const isCourse = !!tr.querySelector('.row-first-time');
++        const itemId = tr.querySelector('.row-item-id').value;
++        const customerId = tr.querySelector('.row-cust-select').value;
++        const price = tr.querySelector('.row-amount').value;
++        if (!itemId || !customerId || !price) {
++          ev.preventDefault(); alert('請確認每列客戶、項目及金額已填寫'); return;
++        }
++        rows.push({
++          customer_id: customerId, item_type: isCourse ? 'course' : 'product', item_id: itemId,
++          appointment_time: isCourse ? tr.querySelector('input[type="datetime-local"]').value : '',
++          amount: price, is_first_time: isCourse && tr.querySelector('.row-first-time').checked,
++          service_fee_id: isCourse ? tr.querySelector('.row-fee-id').value : '',
++          payments: readBookingPayments(tr)
++        });
++      }
++      if (!rows.length) { ev.preventDefault(); alert('至少需要一筆課程或加購產品'); return; }
++      document.getElementById('manualBookingRowsJson').value = JSON.stringify(rows);
++      const btn = form.querySelector('button[type="submit"]');
++      if (btn) btn.disabled = true;
++    });
++  });
+ 
+   // 寄店產品扣料已改在客戶詳情頁完成，並由 Flask 原子交易寫入流水。
+   // ================= 過濾訂單 (前端即時搜尋) =================

@@ -1966,6 +1966,8 @@
     <!-- 💡 關鍵修正：將 form 本身加上 class="modal-content"，確保 Bootstrap 捲軸正常運作 -->
     <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="bookingForm" class="modal-content">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="booking_request_key" value="{{ manual_booking_request_key }}">
+      <input type="hidden" name="manual_rows_json" id="manualBookingRowsJson" value="">
 
       <div class="modal-header bg-primary text-white">
         <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單</h5>
@@ -2027,7 +2029,8 @@
         <!-- ⭐ 移出區塊：全場總計顯示區 (獨立於加購區塊外) -->
         <div class="text-end mt-4 border-top pt-3">
           <h5 class="fw-bold text-dark mb-2">全場應付總額: NT$ <span id="globalTotalAmount">0</span></h5>
-          <h5 class="fw-bold text-danger mb-0">未付尾款總計: NT$ <span id="globalRemainingAmount">0</span></h5>
+          <h5 class="fw-bold text-danger mb-1">未付尾款總計: NT$ <span id="globalRemainingAmount">0</span></h5>
+          <p class="small text-warning mb-0">寄店抵扣待課程完成後依實際 g/ml 核銷：NT$ <span id="globalDepositPending">0</span>（不是已收款）</p>
         </div>
 
       </div> <!-- /.modal-body 結束 -->
@@ -2745,20 +2748,7 @@
               <input type="number" name="amounts[]" class="form-control form-control-sm row-amount fw-bold text-primary w-50" readonly required>
            </div>
            
-           <!-- 儲值扣款整合區塊 (參考圖片樣式) -->
-           <div class="border rounded p-2 bg-white mt-1">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                 <small class="text-muted fw-bold">儲值扣款</small>
-                 <small class="text-muted">儲值可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
-              </div>
-              <div class="input-group input-group-sm mb-1">
-                 <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="本次扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
-              </div>
-              <div class="d-flex justify-content-between align-items-center">
-                 <small class="text-muted">餘額 <span class="row-remain-amount fw-bold text-danger">0</span></small>
-                 <select name="payment_methods[]" class="form-select form-select-sm w-auto border-0 text-muted" style="background-color: transparent;"><option value="offline">現金</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
-              </div>
-           </div>
+           ${bookingPaymentMarkup()}
         </td>
 
         <td class="text-end"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove(); calcGlobalTotal();"><i class="bi bi-trash"></i></button></td>
@@ -2793,19 +2783,7 @@
         
         <!-- 儲值扣款 (展開填滿剩餘空間) -->
         <td colspan="2">
-           <div class="border rounded p-2 bg-white mt-1">
-              <div class="d-flex justify-content-between align-items-center mb-1">
-                 <small class="text-muted fw-bold">儲值扣款</small>
-                 <small class="text-muted">可用: NT$ <span class="row-bal-display fw-bold">0</span></small>
-              </div>
-              <div class="input-group input-group-sm mb-1">
-                 <input type="number" name="stored_value_amounts[]" class="form-control border-success sv-input" placeholder="扣除金額" value="0" min="0" oninput="calcItemPrice(this.closest('tr'))">
-              </div>
-              <div class="d-flex justify-content-between align-items-center">
-                 <small class="text-muted">餘額 <span class="row-remain-amount fw-bold text-danger">0</span></small>
-                 <select name="payment_methods[]" class="form-select form-select-sm w-auto border-0 text-muted" style="background-color: transparent;"><option value="offline">現金</option><option value="credit_card">信用卡</option><option value="transfer">匯款</option></select>
-              </div>
-           </div>
+           ${bookingPaymentMarkup()}
         </td>
         
         <td class="text-end align-middle"><button type="button" class="btn btn-sm btn-link text-danger" onclick="this.closest('tr').remove(); calcGlobalTotal();"><i class="bi bi-trash"></i></button></td>
@@ -2828,122 +2806,150 @@
   function syncProduct(input) {
     const opt = Array.from(document.getElementById('dl-products').options).find(o => o.value === input.value);
     const tr = input.closest('tr');
-    if (opt) {
-      tr.querySelector('.row-item-id').value = opt.dataset.id;
-      tr.querySelector('.row-amount').value = opt.dataset.price; // 產品直接帶入定價
-    }
+    tr.querySelector('.row-item-id').value = opt ? opt.dataset.id : '';
+    tr.querySelector('.row-amount').value = opt ? String(Math.round(Number(opt.dataset.price) || 0)) : '';
+    calcItemPrice(tr);
   }
 
   function syncFee(input) {
     const opt = Array.from(document.getElementById('dl-fees').options).find(o => o.value === input.value);
     const tr = input.closest('tr');
-    if (opt) {
-      tr.querySelector('.row-fee-id').value = opt.dataset.id || '';
-      tr.dataset.feePrice = opt.dataset.price || 0;
-      calcItemPrice(tr);
-    }
+    tr.querySelector('.row-fee-id').value = opt ? (opt.dataset.id || '') : '';
+    tr.dataset.feePrice = opt ? (opt.dataset.price || '0') : '0';
+    calcItemPrice(tr);
   }
 
+  const bookingMethods = [
+    ['cash', '現金'], ['credit_card', '信用卡'], ['bank_transfer', '匯款'],
+    ['stored_value', '儲值扣款'], ['deposit_credit', '寄店扣料（待核銷）'], ['other', '其他']
+  ];
+  function paymentLineHtml(method = 'cash', amount = '0') {
+    const options = bookingMethods.map(([id, title]) =>
+      `<option value="${id}" ${method === id ? 'selected' : ''}>${title}</option>`).join('');
+    return `<div class="payment-line d-flex gap-1 align-items-center mb-2">
+      <select class="form-select form-select-sm payment-method" aria-label="付款方式" onchange="calcItemPrice(this.closest('tr'))">${options}</select>
+      <input class="form-control form-control-sm payment-amount" type="number" min="0" step="1" value="${amount}" aria-label="付款金額" oninput="calcItemPrice(this.closest('tr'))">
+      <button type="button" class="btn btn-sm btn-outline-danger" title="移除此付款方式" onclick="this.closest('.payment-line').remove();calcItemPrice(this.closest('tr'))">×</button>
+    </div>`;
+  }
+  function bookingPaymentMarkup() {
+    return `<div class="border rounded p-2 bg-white mt-1 booking-payments">
+      <div class="d-flex justify-content-between mb-2"><small class="fw-bold">付款明細（可分筆）</small>
+        <small class="text-muted">儲值可用：NT$ <span class="row-bal-display fw-bold">0</span></small></div>
+      <div class="payment-lines">${paymentLineHtml()}</div>
+      <button class="btn btn-sm btn-outline-secondary" type="button" onclick="addBookingPayment(this.closest('tr'))">+ 新增付款方式</button>
+      <div class="small mt-2">未付尾款：NT$ <strong class="row-remain-amount text-danger">0</strong></div>
+      <div class="small text-warning">寄店待核銷：NT$ <span class="row-deposit-pending">0</span></div>
+      <div class="small text-danger row-pay-error" role="status"></div>
+      </div>`;
+  }
+  function addBookingPayment(tr) {
+    const container = tr.querySelector('.payment-lines');
+    if (container.querySelectorAll('.payment-line').length >= 20) return;
+    container.insertAdjacentHTML('beforeend', paymentLineHtml());
+    calcItemPrice(tr);
+  }
+  function readBookingPayments(tr) {
+    return Array.from(tr.querySelectorAll('.payment-line')).map(line => ({
+      method: line.querySelector('.payment-method').value,
+      amount: line.querySelector('.payment-amount').value || '0'
+    }));
+  }
+  function bookingMoney(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : NaN;
+  }
   function calcItemPrice(tr) {
-    // 判斷是課程還是產品列
-    const isCourse = tr.querySelector('.row-first-time') !== null;
-
-    let totalAmountForRemain = 0;
-    let feePrice = 0;
-
+    const isCourse = !!tr.querySelector('.row-first-time');
+    const amountInput = tr.querySelector('.row-amount');
     if (isCourse) {
-      if (!tr.dataset.regPrice) return;
-      const isFirst = tr.querySelector('.row-first-time').checked;
-      tr.querySelector('.row-first-hidden').value = isFirst ? '1' : '0';
-
-      // 課程基本費
-      const courseBasePrice = parseFloat(isFirst ? tr.dataset.expPrice : tr.dataset.regPrice) || 0;
-      feePrice = parseFloat(tr.dataset.feePrice) || 0;
-
-      // 總金額輸入框只顯示課程金額
-      tr.querySelector('.row-amount').value = courseBasePrice;
-
-      // ⭐ 修正核心：扣款前的原始餘額，就是課程總金額，不把手技費加上去！
-      totalAmountForRemain = courseBasePrice;
-    } else {
-      // 產品列的總額直接抓金額欄位
-      totalAmountForRemain = parseFloat(tr.querySelector('.row-amount').value) || 0;
+      const first = tr.querySelector('.row-first-time').checked;
+      tr.querySelector('.row-first-hidden').value = first ? '1' : '0';
+      if (tr.dataset.regPrice) {
+        const v = Number(first && Number(tr.dataset.expPrice) > 0 ? tr.dataset.expPrice : tr.dataset.regPrice);
+        amountInput.value = String(Math.round(v));
+      }
+    } else if (amountInput.value !== '') {
+      const v = Number(amountInput.value);
+      if (Number.isFinite(v) && v >= 0 && Number.isInteger(v)) amountInput.value = String(v);
     }
-
-    // 將真實應付總額存在該列 (給全場加總用)
-    tr.dataset.realTotal = totalAmountForRemain;
-
-    // 處理儲值金與該列餘額顯示
-    const custSelect = tr.querySelector('.row-cust-select');
-    if (!custSelect) return;
-
-    const custId = custSelect.value;
-    const custOption = document.querySelector(`datalist#dl-customers option[data-id="${custId}"]`);
-    const maxBal = custOption ? parseFloat(custOption.dataset.balance || 0) : 0;
-
-    const balDisplay = tr.querySelector('.row-bal-display');
-    if (balDisplay) balDisplay.innerText = Math.floor(maxBal).toLocaleString();
-
-    const svInput = tr.querySelector('.sv-input');
-    if (svInput) {
-      // 若為課程且有手技費，預設將手技費帶入扣款 (僅當使用者沒手動修改時)
-      if (isCourse && feePrice > 0 && document.activeElement !== svInput) {
-        // 防呆：帶入的手技費不能超過客戶餘額，也不能超過課程總金額
-        svInput.value = Math.min(feePrice, maxBal, totalAmountForRemain);
-      }
-
-      let svUse = parseFloat(svInput.value) || 0;
-
-      // 防呆限制
-      if (svUse > maxBal) {
-        svUse = maxBal;
-        svInput.value = maxBal;
-      }
-      if (svUse > totalAmountForRemain) {
-        svUse = totalAmountForRemain;
-        svInput.value = totalAmountForRemain;
-      }
-
-      // ⭐ 正確的餘額計算：總金額 - 儲值扣款
-      const remain = totalAmountForRemain - svUse;
-      const remainDisplay = tr.querySelector('.row-remain-amount');
-      if (remainDisplay) {
-        remainDisplay.innerText = Math.floor(remain).toLocaleString();
-      }
+    const total = bookingMoney(amountInput.value || 0);
+    const custId = tr.querySelector('.row-cust-select')?.value;
+    const custOption = Array.from(document.querySelectorAll('#dl-customers option'))
+      .find(opt => opt.dataset.id === custId);
+    const balance = Number(custOption?.dataset.balance || 0);
+    tr.querySelector('.row-bal-display').textContent = Math.floor(balance).toLocaleString();
+    let applied = 0, wallet = 0, deposit = 0, error = '';
+    for (const line of readBookingPayments(tr)) {
+      const amount = bookingMoney(line.amount);
+      if (!Number.isInteger(amount)) error = '付款金額須為非負整數';
+      if (!Number.isFinite(amount)) continue;
+      applied += amount;
+      if (line.method === 'stored_value') wallet += amount;
+      if (line.method === 'deposit_credit') deposit += amount;
     }
-
-    // 每次單列計算完，觸發一次全場加總
+    const fee = isCourse ? Number(tr.dataset.feePrice || 0) : 0;
+    if (deposit > 0 && !isCourse) error = '加購產品不能使用寄店扣料';
+    if (deposit > 0 && (!fee || deposit > total - fee)) error = '寄店抵扣不能超過課程扣除手技費後的金額';
+    if (wallet > balance) error = '儲值扣款超出客戶可用額度';
+    if (applied > total) error = '各付款金額合計超過本列總額';
+    tr.querySelector('.row-pay-error').textContent = error;
+    tr.dataset.paymentInvalid = error ? '1' : '0';
+    tr.querySelector('.row-remain-amount').textContent = Math.max(0, total - applied).toLocaleString();
+    tr.querySelector('.row-deposit-pending').textContent = deposit.toLocaleString();
+    tr.dataset.realTotal = String(total);
     calcGlobalTotal();
   }
-
-  // ⭐ 新增：計算全場總計 (加總所有列)
   function calcGlobalTotal() {
-    let globalTotal = 0;
-    let globalSvUsed = 0;
-
-    // 遍歷所有課程與產品列
-    const allRows = document.querySelectorAll('#courseTbody tr, #productTbody tr');
-    allRows.forEach(tr => {
-      // 取得該列真實應付總額 (課程+手技 或 產品金額)
-      const rowTotal = parseFloat(tr.dataset.realTotal) || 0;
-      globalTotal += rowTotal;
-
-      // 取得該列使用的儲值金
-      const svInput = tr.querySelector('.sv-input');
-      const rowSv = svInput ? (parseFloat(svInput.value) || 0) : 0;
-      globalSvUsed += rowSv;
+    let total = 0, amountApplied = 0, deposit = 0;
+    document.querySelectorAll('#courseTbody tr, #productTbody tr').forEach(tr => {
+      const amount = bookingMoney(tr.querySelector('.row-amount')?.value || '0');
+      if (Number.isFinite(amount)) total += amount;
+      for (const line of readBookingPayments(tr)) {
+        const n = bookingMoney(line.amount);
+        if (!Number.isFinite(n)) continue;
+        amountApplied += n;
+        if (line.method === 'deposit_credit') deposit += n;
+      }
     });
-
-    // 未付尾款 = 全場總額 - 全場儲值扣抵
-    const globalRemain = globalTotal - globalSvUsed;
-
-    // 顯示到畫面上
-    const totalEl = document.getElementById('globalTotalAmount');
-    const remainEl = document.getElementById('globalRemainingAmount');
-
-    if (totalEl) totalEl.innerText = Math.floor(globalTotal).toLocaleString();
-    if (remainEl) remainEl.innerText = Math.floor(globalRemain).toLocaleString();
+    document.getElementById('globalTotalAmount').textContent = total.toLocaleString();
+    document.getElementById('globalRemainingAmount').textContent = Math.max(0, total - amountApplied).toLocaleString();
+    document.getElementById('globalDepositPending').textContent = deposit.toLocaleString();
   }
+  document.addEventListener('DOMContentLoaded', () => {
+    const form = document.getElementById('bookingForm');
+    if (!form) return;
+    form.addEventListener('submit', (ev) => {
+      const trs = Array.from(document.querySelectorAll('#courseTbody tr, #productTbody tr'));
+      const rows = [];
+      for (const tr of trs) {
+        calcItemPrice(tr);
+        if (tr.dataset.paymentInvalid === '1') {
+          ev.preventDefault();
+          alert('請修正各筆付款明細的紅色錯誤訊息');
+          return;
+        }
+        const isCourse = !!tr.querySelector('.row-first-time');
+        const itemId = tr.querySelector('.row-item-id').value;
+        const customerId = tr.querySelector('.row-cust-select').value;
+        const price = tr.querySelector('.row-amount').value;
+        if (!itemId || !customerId || !price) {
+          ev.preventDefault(); alert('請確認每列客戶、項目及金額已填寫'); return;
+        }
+        rows.push({
+          customer_id: customerId, item_type: isCourse ? 'course' : 'product', item_id: itemId,
+          appointment_time: isCourse ? tr.querySelector('input[type="datetime-local"]').value : '',
+          amount: price, is_first_time: isCourse && tr.querySelector('.row-first-time').checked,
+          service_fee_id: isCourse ? tr.querySelector('.row-fee-id').value : '',
+          payments: readBookingPayments(tr)
+        });
+      }
+      if (!rows.length) { ev.preventDefault(); alert('至少需要一筆課程或加購產品'); return; }
+      document.getElementById('manualBookingRowsJson').value = JSON.stringify(rows);
+      const btn = form.querySelector('button[type="submit"]');
+      if (btn) btn.disabled = true;
+    });
+  });
 
   // 寄店產品扣料已改在客戶詳情頁完成，並由 Flask 原子交易寫入流水。
   // ================= 過濾訂單 (前端即時搜尋) =================

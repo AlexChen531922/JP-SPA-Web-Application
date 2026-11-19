@@ -38,6 +38,8 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 
 # Customer-owned stored products use independent capacity units; products.unit
 # continues to mean pieces/bottles for merchandise inventory and orders.
+
+
 def _capacity_from_form(form, *, required=False):
     raw = (form.get('capacity_per_unit') or '').strip()
     unit = (form.get('capacity_unit') or '').strip()
@@ -75,7 +77,7 @@ def _inventory_request(cursor, customer_id, action, key, booking_id=None, usage_
     cursor.execute('''INSERT INTO customer_inventory_requests
         (request_key, customer_id, action, booking_id, usage_date, notes, operated_by)
         VALUES (%s, %s, %s, %s, %s, %s, %s)''',
-        (key, customer_id, action, booking_id, usage_date, notes, get_current_user_id()))
+                   (key, customer_id, action, booking_id, usage_date, notes, get_current_user_id()))
     return cursor.lastrowid
 
 
@@ -83,7 +85,7 @@ def _inventory_ledger(cursor, operation_id, inventory_id, delta, before, after, 
     cursor.execute('''INSERT INTO customer_inventory_movements
         (request_id, inventory_id, delta_amount, before_amount, after_amount, capacity_unit)
         VALUES (%s, %s, %s, %s, %s, %s)''',
-        (operation_id, inventory_id, delta, before, after, unit))
+                   (operation_id, inventory_id, delta, before, after, unit))
 
 
 def _duplicate_inventory_request(exc):
@@ -95,7 +97,6 @@ def _inventory_form_redirect(customer_id, booking_id=None):
     if booking_id:
         params['booking_id'] = booking_id
     return redirect(url_for('admin.customer_detail', **params))
-
 
 
 def allowed_file(filename):
@@ -466,6 +467,7 @@ def dashboard():
         inventory_products=inventory_products,
         customers=customers,
         manual_order_request_key=secrets.token_urlsafe(24),
+        manual_booking_request_key=secrets.token_urlsafe(24),
         stored_balances=stored_balances,
         orders=orders,
         show_deleted_orders=show_deleted_orders,
@@ -521,7 +523,7 @@ def add_product_modal():
                 (product_id, change_amount, change_type, notes, created_by,
                  capacity_per_unit_snapshot, capacity_unit_snapshot)
                 VALUES (%s, %s, 'adjustment', '新產品初始庫存', %s, %s, %s)""",
-                            (new_id, initial_stock, get_current_user_id(), capacity, capacity_unit))
+                           (new_id, initial_stock, get_current_user_id(), capacity, capacity_unit))
         database.connection.commit()
         cursor.close()
 
@@ -562,7 +564,8 @@ def update_product_modal(product_id):
         capacity, capacity_unit = _capacity_from_form(request.form)
         old_capacity = current_prod.get('capacity_per_unit')
         old_unit = current_prod.get('capacity_unit')
-        changed_capacity = (capacity != old_capacity or capacity_unit != old_unit)
+        changed_capacity = (
+            capacity != old_capacity or capacity_unit != old_unit)
         if changed_capacity:
             # Historical purchased / stored products must retain their size.
             cursor.execute('''SELECT COUNT(*) AS n FROM customer_inventory
@@ -570,7 +573,8 @@ def update_product_modal(product_id):
             if cursor.fetchone()['n']:
                 raise ValueError('已有寄店紀錄，不能改變容量規格；請建立不同規格商品')
             if old_capacity is not None:
-                cursor.execute('SELECT 1 FROM order_items WHERE product_id=%s LIMIT 1', (product_id,))
+                cursor.execute(
+                    'SELECT 1 FROM order_items WHERE product_id=%s LIMIT 1', (product_id,))
                 if cursor.fetchone():
                     raise ValueError('已有購買紀錄，不能改變既有容量規格；請建立不同規格商品')
                 if int(current_prod.get('stock_quantity') or 0) > 0:
@@ -1184,7 +1188,7 @@ def restock_product():
             if configured_capacity is None:
                 cursor.execute('''UPDATE products
                     SET capacity_per_unit=%s, capacity_unit=%s WHERE id=%s''',
-                    (incoming_capacity, incoming_unit, product_id))
+                               (incoming_capacity, incoming_unit, product_id))
         elif configured_capacity is not None:
             incoming_capacity, incoming_unit = configured_capacity, configured_unit
 
@@ -1229,7 +1233,7 @@ def restock_product():
              capacity_per_unit_snapshot, capacity_unit_snapshot)
             VALUES (%s, %s, 'purchase', %s, %s, %s, %s)
         """, (product_id, quantity, log_note, get_current_user_id(),
-                 incoming_capacity, incoming_unit))
+              incoming_capacity, incoming_unit))
 
         database.connection.commit()
         cursor.close()
@@ -1355,6 +1359,12 @@ def update_order_status(order_id):
         old_status = order['status']
         if old_status != new_status:
             if new_status == 'cancelled':
+                cursor.execute('''SELECT COUNT(*) AS count FROM manual_checkout_payments
+                                  WHERE order_id=%s AND method IN
+                                    ('cash','credit_card','bank_transfer','other')
+                                    AND status='recorded' ''', (order_id,))
+                if cursor.fetchone()['count']:
+                    raise ValueError('訂單有人工記錄的實際收款，須先確認退款，不能直接取消')
                 cancel_order(cursor, order, get_current_user_id())
             elif old_status == 'cancelled':
                 # Stock and stored-value are both charged before the order can be restored.
@@ -1418,6 +1428,15 @@ def update_booking_status(booking_id):
         locked_booking = cursor.fetchone()
         if not locked_booking:
             raise ValueError('預約不存在')
+
+        # 有已收款或待核銷寄店抵扣的預約，不可直接取消而不作退款／沖銷。
+        if status == 'cancelled' and locked_booking['status'] != 'cancelled':
+            cursor.execute('''SELECT stored_value_amount, other_payment_amount,
+                                     deposit_credit_amount FROM bookings WHERE id=%s''', (booking_id,))
+            pay = cursor.fetchone()
+            if any(Decimal(str(pay[f] or 0)) > 0 for f in
+                   ('stored_value_amount','other_payment_amount','deposit_credit_amount')):
+                raise ValueError('此預約已有付款或待核銷寄店抵扣，須先處理退款與沖銷，不能直接取消')
 
         # 1. ⭐ 獲取預約詳細資訊 (包含課程名稱、時間、客戶資料)
         cursor.execute("""
@@ -1926,7 +1945,8 @@ def customer_detail(customer_id):
         """, (customer_id,))
         purchased_products = cursor.fetchall()
         for item in purchased_products:
-            item['available_units'] = int(item['purchased_units']) - int(item['deposited_units'])
+            item['available_units'] = int(
+                item['purchased_units']) - int(item['deposited_units'])
 
         cursor.execute('''SELECT b.id, b.status, c.name AS course_name,
                                  COALESCE(s.start_time, b.booking_date, b.created_at) AS session_time
@@ -2001,8 +2021,9 @@ def add_customer_inventory(customer_id):
         database.connection.begin()
         request_id = _inventory_request(cursor, customer_id, 'deposit', key)
         for item_id in ids:
-            units_raw = (request.form.get(f'deposit_units_{item_id}') or '').strip()
-            if not re.fullmatch(r'[1-9]\\d{0,5}', units_raw):
+            units_raw = (request.form.get(
+                f'deposit_units_{item_id}') or '').strip()
+            if not re.fullmatch(r'[1-9]\d{0,5}', units_raw):
                 raise ValueError('寄店件數必須是正整數')
             units = int(units_raw)
             cursor.execute('''SELECT oi.id, oi.order_id, oi.product_id,
@@ -2039,10 +2060,11 @@ def add_customer_inventory(customer_id):
                 (customer_id, product_id, order_id, order_item_id, deposited_units,
                  original_amount, remaining_amount, capacity_unit)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
-                (customer_id, source['product_id'], source['order_id'], item_id,
-                 units, initial, initial, unit))
+                           (customer_id, source['product_id'], source['order_id'], item_id,
+                            units, initial, initial, unit))
             inventory_id = cursor.lastrowid
-            _inventory_ledger(cursor, request_id, inventory_id, initial, Decimal('0'), initial, unit)
+            _inventory_ledger(cursor, request_id, inventory_id,
+                              initial, Decimal('0'), initial, unit)
         database.connection.commit()
         flash('所選產品已加入客戶寄店庫存', 'success')
     except MySQLdb.IntegrityError as exc:
@@ -2050,14 +2072,16 @@ def add_customer_inventory(customer_id):
         if _duplicate_inventory_request(exc):
             flash('此筆寄店操作已處理，沒有重複加入', 'info')
         else:
-            current_app.logger.exception('Deposit failed for customer %s', customer_id)
+            current_app.logger.exception(
+                'Deposit failed for customer %s', customer_id)
             flash('寄店新增失敗，請查看伺服器紀錄', 'error')
     except ValueError as exc:
         database.connection.rollback()
         flash(str(exc), 'error')
     except Exception:
         database.connection.rollback()
-        current_app.logger.exception('Deposit failed for customer %s', customer_id)
+        current_app.logger.exception(
+            'Deposit failed for customer %s', customer_id)
         flash('寄店新增失敗，請查看伺服器紀錄', 'error')
     finally:
         cursor.close()
@@ -2120,7 +2144,7 @@ def deduct_customer_inventory(customer_id):
             cursor.execute('''UPDATE customer_inventory
                 SET remaining_amount=remaining_amount-%s, updated_at=NOW()
                 WHERE id=%s AND customer_id=%s AND remaining_amount >= %s''',
-                (amount, inv_id, customer_id, amount))
+                           (amount, inv_id, customer_id, amount))
             if cursor.rowcount != 1:
                 raise ValueError('寄店容量已被其他人更新，請重新整理')
             _inventory_ledger(cursor, operation_id, inv_id, -amount, before,
@@ -2132,14 +2156,16 @@ def deduct_customer_inventory(customer_id):
         if _duplicate_inventory_request(exc):
             flash('此筆扣料操作已處理，沒有再次扣除', 'info')
         else:
-            current_app.logger.exception('Deduct failed for customer %s', customer_id)
+            current_app.logger.exception(
+                'Deduct failed for customer %s', customer_id)
             flash('扣料失敗，請查看伺服器紀錄', 'error')
     except ValueError as exc:
         database.connection.rollback()
         flash(str(exc), 'error')
     except Exception:
         database.connection.rollback()
-        current_app.logger.exception('Deduct failed for customer %s', customer_id)
+        current_app.logger.exception(
+            'Deduct failed for customer %s', customer_id)
         flash('扣料失敗，請查看伺服器紀錄', 'error')
     finally:
         cursor.close()
@@ -2163,7 +2189,8 @@ def adjust_customer_inventory(customer_id, inv_id):
         if len(reason) < 3 or len(reason) > 500:
             raise ValueError('請填寫至少 3 字的更正原因（最多 500 字）')
         database.connection.begin()
-        op_id = _inventory_request(cursor, customer_id, 'adjust', key, notes=reason)
+        op_id = _inventory_request(
+            cursor, customer_id, 'adjust', key, notes=reason)
         cursor.execute('''SELECT original_amount, remaining_amount, capacity_unit
                           FROM customer_inventory WHERE id=%s AND customer_id=%s
                           FOR UPDATE''', (inv_id, customer_id))
@@ -2187,14 +2214,16 @@ def adjust_customer_inventory(customer_id, inv_id):
         if _duplicate_inventory_request(exc):
             flash('此筆更正已處理，沒有重複調整', 'info')
         else:
-            current_app.logger.exception('Adjust failed for customer %s', customer_id)
+            current_app.logger.exception(
+                'Adjust failed for customer %s', customer_id)
             flash('寄店更正失敗，請查看伺服器紀錄', 'error')
     except ValueError as exc:
         database.connection.rollback()
         flash(str(exc), 'error')
     except Exception:
         database.connection.rollback()
-        current_app.logger.exception('Adjust failed for customer %s', customer_id)
+        current_app.logger.exception(
+            'Adjust failed for customer %s', customer_id)
         flash('寄店更正失敗，請查看伺服器紀錄', 'error')
     finally:
         cursor.close()
@@ -2645,139 +2674,235 @@ def update_order_events(order_id):
     return redirect(url_for('admin.dashboard', tab='orders'))
 
 
+def _manual_payment_entries(raw, item_type, total, service_fee, cursor, customer_id):
+    '''Validate independent payment lines server-side; never trust JS totals.'''
+    if not raw or len(raw) > 6000:
+        raise ValueError('付款明細不存在或過長，請重新開啟表單')
+    try:
+        entries = json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError('付款明細格式不正確') from exc
+    if not isinstance(entries, list) or len(entries) > 20:
+        raise ValueError('單項目付款方式最多 20 筆')
+    allowed = {'cash', 'credit_card', 'bank_transfer', 'other', 'stored_value', 'deposit_credit'}
+    result = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get('method') not in allowed:
+            raise ValueError('包含不支援的付款方式')
+        # Save only positive payment amounts. Zero lines are UI placeholders.
+        amount = money(entry.get('amount', '0'))
+        if amount < 0 or amount != amount.to_integral_value():
+            raise ValueError('每種付款方式的金額須為非負整數（元）')
+        if amount == 0:
+            continue
+        method = entry['method']
+        if method == 'deposit_credit':
+            if item_type != 'course':
+                raise ValueError('寄店產品抵扣只能用於課程，不可直接抵扣加購商品')
+            if service_fee <= 0:
+                raise ValueError('使用寄店產品抵扣時，請先選擇手技費')
+        result.append((method, amount))
+    if sum((a for _, a in result), Decimal('0')) > total:
+        raise ValueError('各付款方式與寄店抵扣合計不得超過本項目總額')
+    deposit_amount = sum((a for m, a in result if m == 'deposit_credit'), Decimal('0'))
+    if deposit_amount > 0:
+        if deposit_amount > total - service_fee:
+            raise ValueError('寄店產品抵扣不得超過課程總價扣除手技費的部分')
+        cursor.execute('''SELECT id FROM customer_inventory
+                          WHERE customer_id=%s AND remaining_amount > 0
+                            AND capacity_unit IN ('ml','g') LIMIT 1''', (customer_id,))
+        if not cursor.fetchone():
+            raise ValueError('此客戶沒有可用的寄店產品，不能建立寄店抵扣')
+    return result
+
+
+def _manual_payment_summary(entries, total):
+    stored = sum((a for m, a in entries if m == 'stored_value'), Decimal('0'))
+    deposit = sum((a for m, a in entries if m == 'deposit_credit'), Decimal('0'))
+    offline = [(m, a) for m, a in entries if m not in ('stored_value', 'deposit_credit')]
+    paid_other = sum((a for _, a in offline), Decimal('0'))
+    remaining = total - stored - deposit - paid_other
+    methods = sorted(set(m for m, _ in entries))
+    method = methods[0] if len(methods) == 1 else ('mixed' if methods else 'offline')
+    other_method = offline[0][0] if len(set(m for m, _ in offline)) == 1 else ('mixed' if offline else None)
+    return stored, deposit, paid_other, remaining, method, other_method
+
+
 @admin_bp.route('/booking/add-manual', methods=['POST'])
 @staff_required
 def add_booking_manual():
-    """管理員手動建立預約 (支援同行拆單、搜尋客戶、課程與產品混合結帳)"""
+    # Create multiple bookings/products with itemized payments in ONE atomic transaction.
+
+    # A deposit credit is provisional until a completed course's g/ml use is recorded;
+    # It does NOT consume customer_inventory during booking creation.
+    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     try:
-        send_notification = request.form.get('send_notification') == 'on'
-
-        # 接收陣列資料
-        customer_ids = request.form.getlist('customer_ids[]')
-        item_types = request.form.getlist(
-            'item_types[]')  # 'course' 或 'product'
-        item_ids = request.form.getlist('item_ids[]')
-        appointment_times = request.form.getlist('appointment_times[]')
-        amounts = request.form.getlist('amounts[]')
-        is_first_times = request.form.getlist('is_first_times[]')
-        service_fee_ids = request.form.getlist('service_fee_ids[]')
-        payment_methods = request.form.getlist('payment_methods[]')
-        stored_value_amounts = request.form.getlist('stored_value_amounts[]')
-
-        # 寄店扣料只允許在課程完成後，由客戶詳情寄店產品頁處理。
-        # 不接受舊版表單隱藏欄位，以免尚未服務就誤扣容量。
+        key = (request.form.get('booking_request_key') or '').strip()
+        if not re.fullmatch(r'[A-Za-z0-9_-]{20,64}', key):
+            raise ValueError('表單已過期，請重新整理後再建立預約')
+        raw_rows = request.form.get('manual_rows_json') or ''
+        if not raw_rows or len(raw_rows) > 50000:
+            raise ValueError('預約付款明細不完整，請重新整理後操作')
+        try:
+            rows = json.loads(raw_rows)
+        except json.JSONDecodeError as exc:
+            raise ValueError('預約付款資料格式不正確') from exc
+        if not isinstance(rows, list) or not (1 <= len(rows) <= 50):
+            raise ValueError('請建立 1～50 筆課程或產品')
+        if any(not isinstance(row, dict) for row in rows):
+            raise ValueError('預約表單列格式不正確')
         if any(v and v != '[]' for v in request.form.getlist('inv_jsons[]')):
-            raise ValueError('新預約不可提前扣寄店容量，請完成課程後使用寄店產品頁')
+            raise ValueError('寄店容量必須在課程完成後登記，不可於預約時扣除')
 
-        if not customer_ids or not item_ids:
-            flash('請至少填寫一筆預約或購買資料', 'error')
-            return redirect(url_for('admin.dashboard', tab='bookings'))
-
-        cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
-        success_count = 0
-
-        # 2. 處理表格內的項目 (課程與產品)
-        for i, item_id in enumerate(item_ids):
-            if not item_id or i >= len(customer_ids) or not customer_ids[i]:
-                continue
-
-            c_id = int(customer_ids[i])
-            i_type = item_types[i] if i < len(item_types) else 'course'
-            appt_time_str = appointment_times[i] if i < len(
-                appointment_times) else None
-            total_amount = float(amounts[i]) if i < len(
-                amounts) and amounts[i] else 0.0
-            is_first = True if i < len(
-                is_first_times) and is_first_times[i] == '1' else False
-            s_fee_id = int(service_fee_ids[i]) if i < len(
-                service_fee_ids) and service_fee_ids[i] else None
-            p_method = payment_methods[i] if i < len(
-                payment_methods) and payment_methods[i] else 'offline'
-            sv_amount = float(stored_value_amounts[i]) if i < len(
-                stored_value_amounts) and stored_value_amounts[i] else 0.0
-
-            # 📌 狀況 A：購買的是「課程」 -> 寫入 Booking
-            if i_type == 'course':
-                appt_time = datetime.strptime(
-                    appt_time_str, '%Y-%m-%dT%H:%M') if appt_time_str else datetime.now()
-                cursor.execute("""
-                    INSERT INTO bookings
-                    (customer_id, course_id, total_amount, is_first_time, sessions_purchased, sessions_remaining, status, created_at,
-                     payment_method, stored_value_amount, service_fee_id)
-                    VALUES (%s, %s, %s, %s, 1, 1, 'confirmed', %s, %s, %s, %s)
-                """, (c_id, item_id, total_amount, is_first, appt_time, p_method, sv_amount, s_fee_id))
+        actor = get_current_user_id()
+        if not actor:
+            raise ValueError('找不到目前操作人員')
+        database.connection.begin()
+        cursor.execute('''INSERT INTO manual_checkout_requests(request_key, operated_by)
+                          VALUES (%s, %s)''', (key, actor))
+        request_id = cursor.lastrowid
+        count = 0
+        for i, row in enumerate(rows):
+            item_raw = row.get('item_id')
+            c_id_raw = row.get('customer_id')
+            if not item_raw or not c_id_raw:
+                raise ValueError(f'第 {i + 1} 筆缺少客戶或產品／課程')
+            try:
+                customer_id = int(c_id_raw); item_id = int(item_raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f'第 {i + 1} 筆項目編號不正確') from exc
+            if customer_id <= 0 or item_id <= 0:
+                raise ValueError('客戶或項目編號不正確')
+            cursor.execute("SELECT id FROM users WHERE id=%s AND role='customer'", (customer_id,))
+            if not cursor.fetchone():
+                raise ValueError('客戶不存在或不是客戶帳號')
+            kind = row.get('item_type')
+            if kind not in ('course', 'product'):
+                raise ValueError('項目類型不支援')
+            first_time = row.get('is_first_time') is True
+            fee_id = None
+            fee_amount = Decimal('0')
+            if kind == 'course':
+                cursor.execute('''SELECT regular_price, experience_price FROM courses
+                                  WHERE id=%s AND is_active=1''', (item_id,))
+                course = cursor.fetchone()
+                if not course:
+                    raise ValueError('課程不存在或已下架')
+                reg = money(course['regular_price'])
+                exp = money(course['experience_price']) if course['experience_price'] is not None else None
+                total = exp if first_time and exp is not None and exp > 0 else reg
+                if row.get('service_fee_id'):
+                    fee_id = int(row['service_fee_id'])
+                    cursor.execute('SELECT price FROM service_fees WHERE id=%s AND is_active=1', (fee_id,))
+                    fee_row = cursor.fetchone()
+                    if not fee_row:
+                        raise ValueError('手技費選項不存在或已停用')
+                    fee_amount = money(fee_row['price'])
+                if fee_amount > total:
+                    raise ValueError('手技費不可高於課程總價')
+                if not row.get('appointment_time'):
+                    raise ValueError('請填寫預約時間')
+                appt = datetime.strptime(row['appointment_time'], '%Y-%m-%dT%H:%M')
+            else:
+                if row.get('service_fee_id') or row.get('appointment_time') or first_time:
+                    raise ValueError('產品列不應有課程欄位')
+                cursor.execute('SELECT price FROM products WHERE id=%s AND is_active=1', (item_id,))
+                product = cursor.fetchone()
+                if not product:
+                    raise ValueError('產品不存在或已下架')
+                # Manual product prices were already editable in the existing checkout.
+                total = money(row.get('amount'))
+                if total <= 0 or total != total.to_integral_value():
+                    raise ValueError('加購產品金額必須是正整數（元）')
+            lines = _manual_payment_entries(json.dumps(row.get('payments')), kind, total,
+                                            fee_amount, cursor, customer_id)
+            stored, deposit, other, due, pay_method, other_method = _manual_payment_summary(lines, total)
+            if kind == 'course':
+                cursor.execute('''INSERT INTO bookings
+                    (customer_id, course_id, total_amount, is_first_time,
+                     sessions_purchased, sessions_remaining, status, created_at,
+                     payment_method, stored_value_amount, other_payment_amount,
+                     other_payment_method, service_fee_id, service_fee_amount,
+                     product_fee_amount, deposit_credit_amount, amount_due)
+                    VALUES (%s,%s,%s,%s,1,1,'confirmed',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (customer_id, item_id, total, first_time, appt, pay_method,
+                     stored, other, other_method, fee_id, fee_amount,
+                     total - fee_amount, deposit, due))
                 ref_id = cursor.lastrowid
-
-                # 排班佔位
-                end_time = appt_time + timedelta(minutes=60)
-                cursor.execute("""
-                    INSERT INTO shop_schedules (start_time, end_time, max_capacity, current_bookings, is_active)
-                    VALUES (%s, %s, 1, 1, 1) ON DUPLICATE KEY UPDATE current_bookings = current_bookings + 1
-                """, (appt_time, end_time))
-                cursor.execute(
-                    "SELECT id FROM shop_schedules WHERE start_time = %s", (appt_time,))
-                schedule_row = cursor.fetchone()
-                if schedule_row:
-                    cursor.execute(
-                        "UPDATE bookings SET global_schedule_id = %s WHERE id = %s", (schedule_row['id'], ref_id))
-
-                log_activity('create', 'booking', ref_id, {
-                             'type': 'manual_advanced', 'time': appt_time_str})
-
-            # 📌 狀況 B：購買的是「產品」 -> 寫入 Order 並扣除產品庫存
-            elif i_type == 'product':
-                other_amount = max(0.0, total_amount - sv_amount)
-                payment_method_db = 'stored_value' if other_amount == 0 else (
-                    'mixed' if sv_amount > 0 else p_method)
-                other_payment_method = p_method if other_amount > 0 else None
-
-                cursor.execute("""
-                    INSERT INTO orders (customer_id, total_amount, status, created_at, stored_value_amount, other_payment_amount, other_payment_method, payment_method)
-                    VALUES (%s, %s, 'completed', NOW(), %s, %s, %s, %s)
-                """, (c_id, total_amount, sv_amount, other_amount, other_payment_method, payment_method_db))
+                end_time = appt + timedelta(minutes=60)
+                cursor.execute('''INSERT INTO shop_schedules
+                    (start_time,end_time,max_capacity,current_bookings,is_active)
+                    VALUES (%s,%s,1,1,1)
+                    ON DUPLICATE KEY UPDATE current_bookings=current_bookings+1''',
+                    (appt, end_time))
+                cursor.execute('SELECT id FROM shop_schedules WHERE start_time=%s ORDER BY id LIMIT 1', (appt,))
+                slot = cursor.fetchone()
+                if slot:
+                    cursor.execute('UPDATE bookings SET global_schedule_id=%s WHERE id=%s', (slot['id'], ref_id))
+            else:
+                # Outstanding purchases remain pending rather than falsely 'completed'.
+                status = 'completed' if due == 0 else 'pending'
+                cursor.execute('''INSERT INTO orders
+                    (customer_id,total_amount,status,created_at,stored_value_amount,
+                     other_payment_amount,other_payment_method,payment_method,request_key,amount_due)
+                    VALUES (%s,%s,%s,NOW(),%s,%s,%s,%s,%s,%s)''',
+                    (customer_id,total,status,stored,other,other_method,pay_method,
+                     f'{key}:{i}' if len(key) + len(str(i)) + 1 <= 64 else None, due))
                 ref_id = cursor.lastrowid
-
-                # 寫入 Order Item 並扣除大庫存
-                cursor.execute("""
-                    INSERT INTO order_items (order_id, product_id, quantity, unit_price, subtotal)
-                    VALUES (%s, %s, 1, %s, %s)
-                """, (ref_id, item_id, total_amount, total_amount))
-
-                cursor.execute(
-                    "UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = %s AND stock_quantity >= 1", (item_id,))
+                cursor.execute('''INSERT INTO order_items
+                    (order_id,product_id,quantity,unit_price,subtotal)
+                    VALUES (%s,%s,1,%s,%s)''', (ref_id,item_id,total,total))
+                cursor.execute('''UPDATE products SET stock_quantity=stock_quantity-1,
+                    last_sale_date=NOW() WHERE id=%s AND stock_quantity >= 1''', (item_id,))
                 if cursor.rowcount != 1:
-                    raise ValueError(f'產品庫存不足，無法購買')
-                cursor.execute("""
-                    INSERT INTO inventory_logs (product_id, change_amount, change_type, reference_id, notes, created_by)
-                    VALUES (%s, -1, 'sale', %s, 'Admin Manual Booking (Product)', %s)
-                """, (item_id, ref_id, get_current_user_id()))
-
-                log_activity('create', 'order', ref_id, {
-                             'type': 'manual_advanced_product'})
-
-            # 執行儲值金扣款紀錄
-                if sv_amount > 0:
-                    from project.stored_value import change_balance
-                    if i_type == 'course':
-                        note = f'預約課程儲值扣款 (預約單號 #{ref_id})'
-                        # 📌 預約單不是實體訂單(orders)，所以傳入 None 避免 Foreign Key 錯誤
-                        change_balance(cursor, c_id, Decimal(
-                            str(sv_amount)), 'spend', get_current_user_id(), None, 1, note)
-                    else:
-                        note = '購買產品儲值扣款'
-                        # 📌 產品結帳有建立 orders，所以 ref_id 是真正的 order_id
-                        change_balance(cursor, c_id, Decimal(
-                            str(sv_amount)), 'spend', get_current_user_id(), ref_id, 1, note)
-
-            success_count += 1
-
+                    raise ValueError('產品庫存不足，無法建立加購訂單')
+                cursor.execute('''INSERT INTO inventory_logs
+                    (product_id,change_amount,change_type,reference_id,notes,created_by)
+                    VALUES (%s,-1,'sale',%s,'Admin Manual Booking (Product)',%s)''',
+                    (item_id,ref_id,actor))
+            for method, amount in lines:
+                line_status = 'pending_reconciliation' if method == 'deposit_credit' else 'recorded'
+                cursor.execute('''INSERT INTO manual_checkout_payments
+                    (request_id,booking_id,order_id,method,amount,status,operated_by)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                    (request_id,ref_id if kind == 'course' else None,
+                     ref_id if kind == 'product' else None,method,amount,line_status,actor))
+            if stored > 0:
+                change_balance(cursor,customer_id,-stored,'spend',actor,
+                               ref_id if kind == 'product' else None,
+                               1 if kind == 'product' else None,
+                               f'後台手動{("課程預約" if kind == "course" else "產品訂單")} #{ref_id} 儲值扣款')
+                if kind == 'product':
+                    cursor.execute('UPDATE orders SET financial_revision=1 WHERE id=%s', (ref_id,))
+            # Insert audit using the caller's cursor: log_activity() commits independently.
+            cursor.execute('''INSERT INTO audit_logs
+                (user_id,action,target_type,target_id,details,ip_address)
+                VALUES (%s,'create',%s,%s,%s,%s)''',
+                (actor,'booking' if kind == 'course' else 'order',ref_id,
+                 json.dumps({'type':'manual_mixed_checkout','total':str(total),
+                             'stored_value':str(stored),'deposit_credit_pending':str(deposit),
+                             'other_paid':str(other),'due':str(due),
+                             'payment_methods':[m for m,_ in lines]},ensure_ascii=False),
+                 request.remote_addr))
+            count += 1
         database.connection.commit()
-        cursor.close()
-        flash(f'成功結帳 {success_count} 筆紀錄', 'success')
-    except Exception as e:
+        flash(f'成功建立 {count} 筆紀錄；寄店抵扣部分仍待課程完成後核銷', 'success')
+    except MySQLdb.IntegrityError as exc:
         database.connection.rollback()
-        flash(f'建立失敗: {str(e)}', 'error')
-
+        if exc.args and exc.args[0] == 1062:
+            flash('這份預約單已提交過，沒有重複建立；請查看預約管理', 'info')
+        else:
+            current_app.logger.exception('Manual checkout database error')
+            flash('建立失敗：資料庫約束檢查未通過', 'error')
+    except (ValueError, TypeError) as exc:
+        database.connection.rollback()
+        flash(f'建立失敗：{exc}', 'error')
+    except Exception:
+        database.connection.rollback()
+        current_app.logger.exception('Manual checkout failed')
+        flash('建立失敗，已取消整筆交易，請查看伺服器紀錄', 'error')
+    finally:
+        cursor.close()
     return redirect(url_for('admin.dashboard', tab='bookings'))
 
 

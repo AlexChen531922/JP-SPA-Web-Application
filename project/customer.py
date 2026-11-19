@@ -7,6 +7,7 @@ from project.notifications import send_email
 import MySQLdb.cursors
 import threading
 import re
+from decimal import Decimal
 
 customer_bp = Blueprint('customer', __name__, url_prefix='/customer')
 
@@ -220,6 +221,12 @@ def cancel_order(order_id):
         order = lock_order(cursor, order_id, user_id)
         if order['status'] in ('completed','cancelled'):
             raise ValueError('無法取消此訂單')
+        cursor.execute('''SELECT COUNT(*) AS count FROM manual_checkout_payments
+                          WHERE order_id=%s AND method IN
+                            ('cash','credit_card','bank_transfer','other')
+                            AND status='recorded' ''', (order_id,))
+        if cursor.fetchone()['count']:
+            raise ValueError('此訂單已有人工收款紀錄，請聯絡店家處理退款或取消')
         cancel_order_with_refund(cursor,order,user_id,'Customer Cancel')
         database.connection.commit()
         try:
@@ -242,12 +249,16 @@ def cancel_booking(booking_id):
     try:
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
         cursor.execute(
-            "SELECT status, schedule_id, global_schedule_id FROM bookings WHERE id = %s AND customer_id = %s FOR UPDATE", (booking_id, user_id))
+            """SELECT status, schedule_id, global_schedule_id, stored_value_amount, other_payment_amount, deposit_credit_amount FROM bookings WHERE id = %s AND customer_id = %s FOR UPDATE""", (booking_id, user_id))
         booking = cursor.fetchone()
 
         if not booking or booking['status'] in ['completed', 'cancelled']:
             flash('無法取消此預約', 'error')
             return redirect(request.referrer or url_for('customer.dashboard'))
+
+        if any(Decimal(str(booking.get(name) or 0)) > 0 for name in
+               ('stored_value_amount', 'other_payment_amount', 'deposit_credit_amount')):
+            raise ValueError('此預約已有付款或待核銷寄店抵扣，請聯絡店家處理退款與沖銷')
 
         cursor.execute(
             "UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
