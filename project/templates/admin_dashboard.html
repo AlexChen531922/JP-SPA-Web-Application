@@ -699,13 +699,13 @@
                   class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <select name="status" class="form-select form-select-sm d-inline-block w-auto"
-                    onchange="this.form.submit()" {% if booking.status=='completed' and booking.requires_material_confirmation %}disabled{% endif %}>
+                    data-current-status="{{ booking.status }}"
+                    onchange="{% if booking.requires_material_confirmation %}booking07StatusChange(this, {{ booking.id }}, {{ booking.customer_id }}, {{ booking.course_name|tojson|forceescape }}, {{ booking.material_mode|tojson|forceescape }}){% else %}this.form.submit(){% endif %}"
+                    {% if booking.status=='completed' and booking.requires_material_confirmation %}disabled{% endif %}>
                     <option value="pending" {% if booking.status=='pending' %}selected{% endif %}>待確認</option>
                     <option value="confirmed" {% if booking.status=='confirmed' %}selected{% endif %}>已確認</option>
-                    {% if not booking.requires_material_confirmation and not booking.is_unpaid_course_booking %}
-                    <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>已完成</option>
-                    {% elif booking.status=='completed' %}
-                    <option value="completed" selected>已完成（已核銷）</option>
+                    {% if not booking.is_unpaid_course_booking or booking.course_purchase_id %}
+                    <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>{{ '已完成（已核銷）' if booking.status=='completed' and booking.requires_material_confirmation else '已完成' }}</option>
                     {% endif %}
                     <option value="cancelled" {% if booking.status=='cancelled' %}selected{% endif %}>已取消</option>
                   </select>
@@ -2073,14 +2073,19 @@
         </div>
         <div class="col-md-6"><label class="form-label">課程</label><select name="course_id" id="courseSale05Course" class="form-select" required>
           <option value="">選擇課程</option>{% for c in courses if c.is_active %}
-          <option value="{{ c.id }}" data-price="{{ c.regular_price }}" data-service="{{ c.service_fee or 0 }}"
+          <option value="{{ c.id }}" data-price="{{ c.regular_price }}" data-experience="{{ c.experience_price or 0 }}" data-service="{{ c.service_fee or 0 }}"
                   data-store-only="{{ 1 if c.uses_store_consumables else 0 }}">{{ c.name }}{% if not c.is_public %}（僅後台）{% endif %}</option>{% endfor %}
         </select></div>
         <div class="col-md-6"><label class="form-label">購買堂數（依課程優惠）</label>
           <select name="sessions" id="courseSale05Count" class="form-select" required><option value="1">1 堂</option></select></div>
+        <div class="col-md-6" id="courseSale07PriceTypeWrap"><label class="form-label">單堂售價類型</label>
+          <select name="pricing_mode" id="courseSale07PriceType" class="form-select">
+            <option value="regular">原價</option>
+            <option value="experience">體驗價</option>
+          </select>
+        </div>
         <div class="col-md-6"><label class="form-label">實際售價（可修改）</label>
-          <input type="number" name="final_price" id="courseSale05Price" min="1" step="1" class="form-control" required>
-          <div class="small text-muted">預設總價 NT$ <span id="courseSale05Default">0</span>；調整後保留原價紀錄</div></div>
+          <input type="number" name="final_price" id="courseSale05Price" min="1" step="1" class="form-control" required></div>
         <div class="col-12" id="courseSale06Components">
           <div class="border rounded p-3 bg-light">
             <label class="form-label fw-bold">單堂課程：手技費與產品來源</label>
@@ -2093,6 +2098,12 @@
                 </select>
               </div>
               <div class="col-md-4"><label class="form-label small">手技費（元）</label>
+                <select class="form-select mb-2" id="courseSale07FeePreset" aria-label="從手技費管理選擇預設金額">
+                  <option value="">選擇已建立手技費（選填）</option>
+                  {% for fee in service_fees %}
+                  <option value="{{ fee.price }}">{{ fee.name }} — NT$ {{ '{:,.0f}'.format(fee.price) }}</option>
+                  {% endfor %}
+                </select>
                 <input class="form-control courseSale06Component" type="number" name="hand_fee" id="courseSale06Hand" min="0" step="1" value="0"></div>
               <div class="col-md-4"><label class="form-label small">店內產品收費（元）</label>
                 <input class="form-control courseSale06Component" type="number" name="store_product_fee" id="courseSale06Store" min="0" step="1" value="0"></div>
@@ -2100,7 +2111,7 @@
                 <input class="form-control courseSale06Component" type="number" name="customer_product_value" id="courseSale06CustomerValue" min="0" step="1" value="0"></div>
               <div class="col-md-6 d-flex align-items-end"><div class="small text-muted pb-2">客戶寄店產品於服務完成時依實際 g／ml 扣量；此金額僅是價值註記，並非付款方式。</div></div>
             </div>
-            <div id="courseSale06ComponentHint" class="small text-muted mt-2"></div>
+            <div id="courseSale06ValidationError" class="small text-danger mt-2" role="alert"></div>
           </div>
         </div>
         <div class="col-12"><label class="form-label">付款明細（現金／刷卡／匯款／儲值金，可拆分）</label>
@@ -2186,7 +2197,7 @@
       <div class="modal-header"><h5 class="modal-title">產品加購／補登（獨立產品訂單）</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
-        <p class="small text-muted">保留原有 04 產品加購及分筆付款。此表單不販售課程、不建立預約；課程請使用同頁的課程販售功能。</p>
+
         <div class="mb-2"><label class="form-label">選擇客戶（姓名可輸入搜尋）</label><div id="bookingCustomerList"></div></div>
         <button type="button" class="btn btn-sm btn-outline-primary mb-3" onclick="addBookingCustomerRow()">+ 加入同行客戶</button>
         <table hidden><tbody id="courseTbody"></tbody></table>
@@ -3280,6 +3291,7 @@ function courseSale05DefaultPrice() {
   const selected=course.selectedOptions[0];
   if(!selected?.value){count.innerHTML='<option value="">先選擇課程</option>';return;}
   const tier=courseSale05Tiers[selected.value]||{};
+  document.getElementById('courseSale07PriceType').value='regular';
   const oldCount=count.value;
   count.innerHTML='';
   for(const qty of [1,...Object.keys(tier).map(Number).sort((a,b)=>a-b)]){
@@ -3291,9 +3303,17 @@ function courseSale05DefaultPrice() {
 function courseSale05SetPrice() {
   const course=document.getElementById('courseSale05Course'); const qty=document.getElementById('courseSale05Count').value;
   const tier=courseSale05Tiers[course.value]||{};
-  const amount=qty==='1'?Number(course.selectedOptions[0]?.dataset.price||0):Number(tier[qty]||0);
+  const selected=course.selectedOptions[0];
+  const mode=document.getElementById('courseSale07PriceType');
+  const single=qty==='1';
+  const experience=Math.round(Number(selected?.dataset.experience)||0);
+  document.getElementById('courseSale07PriceTypeWrap').hidden=!single;
+  mode.disabled=!single;
+  mode.querySelector('option[value="experience"]').disabled=experience<=0;
+  if(experience<=0)mode.value='regular';
+  const amount=single?(mode.value==='experience'?experience:Number(selected?.dataset.price||0)):Number(tier[qty]||0);
   document.getElementById('courseSale05Price').value=String(Math.round(amount));
-  document.getElementById('courseSale05Default').textContent=amount.toLocaleString();
+
   const payments=document.querySelectorAll('#courseSale05Payments .cp05-line');
   if(payments.length===1) payments[0].querySelector('.cp05-amount').value=String(Math.round(amount));
   courseSale05Validate();
@@ -3388,46 +3408,50 @@ function setupSearchableCustomer06(wrapper) {
   input.addEventListener('blur',()=>{setTimeout(()=>{results.style.display='none';},180);});
 }
 
-// 06: one-session retail components are a value breakdown, NOT payment methods.
-let sale06ManualPrice=false;
+// 07: price follows only the course / price type / session tier or a manual final-price edit.
+// Hand fee and inventory-source breakdown never silently change the sale price.
 function sale06RefreshPrice(){
-  const saleCourse=document.getElementById('courseSale05Course');
-  const selected=saleCourse?.selectedOptions[0];
-  const one=document.getElementById('courseSale05Count')?.value==='1';
+  const course=document.getElementById('courseSale05Course');
+  const selected=course?.selectedOptions[0];
+  const single=document.getElementById('courseSale05Count')?.value==='1';
   const wrap=document.getElementById('courseSale06Components');
   const mode=document.getElementById('courseSale06MaterialMode');
-  if(!wrap||!mode) return;
-  wrap.hidden=!one || !selected?.value;
+  if(!wrap||!mode)return;
+  wrap.hidden=!single || !selected?.value;
   const storeOnly=selected?.dataset.storeOnly==='1';
-  for(const o of mode.options) if(o.value!=='store') o.disabled=storeOnly;
-  if(storeOnly) mode.value='store';
-  if(!one || !selected?.value) return;
-  const total=Math.max(0,Math.round(Number(selected.dataset.price)||0));
+  for(const option of mode.options)if(option.value!=='store')option.disabled=storeOnly;
+  if(storeOnly)mode.value='store';
+  if(!single || !selected?.value)return;
+  const total=Math.max(0,Math.round(Number(document.getElementById('courseSale05Price').value)||0));
   const hand=Math.min(total,Math.max(0,Math.round(Number(selected.dataset.service)||0)));
   const product=total-hand;
-  let store=product,customer=0;
-  if(mode.value==='customer'){store=0;customer=product;}
-  if(mode.value==='mixed'){store=Math.round(product/2);customer=product-store;}
+  document.getElementById('courseSale07FeePreset').value='';
   document.getElementById('courseSale06Hand').value=String(hand);
-  document.getElementById('courseSale06Store').value=String(store);
-  document.getElementById('courseSale06CustomerValue').value=String(customer);
-  document.getElementById('courseSale06Store').disabled=mode.value==='customer';
-  document.getElementById('courseSale06CustomerValue').disabled=mode.value==='store';
-  sale06ManualPrice=false;
-  sale06PriceFromComponents();
+  document.getElementById('courseSale06Store').value=String(product);
+  document.getElementById('courseSale06CustomerValue').value='0';
+  sale07MaterialModeChange();
 }
-function sale06PriceFromComponents(){
-  const total=(Number(document.getElementById('courseSale06Hand').value)||0)+
-              (Number(document.getElementById('courseSale06Store').value)||0);
-  if(!sale06ManualPrice && !document.getElementById('courseSale06Components').hidden){
-    document.getElementById('courseSale05Price').value=String(total);
-    const paymentLines=document.querySelectorAll('#courseSale05Payments .cp05-line');
-    if(paymentLines.length===1) paymentLines[0].querySelector('.cp05-amount').value=String(total);
+function sale07MaterialModeChange(){
+  const mode=document.getElementById('courseSale06MaterialMode').value;
+  const storeInput=document.getElementById('courseSale06Store');
+  const customerInput=document.getElementById('courseSale06CustomerValue');
+  const product=Math.max(0,(Number(storeInput.value)||0)+(Number(customerInput.value)||0));
+  if(mode==='store'){storeInput.value=String(product);customerInput.value='0';}
+  else if(mode==='customer'){storeInput.value='0';customerInput.value=String(product);}
+  else if(mode==='mixed' && Number(customerInput.value)===0){
+    const split=Math.round(product/2);storeInput.value=String(split);customerInput.value=String(product-split);
   }
-  const actual=Number(document.getElementById('courseSale05Price').value)||0;
-  document.getElementById('courseSale06ComponentHint').textContent=
-    `手技費＋店內產品收費 = NT$ ${total.toLocaleString()}；最終售價差額 NT$ ${(actual-total).toLocaleString()}（調整價，不含寄店已購價值）。`;
-  courseSale05Validate();
+  storeInput.disabled=mode==='customer';
+  customerInput.disabled=mode==='store';
+  sale06ValidateComponents();
+}
+function sale07PresetHand(){
+  const preset=document.getElementById('courseSale07FeePreset');
+  if(preset.value==='')return;
+  const amount=Number(preset.value);
+  if(!Number.isInteger(amount)||amount<0)return;
+  document.getElementById('courseSale06Hand').value=String(amount);
+  sale06ValidateComponents();
 }
 function sale06ValidateComponents(){
   if(document.getElementById('courseSale06Components').hidden)return true;
@@ -3440,8 +3464,8 @@ function sale06ValidateComponents(){
   if(values.some(v=>!Number.isInteger(v)||v<0||v>99999999))error='手技／產品金額必須是非負整數元';
   else if(mode==='store'&&owner>0)error='店內耗材模式不可輸入客戶寄店價值';
   else if(mode==='customer'&&store>0)error='客戶寄店模式不可輸入店內產品收費';
-  if(error){document.getElementById('courseSale06ComponentHint').textContent=error;return false;}
-  return true;
+  document.getElementById('courseSale06ValidationError').textContent=error;
+  return !error;
 }
 
 async function sale06LoadExisting(){
@@ -3517,6 +3541,15 @@ function addComplete06Line(initialSource){
   };
   sourceSelect.addEventListener('change',update);update();wrap.append(row);
 }
+function booking07StatusChange(select,bookingId,customerId,name,mode){
+  if(select.value==='completed'){
+    // Never submit completed through the ordinary status endpoint: atomic material / session redemption is required.
+    select.value=select.dataset.currentStatus||'confirmed';
+    openComplete06(bookingId,customerId,name,mode);
+    return;
+  }
+  select.form.submit();
+}
 async function openComplete06(bookingId,customerId,name,mode){
   materialMode06=mode||'store';
   document.getElementById('complete06Title').textContent=`課程 #${bookingId}｜${name}`;
@@ -3542,15 +3575,17 @@ async function openComplete06(bookingId,customerId,name,mode){
 }
 document.addEventListener('DOMContentLoaded',()=>{
   document.querySelectorAll('.search-customer06').forEach(setupSearchableCustomer06);
-  // Keep default price, hand fee and actual amount in sync until manual price edit.
+  // Course/price selection controls initial sale price; fee components are independent.
   document.getElementById('courseSale05Course')?.addEventListener('change',()=>{
     document.getElementById('courseSale06MaterialMode').value='store';
     sale06RefreshPrice();sale06LoadExisting();
   });
   document.getElementById('courseSale05Count')?.addEventListener('change',sale06RefreshPrice);
-  document.getElementById('courseSale06MaterialMode')?.addEventListener('change',sale06RefreshPrice);
-  document.querySelectorAll('.courseSale06Component').forEach(x=>x.addEventListener('input',sale06PriceFromComponents));
-  document.getElementById('courseSale05Price')?.addEventListener('input',()=>{sale06ManualPrice=true;sale06PriceFromComponents();});
+  document.getElementById('courseSale07PriceType')?.addEventListener('change',courseSale05SetPrice);
+  document.getElementById('courseSale07FeePreset')?.addEventListener('change',sale07PresetHand);
+  document.getElementById('courseSale06MaterialMode')?.addEventListener('change',sale07MaterialModeChange);
+  document.querySelectorAll('.courseSale06Component').forEach(x=>x.addEventListener('input',sale06ValidateComponents));
+  document.getElementById('courseSale05Price')?.addEventListener('input',courseSale05Validate);
   document.getElementById('courseSale05Customer')?.addEventListener('change',sale06LoadExisting);
   document.getElementById('courseSale05Mode')?.addEventListener('change',()=>{
     const existing=document.getElementById('courseSale05Mode').value==='existing';

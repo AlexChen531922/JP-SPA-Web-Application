@@ -154,12 +154,26 @@ def sell():
         user = cursor.fetchone()
         if not user or user['email'] == 'store@jparomatic.local':
             raise ValueError('客戶帳號不存在，或屬於店內損耗專用帳號')
-        cursor.execute('''SELECT id,regular_price,is_active,uses_store_consumables FROM courses WHERE id=%s FOR UPDATE''', (course_id,))
+        cursor.execute('''SELECT id,regular_price,experience_price,is_active,uses_store_consumables
+                          FROM courses WHERE id=%s FOR UPDATE''', (course_id,))
         course = cursor.fetchone()
         if not course or not course['is_active']:
             raise ValueError('課程已停用，無法販售')
+        pricing_mode = (request.form.get('pricing_mode') or 'regular').strip()
+        if pricing_mode not in ('regular', 'experience'):
+            raise ValueError('課程售價類型不正確')
+        if count != 1 and pricing_mode == 'experience':
+            raise ValueError('多堂優惠不得同時選用單堂體驗價')
         tiers = load_tiers(cursor, course_id)
-        default_price = money(course['regular_price']) if count == 1 else tiers.get(count)
+        if count == 1:
+            if pricing_mode == 'experience':
+                if not course['experience_price'] or money(course['experience_price']) <= 0:
+                    raise ValueError('此課程未設定可用的體驗價')
+                default_price = money(course['experience_price'])
+            else:
+                default_price = money(course['regular_price'])
+        else:
+            default_price = tiers.get(count)
         if default_price is None:
             raise ValueError('此課程沒有設定該購買堂數，請先到課程管理設定優惠')
         mode, hand, store_charge, client_value, must_reconcile = _sale_components(
@@ -209,6 +223,7 @@ def sell():
                {'course_id':course_id,'sessions':count,'default_total':str(default_price),
                 'final_price':str(final_price),'payment_methods':[m for m,_ in payment_lines],
                 'appointment_booking_id':booking_id,'material_mode':mode,
+                'pricing_mode':pricing_mode,
                 'hand_fee':str(hand),'store_product_fee':str(store_charge),
                 'customer_deposited_value':str(client_value),
                 'price_adjustment':str(adjustment)})
