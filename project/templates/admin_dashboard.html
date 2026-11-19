@@ -650,14 +650,14 @@
       <div>
         <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookingModal">
-          <i class="bi bi-plus-circle"></i> 建立/補登預約（直接收費）
+          <i class="bi bi-plus-circle"></i> 建立／補登預約
+        </button>
+        <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#addProduct06Modal">
+          <i class="bi bi-basket"></i> 產品加購／補登
         </button>
         <button type="button" class="btn btn-outline-success" data-bs-toggle="modal"
           data-bs-target="#courseSale05Modal">
           <i class="bi bi-bag-check"></i> 課程販售（寄存堂數）
-        </button>
-        <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#bookOwned05Modal">
-          <i class="bi bi-calendar-plus"></i> 使用客戶已購堂數預約
         </button>
       </div>
       <div class="d-flex gap-2">
@@ -699,10 +699,14 @@
                   class="d-inline">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <select name="status" class="form-select form-select-sm d-inline-block w-auto"
-                    onchange="this.form.submit()">
+                    onchange="this.form.submit()" {% if booking.status=='completed' and booking.requires_material_confirmation %}disabled{% endif %}>
                     <option value="pending" {% if booking.status=='pending' %}selected{% endif %}>待確認</option>
                     <option value="confirmed" {% if booking.status=='confirmed' %}selected{% endif %}>已確認</option>
+                    {% if not booking.requires_material_confirmation and not booking.is_unpaid_course_booking %}
                     <option value="completed" {% if booking.status=='completed' %}selected{% endif %}>已完成</option>
+                    {% elif booking.status=='completed' %}
+                    <option value="completed" selected>已完成（已核銷）</option>
+                    {% endif %}
                     <option value="cancelled" {% if booking.status=='cancelled' %}selected{% endif %}>已取消</option>
                   </select>
                 </form>
@@ -722,7 +726,14 @@
                 'total_amount': booking.total_amount,
                 'is_first_time': booking.is_first_time
                 } %}
-                {% if booking.status == 'completed' %}
+                {% if booking.is_unpaid_course_booking and not booking.course_purchase_id %}
+                <span class="badge text-bg-warning">待購買課程</span>
+                {% elif booking.requires_material_confirmation and booking.status not in ['completed','cancelled'] %}
+                <button type="button" class="btn btn-sm btn-success"
+                  onclick="openComplete06({{ booking.id }},{{ booking.customer_id }},{{ booking.course_name|tojson|forceescape }},{{ booking.material_mode|tojson|forceescape }})">
+                  完成／扣堂／核銷耗材</button>
+                {% endif %}
+                {% if booking.status == 'completed' and not booking.requires_material_confirmation %}
                 <a class="btn btn-sm btn-outline-warning" title="從客戶寄店產品扣料"
                   href="{{ url_for('admin.customer_detail', customer_id=booking.customer_id, tab='inventory', booking_id=booking.id) }}">
                   <i class="bi bi-box-seam"></i> 寄店扣料
@@ -2040,185 +2051,184 @@
 
 
 <!-- 05: Sales create a paid entitlement. They do not themselves create earned service revenue. -->
-<div class="modal fade" id="courseSale05Modal" tabindex="-1">
-  <div class="modal-dialog modal-lg modal-dialog-scrollable">
-    <form class="modal-content" id="courseSale05Form" action="{{ url_for('course_sales.sell') }}" method="POST">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="request_key" value="{{ course_sale_request_key }}">
-      <input type="hidden" name="payments_json" id="courseSale05PaymentsJson" value="">
-      <div class="modal-header">
-        <h5 class="modal-title">課程販售・建立已購堂數</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <p class="text-muted small">同一指定課程可販售不同優惠堂數，購買當下必須全額付清；不強制當日使用或預約。</p>
-        <div class="row g-3">
-          <div class="col-md-6"><label class="form-label">客戶</label><select name="customer_id" id="courseSale05Customer"
-              class="form-select" required>
+<div class="modal fade" id="courseSale05Modal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable">
+  <form class="modal-content" id="courseSale05Form" action="{{ url_for('course_sales.sell') }}" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="request_key" value="{{ course_sale_request_key }}">
+    <input type="hidden" name="payments_json" id="courseSale05PaymentsJson" value="">
+    <div class="modal-header"><h5 class="modal-title">課程販售・建立已購堂數</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p class="text-muted small">同一指定課程可販售不同優惠堂數，購買當下必須全額付清；不強制當日使用或預約。</p>
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label">客戶（姓名／帳號／電話／編號搜尋）</label>
+          <div class="search-customer06 position-relative" data-select-id="courseSale05Customer">
+            <input class="form-control search-customer06-input" type="search" placeholder="輸入任意姓名或電話字元" autocomplete="off" aria-label="搜尋課程販售客戶">
+            <div class="search-customer06-results list-group position-absolute w-100 shadow" style="z-index:1090;max-height:220px;overflow:auto;display:none"></div>
+            <select name="customer_id" id="courseSale05Customer" class="visually-hidden">
               <option value="">選擇客戶</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}
-              <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,0) }}">{{ c.surname }}{{ c.firstname
-                }} (#{{ c.id }})</option>{% endfor %}
-            </select></div>
-          <div class="col-md-6"><label class="form-label">課程</label><select name="course_id" id="courseSale05Course"
-              class="form-select" required>
-              <option value="">選擇課程</option>{% for c in courses if c.is_active %}
-              <option value="{{ c.id }}" data-price="{{ c.regular_price }}">{{ c.name }}{% if not c.is_public %}（僅後台）{%
-                endif %}</option>{% endfor %}
-            </select></div>
-          <div class="col-md-6"><label class="form-label">購買堂數（依課程優惠）</label>
-            <select name="sessions" id="courseSale05Count" class="form-select" required>
-              <option value="1">1 堂</option>
+              <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,0) }}" data-search="{{ c.username }} {{ c.phone or '' }} {{ c.id }}">{{ c.surname }}{{ c.firstname }} (#{{ c.id }})</option>{% endfor %}
             </select>
-          </div>
-          <div class="col-md-6"><label class="form-label">實際售價（可修改）</label>
-            <input type="number" name="final_price" id="courseSale05Price" min="1" step="1" class="form-control"
-              required>
-            <div class="small text-muted">預設總價 NT$ <span id="courseSale05Default">0</span>；調整後保留原價紀錄</div>
-          </div>
-          <div class="col-12"><label class="form-label">付款明細（現金／刷卡／匯款／儲值金，可拆分）</label>
-            <div id="courseSale05Payments"></div>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="courseSale05AddPayment()">+
-              新增付款方式</button>
-            <div class="small text-muted mt-2">客戶儲值金：NT$ <span id="courseSale05Wallet">0</span></div>
-            <div id="courseSale05BalanceError" class="small text-danger"></div>
-          </div>
-          <div class="col-md-6"><label class="form-label">購買後安排</label>
-            <select name="use_mode" id="courseSale05Mode" class="form-select">
-              <option value="save">只寄存堂數，下次再預約</option>
-              <option value="now">今天現場使用（建立待完成服務紀錄）</option>
-              <option value="future">同時預約未來日期（先保留一堂）</option>
-            </select>
-          </div>
-          <div class="col-md-6" id="courseSale05TimeWrap" hidden><label class="form-label">服務時間（台灣時間）</label>
-            <input type="datetime-local" name="appointment_time" id="courseSale05Time" class="form-control">
           </div>
         </div>
+        <div class="col-md-6"><label class="form-label">課程</label><select name="course_id" id="courseSale05Course" class="form-select" required>
+          <option value="">選擇課程</option>{% for c in courses if c.is_active %}
+          <option value="{{ c.id }}" data-price="{{ c.regular_price }}" data-service="{{ c.service_fee or 0 }}"
+                  data-store-only="{{ 1 if c.uses_store_consumables else 0 }}">{{ c.name }}{% if not c.is_public %}（僅後台）{% endif %}</option>{% endfor %}
+        </select></div>
+        <div class="col-md-6"><label class="form-label">購買堂數（依課程優惠）</label>
+          <select name="sessions" id="courseSale05Count" class="form-select" required><option value="1">1 堂</option></select></div>
+        <div class="col-md-6"><label class="form-label">實際售價（可修改）</label>
+          <input type="number" name="final_price" id="courseSale05Price" min="1" step="1" class="form-control" required>
+          <div class="small text-muted">預設總價 NT$ <span id="courseSale05Default">0</span>；調整後保留原價紀錄</div></div>
+        <div class="col-12" id="courseSale06Components">
+          <div class="border rounded p-3 bg-light">
+            <label class="form-label fw-bold">單堂課程：手技費與產品來源</label>
+            <div class="row g-2">
+              <div class="col-md-4"><label class="form-label small">耗材來源</label>
+                <select class="form-select" id="courseSale06MaterialMode" name="material_mode">
+                  <option value="store">店內耗材</option>
+                  <option value="customer">客戶寄店產品</option>
+                  <option value="mixed">混合：店內＋客戶寄店</option>
+                </select>
+              </div>
+              <div class="col-md-4"><label class="form-label small">手技費（元）</label>
+                <input class="form-control courseSale06Component" type="number" name="hand_fee" id="courseSale06Hand" min="0" step="1" value="0"></div>
+              <div class="col-md-4"><label class="form-label small">店內產品收費（元）</label>
+                <input class="form-control courseSale06Component" type="number" name="store_product_fee" id="courseSale06Store" min="0" step="1" value="0"></div>
+              <div class="col-md-6"><label class="form-label small">客戶寄店產品已購價值（元，不再次收款）</label>
+                <input class="form-control courseSale06Component" type="number" name="customer_product_value" id="courseSale06CustomerValue" min="0" step="1" value="0"></div>
+              <div class="col-md-6 d-flex align-items-end"><div class="small text-muted pb-2">客戶寄店產品於服務完成時依實際 g／ml 扣量；此金額僅是價值註記，並非付款方式。</div></div>
+            </div>
+            <div id="courseSale06ComponentHint" class="small text-muted mt-2"></div>
+          </div>
+        </div>
+        <div class="col-12"><label class="form-label">付款明細（現金／刷卡／匯款／儲值金，可拆分）</label>
+          <div id="courseSale05Payments"></div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="courseSale05AddPayment()">+ 新增付款方式</button>
+          <div class="small text-muted mt-2">客戶儲值金：NT$ <span id="courseSale05Wallet">0</span></div>
+          <div id="courseSale05BalanceError" class="small text-danger"></div></div>
+        <div class="col-md-6"><label class="form-label">購買後安排</label>
+          <select name="use_mode" id="courseSale05Mode" class="form-select">
+            <option value="save">只寄存堂數，下次再預約</option>
+            <option value="now">今天現場使用（建立待完成服務紀錄）</option>
+            <option value="future">同時預約未來日期（先保留一堂）</option>
+            <option value="existing">連結先前建立的純預約（不新增預約）</option>
+          </select></div>
+        <div class="col-md-6" id="courseSale06ExistingWrap" hidden>
+          <label class="form-label">選擇已建立、尚未購買的純預約</label>
+          <select name="link_booking_id" id="courseSale06Existing" class="form-select"><option value="">請先選擇客戶與課程</option></select>
+        </div>
+        <div class="col-md-6" id="courseSale05TimeWrap" hidden><label class="form-label">服務時間（台灣時間）</label>
+          <input type="datetime-local" name="appointment_time" id="courseSale05Time" class="form-control"></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">取消</button>
-        <button class="btn btn-success" type="submit">確認付清並建立已購堂數</button>
-      </div>
-    </form>
-  </div>
-</div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">取消</button>
+      <button class="btn btn-success" type="submit">確認付清並建立已購堂數</button></div>
+  </form></div></div>
 
-<!-- 05: Redeem an existing prepaid session; this is NOT a new sale. -->
-<div class="modal fade" id="bookOwned05Modal" tabindex="-1">
-  <div class="modal-dialog">
-    <form class="modal-content" method="POST" action="{{ url_for('course_sales.book_owned') }}">
+<!-- 06: booking is not a sale. Staff can create an unpaid reservation or reserve paid sessions. -->
+<div class="modal fade" id="addBookingModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" method="POST" id="booking06Form" action="{{ url_for('course_sales.book_unpaid') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <input type="hidden" name="request_key" value="{{ owned_booking_request_key }}">
-      <div class="modal-header">
-        <h5 class="modal-title">使用已購課程堂數預約</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
+      <input type="hidden" name="request_key" value="{{ unpaid_booking_request_key }}">
+      <div class="modal-header"><h5 class="modal-title">建立／補登預約（不直接收款）</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
-        <label class="form-label">客戶</label><select name="customer_id" id="bookOwned05Customer" class="form-select mb-3"
-          required>
-          <option value="">請選擇</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}<option
-            value="{{ c.id }}">{{ c.surname }}{{ c.firstname }}</option>{% endfor %}
-        </select>
-        <label class="form-label">已購課程批次（顯示可用堂數）</label>
-        <select name="purchase_id" id="bookOwned05Purchase" class="form-select mb-3" required>
-          <option value="">請先選擇客戶</option>
-        </select>
-        <label class="form-label">預約時間（台灣時間）</label>
-        <input type="datetime-local" name="appointment_time" class="form-control mb-2" required>
-        <small class="text-muted">此操作不收款；預約先保留 1 堂，服務完成後才正式扣堂及認列營收。</small>
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">預約來源</label>
+            <select class="form-select" id="booking06Kind">
+              <option value="unpaid">純預約：尚未購買，不收款、不產生堂數</option>
+              <option value="owned">使用已購堂數：預約保留一堂，完成後核銷</option>
+            </select>
+          </div>
+          <div class="col-12"><label class="form-label">接受服務的客戶（可輸入搜尋）</label>
+            <div class="search-customer06 position-relative" data-select-id="booking06Customer">
+              <input class="form-control search-customer06-input" type="search" placeholder="輸入姓名、帳號、電話或編號" autocomplete="off">
+              <div class="search-customer06-results list-group position-absolute w-100 shadow" style="z-index:1090;max-height:220px;overflow:auto;display:none"></div>
+              <select name="customer_id" id="booking06Customer" class="visually-hidden">
+                <option value="">請選擇客戶</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}
+                <option value="{{ c.id }}" data-search="{{ c.username }} {{ c.phone or '' }} {{ c.id }}">{{ c.surname }}{{ c.firstname }} (#{{ c.id }})</option>{% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="col-md-6" id="booking06CourseWrap"><label class="form-label">預約課程</label>
+            <select name="course_id" id="booking06Course" class="form-select" required>
+              <option value="">請選擇課程</option>{% for c in courses if c.is_active %}
+              <option value="{{ c.id }}">{{ c.name }}{% if not c.is_public %}（僅後台）{% endif %}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6" id="booking06OwnedWrap" hidden><label class="form-label">已購課程批次／剩餘堂數</label>
+            <select name="purchase_id" id="booking06Owned" class="form-select" disabled>
+              <option value="">請先選擇客戶</option>
+            </select>
+          </div>
+          <div class="col-md-6"><label class="form-label">預約日期與時間（台灣時間）</label>
+            <input type="datetime-local" name="appointment_time" class="form-control" required></div>
+        </div>
+        <div class="small text-muted mt-3">純預約必須在實際完成服務前，全額購買並連結該預約。店內耗材及客戶寄店產品會在服務完成時核銷。</div>
       </div>
       <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="submit" class="btn btn-primary">建立已購課程預約</button>
-      </div>
+        <button type="submit" class="btn btn-primary">建立預約</button></div>
     </form>
   </div>
 </div>
 
-<!-- ⭐ 建立預約 Modal (一體化表單) -->
-<div class="modal fade" id="addBookingModal" tabindex="-1">
+<!-- 06: retain 04's stand-alone product add-on workflow without creating paid bookings. -->
+<div class="modal fade" id="addProduct06Modal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
-    <!-- 💡 關鍵修正：將 form 本身加上 class="modal-content"，確保 Bootstrap 捲軸正常運作 -->
-    <form action="{{ url_for('admin.add_booking_manual') }}" method="POST" id="bookingForm" class="modal-content">
+    <form class="modal-content" id="bookingForm" action="{{ url_for('admin.add_booking_manual') }}" method="POST">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="booking_request_key" value="{{ manual_booking_request_key }}">
-      <input type="hidden" name="manual_rows_json" id="manualBookingRowsJson" value="">
-
-      <div class="modal-header bg-primary text-white">
-        <h5 class="modal-title"><i class="bi bi-calendar-plus"></i> 建立專業預約單</h5>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-      </div>
-
-      <div class="modal-body pb-4">
-        <p class="small text-muted">原有 04 預約表單會建立直接收費的單堂預約；若要使用客戶先前已購課程，請改用「使用客戶已購堂數預約」，不要再次收取課程費。</p>
-        <!-- 1. 選擇客戶 -->
-        <h6 class="fw-bold text-primary mb-2">1. 選擇客戶 <span class="text-danger">*</span></h6>
-        <div id="bookingCustomerList" class="mb-2"></div>
-        <button type="button" class="btn btn-sm btn-outline-primary mb-4" onclick="addBookingCustomerRow()">+
-          新增同行客戶</button>
-
-        <!-- 2. 建立預約不預先扣料；待課程狀態完成後進客戶寄店 Tab 處理 -->
-        <div class="border-top pt-3 mb-2">
-          <h6 class="fw-bold text-primary mb-0">2. 預約課程 <span class="text-danger">*</span></h6>
-          <p class="small text-muted mb-1">寄店容量在課程結束後，由「預約管理 → 寄店扣料」直接進入客戶寄店頁籤登記。</p>
-        </div>
-
-        <div class="table-responsive bg-light p-2 rounded mb-4 border">
+      <input type="hidden" name="manual_rows_json" id="manualBookingRowsJson">
+      <div class="modal-header"><h5 class="modal-title">產品加購／補登（獨立產品訂單）</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted">保留原有 04 產品加購及分筆付款。此表單不販售課程、不建立預約；課程請使用同頁的課程販售功能。</p>
+        <div class="mb-2"><label class="form-label">選擇客戶（姓名可輸入搜尋）</label><div id="bookingCustomerList"></div></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" onclick="addBookingCustomerRow()">+ 加入同行客戶</button>
+        <table hidden><tbody id="courseTbody"></tbody></table>
+        <div class="table-responsive border rounded bg-light p-2">
           <table class="table table-sm align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width: 15%">所屬客戶</th>
-                <th style="width: 20%">課程名稱 <span class="text-danger">*</span></th>
-                <th style="width: 20%">預約時間</th>
-                <th style="width: 12%">手技費</th>
-                <th style="width: 25%">總金額與儲值扣款</th>
-                <th style="width: 8%"></th>
-              </tr>
-            </thead>
-            <tbody id="courseTbody"></tbody>
-          </table>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addCourseRow()">+
-            增加一筆課程</button>
-        </div>
-
-        <!-- 3. 加購產品 -->
-        <h6 class="fw-bold text-primary mb-2">3. 加購產品 <span class="text-muted small fw-normal">(選填，若有寄店扣料則無需加購)</span>
-        </h6>
-        <div class="table-responsive bg-light p-2 rounded border mb-3">
-          <table class="table table-sm align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width: 15%">所屬客戶</th>
-                <th style="width: 25%">產品名稱 <span class="text-danger">*</span></th>
-                <th style="width: 15%">金額</th>
-                <th style="width: 20%">儲值扣款 / 付款方式</th>
-                <th style="width: 23%"></th> <!-- 佔位符，對齊上方表格 -->
-                <th style="width: 2%"></th>
-              </tr>
-            </thead>
+            <thead><tr><th>客戶</th><th>產品</th><th>金額</th><th>付款方式／儲值金</th><th></th></tr></thead>
             <tbody id="productTbody"></tbody>
           </table>
-          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addProductRow()">+
-            增加一筆產品</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-2" onclick="addProductRow()">+ 增加一筆產品</button>
         </div>
-
-        <!-- ⭐ 移出區塊：全場總計顯示區 (獨立於加購區塊外) -->
-        <div class="text-end mt-4 border-top pt-3">
-          <h5 class="fw-bold text-dark mb-2">全場應付總額: NT$ <span id="globalTotalAmount">0</span></h5>
-          <h5 class="fw-bold text-danger mb-1">未付尾款總計: NT$ <span id="globalRemainingAmount">0</span></h5>
-          <p class="small text-warning mb-0">寄店抵扣待課程完成後依實際 g/ml 核銷：NT$ <span id="globalDepositPending">0</span>（不是已收款）
-          </p>
+        <div class="text-end border-top mt-3 pt-3">
+          <p>產品應付總額：NT$ <span id="globalTotalAmount">0</span></p>
+          <p class="text-danger">未付尾款：NT$ <span id="globalRemainingAmount">0</span></p>
+          <span id="globalDepositPending" hidden>0</span>
         </div>
-
-      </div> <!-- /.modal-body 結束 -->
-
-      <div class="modal-footer">
-        <div class="form-check form-switch me-auto">
-          <input class="form-check-input" type="checkbox" name="send_notification" checked>
-          <label class="form-check-label fw-bold text-info">發送預約確認通知</label>
-        </div>
-        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-        <button type="submit" class="btn btn-primary px-4 fw-bold">確認建立預約</button>
       </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="submit" class="btn btn-primary">建立產品訂單</button></div>
     </form>
   </div>
 </div>
+
+<!-- 06: one atomic course completion for stored customer+shop materials. -->
+<div class="modal fade" id="complete06Modal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <form class="modal-content" id="complete06Form" method="POST" action="">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="request_key" value="{{ course_completion_request_key }}">
+      <input type="hidden" name="materials_json" id="complete06MaterialsJson">
+      <div class="modal-header"><h5 class="modal-title">完成課程／核銷堂數與實際耗材</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="fw-bold" id="complete06Title"></p>
+        <p class="text-muted small">每筆選擇來源、產品及實際使用量。店內耗材從 store@jparomatic.local 核銷，客戶寄店產品從本人核銷；兩個來源可於同一堂同時使用。</p>
+        <div id="complete06Lines"></div>
+        <button type="button" class="btn btn-outline-secondary btn-sm" id="complete06AddLine">+ 新增耗材來源／產品</button>
+        <div id="complete06Error" class="text-danger small mt-2" role="alert"></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <button type="submit" class="btn btn-success">確認完成並一次核銷</button></div>
+    </form>
+  </div>
 </div>
 
 <!-- 提供搜尋的資料清單 (不可見) -->
@@ -2813,8 +2823,15 @@
 
   // ================= 3. 一體化預約單邏輯 =================
   document.addEventListener('DOMContentLoaded', () => {
+    const productModal06=document.getElementById('addProduct06Modal');
+    productModal06?.addEventListener('show.bs.modal',()=>{
+      document.getElementById('bookingCustomerList').replaceChildren();
+      document.getElementById('productTbody').replaceChildren();
+      addBookingCustomerRow();
+      addProductRow();
+    });
     const bookingModalEl = document.getElementById('addBookingModal');
-    if (bookingModalEl) {
+    if (bookingModalEl && bookingModalEl.querySelector('#bookingCustomerList')) {
       bookingModalEl.addEventListener('show.bs.modal', function () {
         document.getElementById('bookingCustomerList').innerHTML = '';
         document.getElementById('courseTbody').innerHTML = '';
@@ -3242,98 +3259,339 @@
   }
 </script>
 <script>
-  // 05: new staff-only course sale screen, independent of the 04 mixed-booking form.
-  const courseSale05Tiers = {{ course_tiers| tojson }};
-  function courseSale05AddPayment(method = 'cash', amount = '0') {
-    const methods = [['cash', '現金'], ['credit_card', '信用卡'], ['bank_transfer', '匯款'], ['stored_value', '儲值扣款'], ['other', '其他']];
-    const container = document.getElementById('courseSale05Payments');
-    if (container.querySelectorAll('.cp05-line').length >= 20) return;
-    const div = document.createElement('div'); div.className = 'cp05-line d-flex gap-2 mb-2';
-    const select = document.createElement('select'); select.className = 'form-select cp05-method';
-    for (const [code, label] of methods) { const o = new Option(label, code); select.add(o); } select.value = method;
-    const input = document.createElement('input'); input.type = 'number'; input.min = '0'; input.step = '1';
-    input.value = amount; input.className = 'form-control cp05-amount';
-    const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'btn btn-outline-danger'; remove.textContent = '×';
-    remove.onclick = () => { div.remove(); courseSale05Validate(); };
-    select.onchange = courseSale05Validate; input.oninput = courseSale05Validate;
-    div.append(select, input, remove); container.append(div); courseSale05Validate();
+// 05: new staff-only course sale screen, independent of the 04 mixed-booking form.
+const courseSale05Tiers = {{ course_tiers|tojson }};
+function courseSale05AddPayment(method='cash',amount='0') {
+  const methods=[['cash','現金'],['credit_card','信用卡'],['bank_transfer','匯款'],['stored_value','儲值扣款'],['other','其他']];
+  const container=document.getElementById('courseSale05Payments');
+  if(container.querySelectorAll('.cp05-line').length>=20) return;
+  const div=document.createElement('div'); div.className='cp05-line d-flex gap-2 mb-2';
+  const select=document.createElement('select'); select.className='form-select cp05-method';
+  for(const [code,label] of methods){const o=new Option(label,code);select.add(o);} select.value=method;
+  const input=document.createElement('input'); input.type='number';input.min='0';input.step='1';
+  input.value=amount;input.className='form-control cp05-amount';
+  const remove=document.createElement('button'); remove.type='button';remove.className='btn btn-outline-danger';remove.textContent='×';
+  remove.onclick=()=>{div.remove();courseSale05Validate();};
+  select.onchange=courseSale05Validate;input.oninput=courseSale05Validate;
+  div.append(select,input,remove);container.append(div);courseSale05Validate();
+}
+function courseSale05DefaultPrice() {
+  const course=document.getElementById('courseSale05Course');const count=document.getElementById('courseSale05Count');
+  const selected=course.selectedOptions[0];
+  if(!selected?.value){count.innerHTML='<option value="">先選擇課程</option>';return;}
+  const tier=courseSale05Tiers[selected.value]||{};
+  const oldCount=count.value;
+  count.innerHTML='';
+  for(const qty of [1,...Object.keys(tier).map(Number).sort((a,b)=>a-b)]){
+    count.add(new Option(`${qty} 堂`,String(qty)));
   }
-  function courseSale05DefaultPrice() {
-    const course = document.getElementById('courseSale05Course'); const count = document.getElementById('courseSale05Count');
-    const selected = course.selectedOptions[0];
-    if (!selected?.value) { count.innerHTML = '<option value="">先選擇課程</option>'; return; }
-    const tier = courseSale05Tiers[selected.value] || {};
-    const oldCount = count.value;
-    count.innerHTML = '';
-    for (const qty of [1, ...Object.keys(tier).map(Number).sort((a, b) => a - b)]) {
-      count.add(new Option(`${qty} 堂`, String(qty)));
-    }
-    if (Array.from(count.options).some(o => o.value === oldCount)) count.value = oldCount;
-    courseSale05SetPrice();
-  }
-  function courseSale05SetPrice() {
-    const course = document.getElementById('courseSale05Course'); const qty = document.getElementById('courseSale05Count').value;
-    const tier = courseSale05Tiers[course.value] || {};
-    const amount = qty === '1' ? Number(course.selectedOptions[0]?.dataset.price || 0) : Number(tier[qty] || 0);
-    document.getElementById('courseSale05Price').value = String(Math.round(amount));
-    document.getElementById('courseSale05Default').textContent = amount.toLocaleString();
-    const payments = document.querySelectorAll('#courseSale05Payments .cp05-line');
-    if (payments.length === 1) payments[0].querySelector('.cp05-amount').value = String(Math.round(amount));
-    courseSale05Validate();
-  }
-  function courseSale05Validate() {
-    const customer = document.getElementById('courseSale05Customer');
-    const wallet = Number(customer.selectedOptions[0]?.dataset.balance || 0);
-    document.getElementById('courseSale05Wallet').textContent = Math.floor(wallet).toLocaleString();
-    const total = Number(document.getElementById('courseSale05Price').value || 0);
-    let paid = 0, stored = 0;
-    document.querySelectorAll('#courseSale05Payments .cp05-line').forEach(div => {
-      const amount = Number(div.querySelector('.cp05-amount').value || 0);
-      paid += amount; if (div.querySelector('.cp05-method').value === 'stored_value') stored += amount;
-    });
-    let err = '';
-    if (!Number.isInteger(total) || total <= 0) err = '課程售價必須為正整數';
-    else if (!Number.isInteger(paid) || paid !== total) err = `付款合計 NT$${paid}，須付清 NT$${total}`;
-    else if (stored > wallet) err = '儲值餘額不足';
-    document.getElementById('courseSale05BalanceError').textContent = err;
-    return !err;
-  }
-  async function bookOwned05Load() {
-    const customer = document.getElementById('bookOwned05Customer').value;
-    const purchase = document.getElementById('bookOwned05Purchase');
-    purchase.innerHTML = '<option value="">讀取中</option>';
-    if (!customer) { purchase.innerHTML = '<option value="">請先選擇客戶</option>'; return; }
-    try {
-      const response = await fetch(`/admin/api/customer/${encodeURIComponent(customer)}/course-purchases`);
-      if (!response.ok) throw new Error('權限或連線問題');
-      const data = await response.json(); purchase.innerHTML = '';
-      purchase.add(new Option('請選擇課程／購買批次', ''));
-      for (const p of data) purchase.add(new Option(`${p.course_name}（批次 #${p.id}，可用 ${p.available} 堂）`, String(p.id)));
-    } catch (e) { purchase.innerHTML = '<option value="">讀取失敗，請重新整理</option>'; }
-  }
-  document.addEventListener('DOMContentLoaded', () => {
-    const form = document.getElementById('courseSale05Form');
-    document.getElementById('courseSale05Course')?.addEventListener('change', courseSale05DefaultPrice);
-    document.getElementById('courseSale05Count')?.addEventListener('change', courseSale05SetPrice);
-    document.getElementById('courseSale05Price')?.addEventListener('input', courseSale05Validate);
-    document.getElementById('courseSale05Customer')?.addEventListener('change', courseSale05Validate);
-    const mode = document.getElementById('courseSale05Mode');
-    const setMode = () => {
-      const show = mode.value !== 'save'; document.getElementById('courseSale05TimeWrap').hidden = !show;
-      document.getElementById('courseSale05Time').required = show;
-    };
-    mode?.addEventListener('change', setMode); setMode();
-    courseSale05AddPayment();
-    form?.addEventListener('submit', e => {
-      if (!courseSale05Validate()) { e.preventDefault(); return; }
-      document.getElementById('courseSale05PaymentsJson').value = JSON.stringify(Array.from(
-        document.querySelectorAll('#courseSale05Payments .cp05-line')).map(div => ({
-          method: div.querySelector('.cp05-method').value, amount: div.querySelector('.cp05-amount').value || '0'
-        })));
-      if (!document.getElementById('courseSale05PaymentsJson').value) { e.preventDefault(); return; }
-      const button = form.querySelector('button[type="submit"]'); if (button) button.disabled = true;
-    });
-    document.getElementById('bookOwned05Customer')?.addEventListener('change', bookOwned05Load);
+  if(Array.from(count.options).some(o=>o.value===oldCount))count.value=oldCount;
+  courseSale05SetPrice();
+}
+function courseSale05SetPrice() {
+  const course=document.getElementById('courseSale05Course'); const qty=document.getElementById('courseSale05Count').value;
+  const tier=courseSale05Tiers[course.value]||{};
+  const amount=qty==='1'?Number(course.selectedOptions[0]?.dataset.price||0):Number(tier[qty]||0);
+  document.getElementById('courseSale05Price').value=String(Math.round(amount));
+  document.getElementById('courseSale05Default').textContent=amount.toLocaleString();
+  const payments=document.querySelectorAll('#courseSale05Payments .cp05-line');
+  if(payments.length===1) payments[0].querySelector('.cp05-amount').value=String(Math.round(amount));
+  courseSale05Validate();
+}
+function courseSale05Validate() {
+  const customer=document.getElementById('courseSale05Customer');
+  const wallet=Number(customer.selectedOptions[0]?.dataset.balance||0);
+  document.getElementById('courseSale05Wallet').textContent=Math.floor(wallet).toLocaleString();
+  const total=Number(document.getElementById('courseSale05Price').value||0);
+  let paid=0,stored=0;
+  document.querySelectorAll('#courseSale05Payments .cp05-line').forEach(div=>{
+    const amount=Number(div.querySelector('.cp05-amount').value||0);
+    paid+=amount;if(div.querySelector('.cp05-method').value==='stored_value')stored+=amount;
   });
+  let err='';
+  if(!Number.isInteger(total)||total<=0)err='課程售價必須為正整數';
+  else if(!Number.isInteger(paid)||paid!==total)err=`付款合計 NT$${paid}，須付清 NT$${total}`;
+  else if(stored>wallet)err='儲值餘額不足';
+  document.getElementById('courseSale05BalanceError').textContent=err;
+  return !err;
+}
+async function bookOwned05Load() {
+  const customer=document.getElementById('bookOwned05Customer').value;
+  const purchase=document.getElementById('bookOwned05Purchase');
+  purchase.innerHTML='<option value="">讀取中</option>';
+  if(!customer){purchase.innerHTML='<option value="">請先選擇客戶</option>';return;}
+  try{
+    const response=await fetch(`/admin/api/customer/${encodeURIComponent(customer)}/course-purchases`);
+    if(!response.ok)throw new Error('權限或連線問題');
+    const data=await response.json();purchase.innerHTML='';
+    purchase.add(new Option('請選擇課程／購買批次',''));
+    for(const p of data)purchase.add(new Option(`${p.course_name}（批次 #${p.id}，可用 ${p.available} 堂）`,String(p.id)));
+  }catch(e){purchase.innerHTML='<option value="">讀取失敗，請重新整理</option>';}
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  const form=document.getElementById('courseSale05Form');
+  document.getElementById('courseSale05Course')?.addEventListener('change',courseSale05DefaultPrice);
+  document.getElementById('courseSale05Count')?.addEventListener('change',courseSale05SetPrice);
+  document.getElementById('courseSale05Price')?.addEventListener('input',courseSale05Validate);
+  document.getElementById('courseSale05Customer')?.addEventListener('change',courseSale05Validate);
+  const mode=document.getElementById('courseSale05Mode');
+  const setMode=()=>{const show=mode.value!=='save';document.getElementById('courseSale05TimeWrap').hidden=!show;
+    document.getElementById('courseSale05Time').required=show;};
+  mode?.addEventListener('change',setMode);setMode();
+  courseSale05AddPayment();
+  form?.addEventListener('submit',e=>{
+    if(!document.getElementById('courseSale05Customer').value){
+      e.preventDefault();alert('請選擇課程販售客戶');return;
+    }
+    if(!sale06ValidateComponents() || !courseSale05Validate()){e.preventDefault();return;}
+    document.getElementById('courseSale05PaymentsJson').value=JSON.stringify(Array.from(
+      document.querySelectorAll('#courseSale05Payments .cp05-line')).map(div=>({
+      method:div.querySelector('.cp05-method').value,amount:div.querySelector('.cp05-amount').value||'0'
+    })));
+    if(!document.getElementById('courseSale05PaymentsJson').value){e.preventDefault();return;}
+    const button=form.querySelector('button[type="submit"]');if(button)button.disabled=true;
+  });
+  document.getElementById('bookOwned05Customer')?.addEventListener('change',bookOwned05Load);
+});
 </script>
+
+<script>
+// 06: shared searchable client picker. The underlying select is the submitted ID.
+function setupSearchableCustomer06(wrapper) {
+  const select=document.getElementById(wrapper.dataset.selectId);
+  const input=wrapper.querySelector('.search-customer06-input');
+  const results=wrapper.querySelector('.search-customer06-results');
+  if(!select||!input||!results) return;
+  const choices=Array.from(select.options).filter(o=>o.value).map(o=>({
+    id:o.value,label:o.textContent.trim(),search:(o.textContent+' '+(o.dataset.search||'')).toLowerCase()
+  }));
+  const render=()=>{
+    const q=input.value.trim().toLowerCase();
+    results.replaceChildren();
+    if(!q){results.style.display='none';return;}
+    for(const entry of choices.filter(o=>o.search.includes(q)).slice(0,25)){
+      const item=document.createElement('button');
+      item.type='button';item.className='list-group-item list-group-item-action text-start';
+      item.textContent=entry.label;
+      item.addEventListener('mousedown',e=>e.preventDefault());
+      item.addEventListener('click',()=>{
+        select.value=entry.id; input.value=entry.label;results.style.display='none';
+        select.dispatchEvent(new Event('change',{bubbles:true}));
+      });
+      results.append(item);
+    }
+    if(!results.children.length){const hint=document.createElement('div');hint.className='list-group-item text-muted';hint.textContent='找不到符合的客戶';results.append(hint);}
+    results.style.display='block';
+  };
+  input.addEventListener('input',()=>{select.value='';select.dispatchEvent(new Event('change',{bubbles:true}));render();});
+  input.addEventListener('focus',render);
+  input.addEventListener('blur',()=>{setTimeout(()=>{results.style.display='none';},180);});
+}
+
+// 06: one-session retail components are a value breakdown, NOT payment methods.
+let sale06ManualPrice=false;
+function sale06RefreshPrice(){
+  const saleCourse=document.getElementById('courseSale05Course');
+  const selected=saleCourse?.selectedOptions[0];
+  const one=document.getElementById('courseSale05Count')?.value==='1';
+  const wrap=document.getElementById('courseSale06Components');
+  const mode=document.getElementById('courseSale06MaterialMode');
+  if(!wrap||!mode) return;
+  wrap.hidden=!one || !selected?.value;
+  const storeOnly=selected?.dataset.storeOnly==='1';
+  for(const o of mode.options) if(o.value!=='store') o.disabled=storeOnly;
+  if(storeOnly) mode.value='store';
+  if(!one || !selected?.value) return;
+  const total=Math.max(0,Math.round(Number(selected.dataset.price)||0));
+  const hand=Math.min(total,Math.max(0,Math.round(Number(selected.dataset.service)||0)));
+  const product=total-hand;
+  let store=product,customer=0;
+  if(mode.value==='customer'){store=0;customer=product;}
+  if(mode.value==='mixed'){store=Math.round(product/2);customer=product-store;}
+  document.getElementById('courseSale06Hand').value=String(hand);
+  document.getElementById('courseSale06Store').value=String(store);
+  document.getElementById('courseSale06CustomerValue').value=String(customer);
+  document.getElementById('courseSale06Store').disabled=mode.value==='customer';
+  document.getElementById('courseSale06CustomerValue').disabled=mode.value==='store';
+  sale06ManualPrice=false;
+  sale06PriceFromComponents();
+}
+function sale06PriceFromComponents(){
+  const total=(Number(document.getElementById('courseSale06Hand').value)||0)+
+              (Number(document.getElementById('courseSale06Store').value)||0);
+  if(!sale06ManualPrice && !document.getElementById('courseSale06Components').hidden){
+    document.getElementById('courseSale05Price').value=String(total);
+    const paymentLines=document.querySelectorAll('#courseSale05Payments .cp05-line');
+    if(paymentLines.length===1) paymentLines[0].querySelector('.cp05-amount').value=String(total);
+  }
+  const actual=Number(document.getElementById('courseSale05Price').value)||0;
+  document.getElementById('courseSale06ComponentHint').textContent=
+    `手技費＋店內產品收費 = NT$ ${total.toLocaleString()}；最終售價差額 NT$ ${(actual-total).toLocaleString()}（調整價，不含寄店已購價值）。`;
+  courseSale05Validate();
+}
+function sale06ValidateComponents(){
+  if(document.getElementById('courseSale06Components').hidden)return true;
+  const mode=document.getElementById('courseSale06MaterialMode').value;
+  const hand=Number(document.getElementById('courseSale06Hand').value);
+  const store=Number(document.getElementById('courseSale06Store').value);
+  const owner=Number(document.getElementById('courseSale06CustomerValue').value);
+  const values=[hand,store,owner];
+  let error='';
+  if(values.some(v=>!Number.isInteger(v)||v<0||v>99999999))error='手技／產品金額必須是非負整數元';
+  else if(mode==='store'&&owner>0)error='店內耗材模式不可輸入客戶寄店價值';
+  else if(mode==='customer'&&store>0)error='客戶寄店模式不可輸入店內產品收費';
+  if(error){document.getElementById('courseSale06ComponentHint').textContent=error;return false;}
+  return true;
+}
+
+async function sale06LoadExisting(){
+  const customer=document.getElementById('courseSale05Customer').value;
+  const course=document.getElementById('courseSale05Course').value;
+  const target=document.getElementById('courseSale06Existing');
+  target.replaceChildren(new Option('請先選擇客戶與課程',''));
+  if(!customer||!course)return;
+  try{
+    const response=await fetch(`/admin/api/customer/${encodeURIComponent(customer)}/unpaid-bookings?course_id=${encodeURIComponent(course)}`);
+    if(!response.ok)throw new Error('讀取失敗');
+    const entries=await response.json();
+    target.replaceChildren(new Option('請選擇既有純預約',''));
+    for(const b of entries)target.add(new Option(`#${b.id} · ${b.time}`,String(b.id)));
+  }catch(e){target.replaceChildren(new Option('讀取失敗，請重新整理',''));}
+}
+
+// 06: one booking modal supports both unpaid reservations and owned entitlements.
+async function booking06LoadOwned(){
+  const customer=document.getElementById('booking06Customer').value;
+  const owned=document.getElementById('booking06Owned');
+  owned.replaceChildren(new Option(customer?'讀取已購堂數中':'請先選擇客戶',''));
+  if(!customer)return;
+  try{
+    const response=await fetch(`/admin/api/customer/${encodeURIComponent(customer)}/course-purchases`);
+    if(!response.ok)throw new Error('讀取失敗');
+    const purchases=await response.json();
+    owned.replaceChildren(new Option('請選擇已購課程批次',''));
+    for(const p of purchases)owned.add(new Option(`${p.course_name} · 批次 #${p.id} · 可用 ${p.available} 堂`,String(p.id)));
+  }catch(e){owned.replaceChildren(new Option('讀取失敗，請重新整理',''));}
+}
+function booking06SetKind(){
+  const owned=document.getElementById('booking06Kind').value==='owned';
+  document.getElementById('booking06CourseWrap').hidden=owned;
+  document.getElementById('booking06OwnedWrap').hidden=!owned;
+  document.getElementById('booking06Course').disabled=owned;
+  document.getElementById('booking06Owned').disabled=!owned;
+  document.getElementById('booking06Course').required=!owned;
+  document.getElementById('booking06Owned').required=owned;
+  const form=document.getElementById('booking06Form');
+  form.action=owned?'/admin/course-owned-book':'/admin/course-unpaid-book';
+  if(owned)booking06LoadOwned();
+}
+
+// 06: only two possible inventory owners, always verified again on the server.
+const storeOwnerId06={{ store_inventory_owner_id|tojson }};
+let materialChoices06={customer:[],store:[]};
+let materialMode06='store';
+function addComplete06Line(initialSource){
+  const wrap=document.getElementById('complete06Lines');
+  const row=document.createElement('div');row.className='row g-2 align-items-end mb-2 material06-line';
+  const sourceCol=document.createElement('div');sourceCol.className='col-md-3';
+  const sourceSelect=document.createElement('select');sourceSelect.className='form-select material06-source';
+  const modes=materialMode06==='mixed'?['store','customer']:[materialMode06];
+  for(const m of modes)sourceSelect.add(new Option(m==='store'?'店內耗材':'客戶寄店',m));
+  sourceSelect.value=initialSource||modes[0];
+  sourceCol.append(sourceSelect);
+  const productCol=document.createElement('div');productCol.className='col-md-5';
+  const productSelect=document.createElement('select');productSelect.className='form-select material06-product';
+  productCol.append(productSelect);
+  const amountCol=document.createElement('div');amountCol.className='col-md-3';
+  const amount=document.createElement('input');amount.type='number';amount.min='0.01';amount.step='0.01';
+  amount.placeholder='使用 g/ml';amount.required=true;amount.className='form-control material06-amount';
+  amountCol.append(amount);
+  const removeCol=document.createElement('div');removeCol.className='col-md-1';
+  const remove=document.createElement('button');remove.type='button';remove.className='btn btn-outline-danger';remove.textContent='×';
+  remove.onclick=()=>row.remove();removeCol.append(remove);
+  row.append(sourceCol,productCol,amountCol,removeCol);
+  const update=()=>{
+    productSelect.replaceChildren(new Option('請選擇寄存產品',''));
+    for(const p of materialChoices06[sourceSelect.value])
+      productSelect.add(new Option(`${p.product_name} · 尚餘 ${p.remaining_amount} ${p.unit}`,String(p.inventory_id)));
+  };
+  sourceSelect.addEventListener('change',update);update();wrap.append(row);
+}
+async function openComplete06(bookingId,customerId,name,mode){
+  materialMode06=mode||'store';
+  document.getElementById('complete06Title').textContent=`課程 #${bookingId}｜${name}`;
+  document.getElementById('complete06Form').action=`/admin/course-booking/${encodeURIComponent(bookingId)}/complete`;
+  document.getElementById('complete06Lines').replaceChildren();
+  document.getElementById('complete06Error').textContent='';
+  materialChoices06={customer:[],store:[]};
+  if(materialMode06==='store'||materialMode06==='mixed'){
+    if(!storeOwnerId06){document.getElementById('complete06Error').textContent='未設定店內耗材帳戶';}
+  }
+  try{
+    const calls=[fetch(`/admin/api/customer/${encodeURIComponent(customerId)}/inventory`),
+      storeOwnerId06?fetch(`/admin/api/customer/${encodeURIComponent(storeOwnerId06)}/inventory`):Promise.resolve(null)];
+    const [rCustomer,rStore]=await Promise.all(calls);
+    if(!rCustomer.ok||(rStore&&!rStore.ok))throw new Error('無法讀取寄存產品');
+    materialChoices06={customer:await rCustomer.json(),store:rStore?await rStore.json():[]};
+    if(materialMode06==='mixed'){
+      addComplete06Line('customer');addComplete06Line('store');
+    }else addComplete06Line(materialMode06);
+    const modal=bootstrap.Modal.getOrCreateInstance(document.getElementById('complete06Modal'));
+    modal.show();
+  }catch(e){alert('無法載入耗材清單，請重新整理後重試');}
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  document.querySelectorAll('.search-customer06').forEach(setupSearchableCustomer06);
+  // Keep default price, hand fee and actual amount in sync until manual price edit.
+  document.getElementById('courseSale05Course')?.addEventListener('change',()=>{
+    document.getElementById('courseSale06MaterialMode').value='store';
+    sale06RefreshPrice();sale06LoadExisting();
+  });
+  document.getElementById('courseSale05Count')?.addEventListener('change',sale06RefreshPrice);
+  document.getElementById('courseSale06MaterialMode')?.addEventListener('change',sale06RefreshPrice);
+  document.querySelectorAll('.courseSale06Component').forEach(x=>x.addEventListener('input',sale06PriceFromComponents));
+  document.getElementById('courseSale05Price')?.addEventListener('input',()=>{sale06ManualPrice=true;sale06PriceFromComponents();});
+  document.getElementById('courseSale05Customer')?.addEventListener('change',sale06LoadExisting);
+  document.getElementById('courseSale05Mode')?.addEventListener('change',()=>{
+    const existing=document.getElementById('courseSale05Mode').value==='existing';
+    document.getElementById('courseSale06ExistingWrap').hidden=!existing;
+    document.getElementById('courseSale06Existing').required=existing;
+    document.getElementById('courseSale05TimeWrap').hidden=
+      !['now','future'].includes(document.getElementById('courseSale05Mode').value);
+    document.getElementById('courseSale05Time').required=
+      ['now','future'].includes(document.getElementById('courseSale05Mode').value);
+    if(existing)sale06LoadExisting();
+  });
+  const kind=document.getElementById('booking06Kind');
+  kind?.addEventListener('change',booking06SetKind);
+  document.getElementById('booking06Customer')?.addEventListener('change',booking06LoadOwned);
+  booking06SetKind();
+  document.getElementById('booking06Form')?.addEventListener('submit',e=>{
+    if(!document.getElementById('booking06Customer').value){e.preventDefault();alert('請從搜尋結果選擇客戶');return;}
+    const isOwned=kind.value==='owned';
+    if(isOwned&&!document.getElementById('booking06Owned').value){e.preventDefault();alert('請選擇可用的已購堂數');return;}
+    if(!isOwned&&!document.getElementById('booking06Course').value){e.preventDefault();alert('請選擇預約課程');return;}
+  });
+  document.getElementById('complete06AddLine')?.addEventListener('click',()=>addComplete06Line());
+  document.getElementById('complete06Form')?.addEventListener('submit',e=>{
+    let lines=[];let err='';
+    for(const row of document.querySelectorAll('.material06-line')){
+      const source=row.querySelector('.material06-source').value;
+      const id=row.querySelector('.material06-product').value;
+      const amount=Number(row.querySelector('.material06-amount').value);
+      if(!id||!Number.isFinite(amount)||amount<=0){err='請填入所有實際使用的寄存產品與 g／ml 用量';break;}
+      const p=materialChoices06[source].find(p=>String(p.inventory_id)===id);
+      if(!p||amount>Number(p.remaining_amount)){err='使用量不可超過寄存剩餘容量';break;}
+      lines.push({source:source,inventory_id:Number(id),amount:amount.toFixed(2)});
+    }
+    if(!lines.length)err='請加入至少一筆耗材；如確無耗材需使用，須另確認例外業務規則';
+    if(new Set(lines.map(x=>x.inventory_id)).size!==lines.length)err='同一瓶／同一批寄存產品不能重複列入';
+    if(materialMode06==='mixed'&&new Set(lines.map(x=>x.source)).size!==2)err='混合耗材模式必須同時填入店內及客戶寄店用量';
+    if(err){e.preventDefault();document.getElementById('complete06Error').textContent=err;return;}
+    document.getElementById('complete06MaterialsJson').value=JSON.stringify(lines);
+    const button=e.currentTarget.querySelector('button[type="submit"]');if(button)button.disabled=true;
+  });
+});
+</script>
+
 {% endblock %}

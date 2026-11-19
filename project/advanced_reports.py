@@ -120,11 +120,12 @@ def dashboard():
 
     # Course costs (assuming service_fee + product_fee as cost)
     cursor.execute("""
-        SELECT COALESCE(SUM(b.sessions_purchased * (c.service_fee + c.product_fee)), 0) as course_cost
+        SELECT COALESCE(SUM((CASE WHEN b.course_purchase_id IS NOT NULL THEN 1 ELSE b.sessions_purchased END) * (c.service_fee + c.product_fee)), 0) as course_cost
         FROM bookings b
         JOIN courses c ON b.course_id = c.id
         WHERE DATE(b.created_at) BETWEEN %s AND %s
-        AND b.status != 'cancelled' AND (b.course_purchase_id IS NULL OR b.status='completed')
+        AND b.status != 'cancelled' AND b.is_unpaid_course_booking=0
+        AND (b.course_purchase_id IS NULL OR b.status='completed')
     """, (start_date, end_date))
     course_cost_data = cursor.fetchone()
 
@@ -154,7 +155,7 @@ def dashboard():
             SELECT DATE(b.created_at) AS date, SUM(b.total_amount) AS revenue,COUNT(*) AS count
             FROM bookings b JOIN users u ON u.id=b.customer_id
             WHERE DATE(b.created_at) BETWEEN %s AND %s AND b.status!='cancelled'
-              AND b.course_purchase_id IS NULL AND u.email!='store@jparomatic.local'
+              AND b.course_purchase_id IS NULL AND b.is_unpaid_course_booking=0 AND u.email!='store@jparomatic.local'
             GROUP BY DATE(b.created_at)
             UNION ALL
             SELECT DATE(a.completed_at) AS date,SUM(a.recognized_amount) AS revenue,COUNT(*) AS count
@@ -281,7 +282,7 @@ def course_rankings():
                    b.id AS booking_id,b.customer_id
             FROM bookings b JOIN users u ON u.id=b.customer_id
             WHERE DATE(b.created_at) BETWEEN %s AND %s AND b.status!='cancelled'
-              AND b.course_purchase_id IS NULL AND u.email!='store@jparomatic.local'
+              AND b.course_purchase_id IS NULL AND b.is_unpaid_course_booking=0 AND u.email!='store@jparomatic.local'
             UNION ALL
             SELECT cp.course_id,1 AS sessions,a.recognized_amount AS amount,
                    a.booking_id,cp.customer_id
@@ -553,7 +554,7 @@ def export_report(report_type):
                        b.id AS booking_id,b.customer_id
                 FROM bookings b JOIN users u ON u.id=b.customer_id
                 WHERE DATE(b.created_at) BETWEEN %s AND %s AND b.status!='cancelled'
-                  AND b.course_purchase_id IS NULL AND u.email!='store@jparomatic.local'
+                  AND b.course_purchase_id IS NULL AND b.is_unpaid_course_booking=0 AND u.email!='store@jparomatic.local'
                 UNION ALL
                 SELECT cp.course_id,1 AS sessions,a.recognized_amount AS amount,
                        a.booking_id,cp.customer_id

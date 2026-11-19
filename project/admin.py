@@ -190,17 +190,20 @@ def dashboard():
         FROM order_items oi
         JOIN products p ON oi.product_id = p.id
         JOIN orders o ON oi.order_id = o.id
+        JOIN users u ON u.id=o.customer_id
         WHERE o.status != 'cancelled' AND o.deleted_at IS NULL
+          AND u.email != 'store@jparomatic.local'
     """)
     res = cursor.fetchone()
     order_cost = float(res['order_cost']) if res and res['order_cost'] else 0.0
 
     # 課程成本
     cursor.execute("""
-        SELECT COALESCE(SUM(b.sessions_purchased * (c.service_fee + c.product_fee)), 0) as course_cost
+        SELECT COALESCE(SUM((CASE WHEN b.course_purchase_id IS NOT NULL THEN 1 ELSE b.sessions_purchased END) * (c.service_fee + c.product_fee)), 0) as course_cost
         FROM bookings b
         JOIN courses c ON b.course_id = c.id
-        WHERE b.status != 'cancelled' AND (b.course_purchase_id IS NULL OR b.status='completed')
+        WHERE b.status != 'cancelled' AND b.is_unpaid_course_booking=0
+          AND (b.course_purchase_id IS NULL OR b.status='completed')
     """)
     res = cursor.fetchone()
     course_cost = float(
@@ -380,11 +383,13 @@ def dashboard():
     # ⭐ 修正 3: course_schedules -> shop_schedules
     cursor.execute("""
         SELECT b.*, u.username, u.firstname, u.surname, u.email, u.phone, u.line_id,
-               c.name as course_name, c.duration, s.start_time, s.end_time
+               c.name as course_name, c.duration, s.start_time, s.end_time,
+               cp.material_mode, cp.requires_material_confirmation
         FROM bookings b
         LEFT JOIN users u ON b.customer_id = u.id
         LEFT JOIN courses c ON b.course_id = c.id
         LEFT JOIN shop_schedules s ON b.global_schedule_id = s.id
+        LEFT JOIN customer_course_purchases cp ON cp.id=b.course_purchase_id
         ORDER BY b.created_at DESC
     """)
     bookings = cursor.fetchall()
@@ -392,6 +397,10 @@ def dashboard():
     for booking in bookings:
         if isinstance(booking.get('total_amount'), Decimal):
             booking['total_amount'] = float(booking['total_amount'])
+
+    cursor.execute("SELECT id FROM users WHERE email='store@jparomatic.local' AND role='customer' LIMIT 1")
+    shop_row = cursor.fetchone()
+    store_inventory_owner_id = shop_row['id'] if shop_row else None
 
     # Customer list
     cursor.execute("""
@@ -483,6 +492,9 @@ def dashboard():
         courses=courses,
         course_tiers=course_tiers,
         course_sale_request_key=secrets.token_urlsafe(24),
+        unpaid_booking_request_key=secrets.token_urlsafe(24),
+        course_completion_request_key=secrets.token_urlsafe(24),
+        store_inventory_owner_id=store_inventory_owner_id,
         owned_booking_request_key=secrets.token_urlsafe(24),
         product_categories=product_categories,
         course_categories=course_categories,
@@ -1466,10 +1478,19 @@ def update_booking_status(booking_id):
 
         # 鎖住此預約，避免重複取消／恢復造成時段人數不一致。
         cursor.execute(
-            'SELECT id, status FROM bookings WHERE id=%s FOR UPDATE', (booking_id,))
+            'SELECT id, status, is_unpaid_course_booking, course_purchase_id FROM bookings WHERE id=%s FOR UPDATE', (booking_id,))
         locked_booking = cursor.fetchone()
         if not locked_booking:
             raise ValueError('預約不存在')
+        if (status == 'completed' and locked_booking['is_unpaid_course_booking']
+                and not locked_booking['course_purchase_id']):
+            raise ValueError('純預約尚未購買課程，不能標記完成；請先在課程販售連結預約')
+        if status == 'completed' and locked_booking['course_purchase_id']:
+            cursor.execute('''SELECT requires_material_confirmation FROM customer_course_purchases
+                              WHERE id=%s''', (locked_booking['course_purchase_id'],))
+            needs = cursor.fetchone()
+            if needs and needs['requires_material_confirmation']:
+                raise ValueError('此課程須使用「完成與耗材核銷」，不得直接變更狀態')
 
         # 有已收款或待核銷寄店抵扣的預約，不可直接取消而不作退款／沖銷。
         if status == 'cancelled' and locked_booking['status'] != 'cancelled':
@@ -2807,6 +2828,8 @@ def add_booking_manual():
             raise ValueError('請建立 1～50 筆課程或產品')
         if any(not isinstance(row, dict) for row in rows):
             raise ValueError('預約表單列格式不正確')
+        if any(row.get('item_type') == 'course' for row in rows):
+            raise ValueError('06 版課程須先販售或建立純預約，舊版直接收費預約已停用')
         if any(v and v != '[]' for v in request.form.getlist('inv_jsons[]')):
             raise ValueError('寄店容量必須在課程完成後登記，不可於預約時扣除')
 
