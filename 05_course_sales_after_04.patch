@@ -1,0 +1,1547 @@
+diff --git a/project/__init__.py b/project/__init__.py
+index 3bfd41a..d5cdd1e 100644
+--- a/project/__init__.py
++++ b/project/__init__.py
+@@ -152,6 +152,10 @@ def create_app():
+     from project.admin import admin_bp
+     app.register_blueprint(admin_bp, url_prefix='/admin')
+ 
++    # 05: independent, staff-only course sales and entitlements.
++    from project.course_sales import course_sales_bp
++    app.register_blueprint(course_sales_bp, url_prefix='/admin')
++
+     from project.customer import customer_bp
+     app.register_blueprint(customer_bp, url_prefix='/customer')
+ 
+diff --git a/project/admin.py b/project/admin.py
+index 6aa9bf7..698d1a6 100644
+--- a/project/admin.py
++++ b/project/admin.py
+@@ -18,6 +18,7 @@ from project.db import get_current_user_id, get_current_user_role
+ import MySQLdb.cursors
+ from decimal import Decimal
+ from zoneinfo import ZoneInfo
++from project.course_entitlements import parse_tiers, replace_tiers, load_tiers, transition_allocation
+ from project.stored_value import (money, ensure_wallet, change_balance, lock_order,
+                                   cancel_order, restore_order, archive_order)
+ # from project.services import admin_update_order_with_inventory
+@@ -171,7 +172,12 @@ def dashboard():
+              WHERE o.status != 'cancelled' AND o.deleted_at IS NULL AND u.email != 'store@jparomatic.local') +
+             (SELECT COALESCE(SUM(b.total_amount), 0)
+              FROM bookings b JOIN users u ON b.customer_id = u.id
+-             WHERE b.status != 'cancelled' AND u.email != 'store@jparomatic.local')
++             WHERE b.status != 'cancelled' AND u.email != 'store@jparomatic.local') +
++            (SELECT COALESCE(SUM(a.recognized_amount),0)
++             FROM customer_course_allocations a
++             JOIN customer_course_purchases cp ON cp.id=a.purchase_id
++             JOIN users u ON u.id=cp.customer_id
++             WHERE a.status='completed' AND u.email != 'store@jparomatic.local')
+         as total_revenue
+     """)
+     res = cursor.fetchone()
+@@ -194,12 +200,21 @@ def dashboard():
+         SELECT COALESCE(SUM(b.sessions_purchased * (c.service_fee + c.product_fee)), 0) as course_cost
+         FROM bookings b
+         JOIN courses c ON b.course_id = c.id
+-        WHERE b.status != 'cancelled'
++        WHERE b.status != 'cancelled' AND (b.course_purchase_id IS NULL OR b.status='completed')
+     """)
+     res = cursor.fetchone()
+     course_cost = float(
+         res['course_cost']) if res and res['course_cost'] else 0.0
+ 
++    # 05: customer prepaid course receipts are separate from completed-service revenue.
++    cursor.execute('''SELECT COALESCE(SUM(amount),0) AS cash_received
++        FROM customer_course_payments WHERE method != 'stored_value' ''')
++    course_cash_received = cursor.fetchone()['cash_received']
++    cursor.execute('''SELECT COALESCE(SUM(total_paid),0) AS prepaid_total,
++               COALESCE(SUM(total_paid * completed_sessions / total_sessions),0) AS allocated_total
++        FROM customer_course_purchases''')
++    liabilities = cursor.fetchone()
++
+     total_cost = order_cost + course_cost
+     net_profit = total_revenue - total_cost
+ 
+@@ -244,6 +259,10 @@ def dashboard():
+         ORDER BY c.created_at DESC
+     """)
+     courses = cursor.fetchall()
++    cursor.execute('SELECT course_id,sessions,default_total FROM course_sale_tiers ORDER BY course_id,sessions')
++    course_tiers = {}
++    for tier in cursor.fetchall():
++        course_tiers.setdefault(tier['course_id'], {})[tier['sessions']] = float(tier['default_total'])
+ 
+     # Categories
+     cursor.execute(
+@@ -432,7 +451,9 @@ def dashboard():
+         'customers': customer_count,
+         'posts': post_count,
+         'revenue': float(total_revenue),
+-        'net_profit': net_profit
++        'net_profit': net_profit,
++        'course_cash_received': course_cash_received,
++        'course_unfulfilled': max(Decimal('0'), Decimal(str(liabilities['prepaid_total'])) - Decimal(str(liabilities['allocated_total'])))
+     }
+ 
+     # ================= 新增：員工與手技費資料 =================
+@@ -460,6 +481,9 @@ def dashboard():
+         recent_bookings=recent_bookings,
+         products=products,
+         courses=courses,
++        course_tiers=course_tiers,
++        course_sale_request_key=secrets.token_urlsafe(24),
++        owned_booking_request_key=secrets.token_urlsafe(24),
+         product_categories=product_categories,
+         course_categories=course_categories,
+         events=events,
+@@ -694,9 +718,11 @@ def get_course_json(course_id):
+     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+     cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
+     course = cursor.fetchone()
++    tiers = load_tiers(cursor,course_id) if course else {}
+     cursor.close()
+ 
+     if course:
++        course['sale_tiers'] = ','.join(f'{qty}:{price:.0f}' for qty,price in tiers.items())
+         for key in ['regular_price', 'experience_price', 'service_fee', 'product_fee']:
+             if key in course and course[key] is not None:
+                 course[key] = float(course[key])
+@@ -721,6 +747,11 @@ def add_course_modal():
+         product_fee = request.form.get('product_fee') or 0
+         duration = request.form.get('duration') or 60
+         description = request.form.get('description')
++        tiers = parse_tiers(request.form.get('sale_tiers'))
++        visibility = request.form.get('course_visibility','public')
++        if visibility not in ('public','hidden','disabled'):
++            raise ValueError('課程上架狀態不正確')
++        uses_store = 1 if request.form.get('uses_store_consumables') == '1' else 0
+ 
+         image_url = None
+         if 'image' in request.files:
+@@ -732,13 +763,15 @@ def add_course_modal():
+         sql = """
+             INSERT INTO courses
+             (name, category_id, regular_price, experience_price, service_fee, product_fee,
+-             duration, description, image, is_active, created_at)
+-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
++             duration, description, image, is_active, is_public, uses_store_consumables, created_at)
++            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+         """
+         cursor.execute(sql, (name, category_id, regular_price, experience_price,
+-                       service_fee, product_fee, duration, description, image_url))
++                       service_fee, product_fee, duration, description, image_url,
++                       0 if visibility == 'disabled' else 1, 1 if visibility == 'public' else 0, uses_store))
+ 
+         new_id = cursor.lastrowid
++        replace_tiers(cursor, new_id, tiers)
+         database.connection.commit()
+         cursor.close()
+ 
+@@ -772,7 +805,13 @@ def update_course_modal(course_id):
+         experience_price = request.form.get('experience_price') or 0
+         duration = request.form.get('duration') or 60
+         description = request.form.get('description')
+-        is_active = 1 if request.form.get('is_active') else 0
++        visibility = request.form.get('course_visibility','public')
++        if visibility not in ('public','hidden','disabled'):
++            raise ValueError('課程上架狀態不正確')
++        is_active = 0 if visibility == 'disabled' else 1
++        is_public = 1 if visibility == 'public' else 0
++        uses_store = 1 if request.form.get('uses_store_consumables') == '1' else 0
++        tiers = parse_tiers(request.form.get('sale_tiers'))
+ 
+         # ⭐ 關鍵修正：判斷成本欄位是否存在於表單中
+         # 如果是 Admin (有欄位)，就用傳來的直；如果是 Staff (無欄位)，就沿用資料庫舊值
+@@ -799,22 +838,23 @@ def update_course_modal(course_id):
+                 UPDATE courses
+                 SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
+                     service_fee=%s, product_fee=%s, duration=%s, description=%s,
+-                    is_active=%s, image=%s, updated_at=NOW()
++                    is_active=%s, is_public=%s, uses_store_consumables=%s, image=%s, updated_at=NOW()
+                 WHERE id=%s
+             """
+             cursor.execute(sql, (name, category_id, regular_price, experience_price, service_fee,
+-                           product_fee, duration, description, is_active, image_url, course_id))
++                           product_fee, duration, description, is_active, is_public, uses_store, image_url, course_id))
+         else:
+             sql = """
+                 UPDATE courses
+                 SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
+                     service_fee=%s, product_fee=%s, duration=%s, description=%s,
+-                    is_active=%s, updated_at=NOW()
++                    is_active=%s, is_public=%s, uses_store_consumables=%s, updated_at=NOW()
+                 WHERE id=%s
+             """
+             cursor.execute(sql, (name, category_id, regular_price, experience_price,
+-                           service_fee, product_fee, duration, description, is_active, course_id))
++                           service_fee, product_fee, duration, description, is_active, is_public, uses_store, course_id))
+ 
++        replace_tiers(cursor,course_id,tiers)
+         database.connection.commit()
+         cursor.close()
+ 
+@@ -849,8 +889,10 @@ def delete_course_modal(course_id):
+         cursor.execute(
+             "SELECT COUNT(*) as count FROM bookings WHERE course_id = %s", (course_id,))
+         booking_count = cursor.fetchone()['count']
++        cursor.execute('SELECT COUNT(*) AS count FROM customer_course_purchases WHERE course_id=%s', (course_id,))
++        purchase_count = cursor.fetchone()['count']
+ 
+-        if booking_count > 0:
++        if booking_count > 0 or purchase_count > 0:
+             # A. 有預約紀錄 -> 執行「停用」
+             cursor.execute(
+                 "UPDATE courses SET is_active = FALSE WHERE id = %s", (course_id,))
+@@ -1468,6 +1510,8 @@ def update_booking_status(booking_id):
+             cursor.execute(
+                 'UPDATE shop_schedules SET current_bookings=current_bookings+%s WHERE id=%s', (delta, schedule_id))
+ 
++        # 05: Paid entitlement stays reserved until service completion.
++        transition_allocation(cursor, booking_id, status, get_current_user_id())
+         # 2. 更新狀態
+         cursor.execute(
+             "UPDATE bookings SET status = %s WHERE id = %s", (status, booking_id))
+@@ -1898,6 +1942,11 @@ def customer_detail(customer_id):
+             ORDER BY b.created_at DESC
+         """, (customer_id,))
+         course_bookings = cursor.fetchall()
++        cursor.execute('''SELECT cp.id,cp.course_id,cp.total_sessions,cp.completed_sessions,
++            cp.reserved_sessions,cp.total_paid,cp.created_at,c.name AS course_name
++            FROM customer_course_purchases cp JOIN courses c ON c.id=cp.course_id
++            WHERE cp.customer_id=%s ORDER BY cp.id DESC''', (customer_id,))
++        owned_courses = cursor.fetchall()
+ 
+         # Prepaid credit (never expires). Ledger is append-only.
+         cursor.execute(
+@@ -1984,6 +2033,8 @@ def customer_detail(customer_id):
+         product_orders=product_orders,
+         order_items_map=order_items_map,
+         course_bookings=course_bookings,
++        owned_courses=owned_courses,
++        owned_booking_request_key=secrets.token_urlsafe(24),
+         customer_sources=customer_sources,
+         customer_inventory=customer_inventory,
+         purchased_products=purchased_products,
+@@ -2124,10 +2175,15 @@ def deduct_customer_inventory(customer_id):
+             raise ValueError('請填寫至少一項扣除容量')
+         notes = (request.form.get('notes') or '').strip()[:500]
+         database.connection.begin()
+-        cursor.execute('''SELECT id FROM bookings WHERE id=%s AND customer_id=%s
+-                          AND status='completed' FOR UPDATE''', (booking_id, customer_id))
+-        if not cursor.fetchone():
++        cursor.execute('''SELECT b.id,c.uses_store_consumables,b.course_purchase_id
++            FROM bookings b JOIN courses c ON c.id=b.course_id
++            WHERE b.id=%s AND b.customer_id=%s AND b.status='completed' FOR UPDATE''',
++            (booking_id, customer_id))
++        booking = cursor.fetchone()
++        if not booking:
+             raise ValueError('預約不存在、未完成或不是此客戶的課程')
++        if booking['uses_store_consumables'] or booking['course_purchase_id']:
++            raise ValueError('此課程使用店內耗材或已購堂數，不應扣除客戶寄店產品')
+         operation_id = _inventory_request(cursor, customer_id, 'deduct', key,
+                                           booking_id, used_on, notes)
+         for inv_id in sorted(deduction_map):
+@@ -2783,7 +2839,7 @@ def add_booking_manual():
+             fee_id = None
+             fee_amount = Decimal('0')
+             if kind == 'course':
+-                cursor.execute('''SELECT regular_price, experience_price FROM courses
++                cursor.execute('''SELECT regular_price, experience_price, uses_store_consumables FROM courses
+                                   WHERE id=%s AND is_active=1''', (item_id,))
+                 course = cursor.fetchone()
+                 if not course:
+@@ -2817,6 +2873,8 @@ def add_booking_manual():
+             lines = _manual_payment_entries(json.dumps(row.get('payments')), kind, total,
+                                             fee_amount, cursor, customer_id)
+             stored, deposit, other, due, pay_method, other_method = _manual_payment_summary(lines, total)
++            if kind == 'course' and course['uses_store_consumables'] and deposit:
++                raise ValueError('使用店內耗材的套裝課程，不可另以客戶寄店產品抵扣')
+             if kind == 'course':
+                 cursor.execute('''INSERT INTO bookings
+                     (customer_id, course_id, total_amount, is_first_time,
+@@ -2967,8 +3025,10 @@ def delete_booking(booking_id):
+ 
+         # 1. 查詢該預約是否有佔用「全店共用排班表 (shop_schedules)」
+         cursor.execute(
+-            "SELECT global_schedule_id FROM bookings WHERE id = %s", (booking_id,))
++            "SELECT global_schedule_id,course_purchase_id FROM bookings WHERE id = %s FOR UPDATE", (booking_id,))
+         booking = cursor.fetchone()
++        if booking and booking.get('course_purchase_id'):
++            raise ValueError('已購課程核銷預約不得永久刪除，請透過狀態取消釋放堂數')
+ 
+         # 2. 如果有綁定時段，把該時段的「已預約人數」扣回來，釋放名額
+         if booking and booking.get('global_schedule_id'):
+diff --git a/project/advanced_reports.py b/project/advanced_reports.py
+index 5a5f768..954dbc7 100644
+--- a/project/advanced_reports.py
++++ b/project/advanced_reports.py
+@@ -78,9 +78,10 @@ def dashboard():
+             COALESCE(SUM(total_amount), 0) as total_revenue,
+             COUNT(*) as order_count,
+             AVG(total_amount) as avg_order_value
+-        FROM orders
+-        WHERE DATE(created_at) BETWEEN %s AND %s
+-        AND status != 'cancelled'
++        FROM orders o JOIN users u ON u.id=o.customer_id
++        WHERE DATE(o.created_at) BETWEEN %s AND %s
++        AND o.status != 'cancelled' AND o.deleted_at IS NULL
++        AND u.email != 'store@jparomatic.local'
+     """, (start_date, end_date))
+     revenue_summary = cursor.fetchone()
+ 
+@@ -90,11 +91,19 @@ def dashboard():
+             COALESCE(SUM(total_amount), 0) as total_revenue,
+             COUNT(*) as booking_count,
+             AVG(total_amount) as avg_booking_value
+-        FROM bookings
+-        WHERE DATE(created_at) BETWEEN %s AND %s
+-        AND status != 'cancelled'
++        FROM bookings b JOIN users u ON u.id=b.customer_id
++        WHERE DATE(b.created_at) BETWEEN %s AND %s
++        AND b.status != 'cancelled' AND u.email != 'store@jparomatic.local'
+     """, (start_date, end_date))
+     booking_summary = cursor.fetchone()
++    cursor.execute('''SELECT COALESCE(SUM(a.recognized_amount),0) AS recognized
++        FROM customer_course_allocations a
++        JOIN customer_course_purchases cp ON cp.id=a.purchase_id
++        JOIN users u ON u.id=cp.customer_id
++        WHERE a.status='completed' AND DATE(a.completed_at) BETWEEN %s AND %s
++        AND u.email != 'store@jparomatic.local' ''', (start_date,end_date))
++    prepaid_recognized = cursor.fetchone()['recognized']
++    booking_summary['total_revenue'] += prepaid_recognized
+ 
+     # Calculate Cost and Profit
+     cursor.execute("""
+@@ -102,8 +111,10 @@ def dashboard():
+         FROM order_items oi
+         JOIN products p ON oi.product_id = p.id
+         JOIN orders o ON oi.order_id = o.id
++        JOIN users u ON u.id=o.customer_id
+         WHERE DATE(o.created_at) BETWEEN %s AND %s
+-        AND o.status != 'cancelled'
++        AND o.status != 'cancelled' AND o.deleted_at IS NULL
++        AND u.email != 'store@jparomatic.local'
+     """, (start_date, end_date))
+     cost_data = cursor.fetchone()
+ 
+@@ -113,7 +124,7 @@ def dashboard():
+         FROM bookings b
+         JOIN courses c ON b.course_id = c.id
+         WHERE DATE(b.created_at) BETWEEN %s AND %s
+-        AND b.status != 'cancelled'
++        AND b.status != 'cancelled' AND (b.course_purchase_id IS NULL OR b.status='completed')
+     """, (start_date, end_date))
+     course_cost_data = cursor.fetchone()
+ 
+@@ -127,29 +138,34 @@ def dashboard():
+ 
+     # Daily breakdown
+     cursor.execute("""
+-        SELECT 
+-            DATE(created_at) as date,
+-            COALESCE(SUM(total_amount), 0) as revenue,
+-            COUNT(*) as count
+-        FROM orders
+-        WHERE DATE(created_at) BETWEEN %s AND %s
+-        AND status != 'cancelled'
+-        GROUP BY DATE(created_at)
+-        ORDER BY date
++        SELECT DATE(o.created_at) AS date, COALESCE(SUM(o.total_amount),0) AS revenue,
++               COUNT(*) AS count
++        FROM orders o JOIN users u ON u.id=o.customer_id
++        WHERE DATE(o.created_at) BETWEEN %s AND %s
++          AND o.status != 'cancelled' AND o.deleted_at IS NULL
++          AND u.email != 'store@jparomatic.local'
++        GROUP BY DATE(o.created_at) ORDER BY date
+     """, (start_date, end_date))
+     daily_orders = cursor.fetchall()
+ 
+     cursor.execute("""
+-        SELECT 
+-            DATE(created_at) as date,
+-            COALESCE(SUM(total_amount), 0) as revenue,
+-            COUNT(*) as count
+-        FROM bookings
+-        WHERE DATE(created_at) BETWEEN %s AND %s
+-        AND status != 'cancelled'
+-        GROUP BY DATE(created_at)
+-        ORDER BY date
+-    """, (start_date, end_date))
++        SELECT t.date AS date, SUM(t.revenue) AS revenue, SUM(t.count) AS count
++        FROM (
++            SELECT DATE(b.created_at) AS date, SUM(b.total_amount) AS revenue,COUNT(*) AS count
++            FROM bookings b JOIN users u ON u.id=b.customer_id
++            WHERE DATE(b.created_at) BETWEEN %s AND %s AND b.status!='cancelled'
++              AND b.course_purchase_id IS NULL AND u.email!='store@jparomatic.local'
++            GROUP BY DATE(b.created_at)
++            UNION ALL
++            SELECT DATE(a.completed_at) AS date,SUM(a.recognized_amount) AS revenue,COUNT(*) AS count
++            FROM customer_course_allocations a
++            JOIN customer_course_purchases cp ON cp.id=a.purchase_id
++            JOIN users u ON u.id=cp.customer_id
++            WHERE a.status='completed' AND DATE(a.completed_at) BETWEEN %s AND %s
++              AND u.email!='store@jparomatic.local'
++            GROUP BY DATE(a.completed_at)
++        ) t GROUP BY t.date ORDER BY t.date
++    """, (start_date, end_date,start_date,end_date))
+     daily_bookings = cursor.fetchall()
+ 
+     cursor.close()
+@@ -255,26 +271,30 @@ def course_rankings():
+     order_column = 'total_sessions' if sort_by == 'quantity' else 'total_revenue'
+ 
+     cursor.execute(f"""
+-        SELECT 
+-            c.id,
+-            c.name,
+-            c.image,
+-            cc.name as category_name,
+-            c.duration,
+-            SUM(b.sessions_purchased) as total_sessions,
+-            SUM(b.total_amount) as total_revenue,
+-            AVG(b.total_amount / b.sessions_purchased) as avg_price_per_session,
+-            COUNT(DISTINCT b.id) as booking_count,
+-            COUNT(DISTINCT b.customer_id) as unique_customers
+-        FROM bookings b
+-        JOIN courses c ON b.course_id = c.id
+-        LEFT JOIN course_categories cc ON c.category_id = cc.id
+-        WHERE DATE(b.created_at) BETWEEN %s AND %s
+-        AND b.status != 'cancelled'
+-        GROUP BY c.id, c.name, c.image, cc.name, c.duration
+-        ORDER BY {order_column} DESC
+-        LIMIT 50
+-    """, (start_date, end_date))
++        SELECT c.id,c.name,c.image,cc.name AS category_name,c.duration,
++               SUM(t.sessions) AS total_sessions,SUM(t.amount) AS total_revenue,
++               SUM(t.amount)/NULLIF(SUM(t.sessions),0) AS avg_price_per_session,
++               COUNT(DISTINCT t.booking_id) AS booking_count,
++               COUNT(DISTINCT t.customer_id) AS unique_customers
++        FROM (
++            SELECT b.course_id,b.sessions_purchased AS sessions,b.total_amount AS amount,
++                   b.id AS booking_id,b.customer_id
++            FROM bookings b JOIN users u ON u.id=b.customer_id
++            WHERE DATE(b.created_at) BETWEEN %s AND %s AND b.status!='cancelled'
++              AND b.course_purchase_id IS NULL AND u.email!='store@jparomatic.local'
++            UNION ALL
++            SELECT cp.course_id,1 AS sessions,a.recognized_amount AS amount,
++                   a.booking_id,cp.customer_id
++            FROM customer_course_allocations a
++            JOIN customer_course_purchases cp ON cp.id=a.purchase_id
++            JOIN users u ON u.id=cp.customer_id
++            WHERE a.status='completed' AND DATE(a.completed_at) BETWEEN %s AND %s
++              AND u.email!='store@jparomatic.local'
++        ) t JOIN courses c ON c.id=t.course_id
++        LEFT JOIN course_categories cc ON cc.id=c.category_id
++        GROUP BY c.id,c.name,c.image,cc.name,c.duration
++        ORDER BY {order_column} DESC LIMIT 50
++    """, (start_date,end_date,start_date,end_date))
+ 
+     courses = cursor.fetchall()
+ 
+@@ -395,31 +415,35 @@ def customer_analytics():
+ 
+     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+ 
+-    # Top customers
++    # Group each source per customer BEFORE joining; avoid Cartesian double counts.
+     cursor.execute("""
+-        SELECT 
+-            u.id,
+-            CONCAT(u.firstname, ' ', u.surname) as name,
+-            u.email,
+-            u.phone,
+-            COUNT(DISTINCT o.id) as order_count,
+-            COUNT(DISTINCT b.id) as booking_count,
+-            COALESCE(SUM(o.total_amount), 0) as order_total,
+-            COALESCE(SUM(b.total_amount), 0) as booking_total,
+-            (COALESCE(SUM(o.total_amount), 0) + COALESCE(SUM(b.total_amount), 0)) as total_spent
++        SELECT u.id,CONCAT(u.firstname,' ',u.surname) AS name,u.email,u.phone,
++               COALESCE(o.order_count,0) AS order_count,
++               COALESCE(b.booking_count,0) AS booking_count,
++               COALESCE(o.order_total,0) AS order_total,
++               COALESCE(b.booking_total,0) + COALESCE(cp.recognized,0) AS booking_total,
++               COALESCE(o.order_total,0)+COALESCE(b.booking_total,0)+COALESCE(cp.recognized,0) AS total_spent
+         FROM users u
+-        LEFT JOIN orders o ON u.id = o.customer_id 
+-            AND DATE(o.created_at) BETWEEN %s AND %s
+-            AND o.status != 'cancelled'
+-        LEFT JOIN bookings b ON u.id = b.customer_id 
+-            AND DATE(b.created_at) BETWEEN %s AND %s
+-            AND b.status != 'cancelled'
+-        WHERE u.role = 'customer'
+-        GROUP BY u.id, u.firstname, u.surname, u.email, u.phone
+-        HAVING total_spent > 0
+-        ORDER BY total_spent DESC
+-        LIMIT 50
+-    """, (start_date, end_date, start_date, end_date))
++        LEFT JOIN (
++            SELECT customer_id,COUNT(*) AS order_count,SUM(total_amount) AS order_total
++            FROM orders WHERE DATE(created_at) BETWEEN %s AND %s
++              AND status!='cancelled' AND deleted_at IS NULL GROUP BY customer_id
++        ) o ON o.customer_id=u.id
++        LEFT JOIN (
++            SELECT customer_id,COUNT(*) AS booking_count,SUM(total_amount) AS booking_total
++            FROM bookings WHERE DATE(created_at) BETWEEN %s AND %s
++              AND status!='cancelled' GROUP BY customer_id
++        ) b ON b.customer_id=u.id
++        LEFT JOIN (
++            SELECT cp.customer_id,SUM(a.recognized_amount) AS recognized
++            FROM customer_course_allocations a JOIN customer_course_purchases cp ON cp.id=a.purchase_id
++            WHERE a.status='completed' AND DATE(a.completed_at) BETWEEN %s AND %s
++            GROUP BY cp.customer_id
++        ) cp ON cp.customer_id=u.id
++        WHERE u.role='customer' AND u.email!='store@jparomatic.local'
++          AND COALESCE(o.order_total,0)+COALESCE(b.booking_total,0)+COALESCE(cp.recognized,0)>0
++        ORDER BY total_spent DESC LIMIT 50
++    """, (start_date,end_date,start_date,end_date,start_date,end_date))
+ 
+     top_customers = cursor.fetchall()
+ 
+@@ -486,8 +510,10 @@ def export_report(report_type):
+             JOIN products p ON oi.product_id = p.id
+             LEFT JOIN product_categories pc ON p.category_id = pc.id
+             JOIN orders o ON oi.order_id = o.id
++            JOIN users u ON u.id=o.customer_id
+             WHERE DATE(o.created_at) BETWEEN %s AND %s
+-            AND o.status != 'cancelled'
++            AND o.status != 'cancelled' AND o.deleted_at IS NULL
++            AND u.email != 'store@jparomatic.local'
+             GROUP BY p.id, p.name, pc.name, p.cost
+             ORDER BY SUM(oi.subtotal) DESC
+         """, (start_date, end_date))
+@@ -519,23 +545,27 @@ def export_report(report_type):
+ 
+         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+         cursor.execute("""
+-            SELECT 
+-                c.name,
+-                cc.name as category_name,
+-                SUM(b.sessions_purchased) as sessions,
+-                SUM(b.total_amount) as revenue,
+-                COUNT(DISTINCT b.id) as bookings,
+-                COUNT(DISTINCT b.customer_id) as customers,
+-                c.service_fee,
+-                c.product_fee
+-            FROM bookings b
+-            JOIN courses c ON b.course_id = c.id
+-            LEFT JOIN course_categories cc ON c.category_id = cc.id
+-            WHERE DATE(b.created_at) BETWEEN %s AND %s
+-            AND b.status != 'cancelled'
+-            GROUP BY c.id, c.name, cc.name, c.service_fee, c.product_fee
+-            ORDER BY SUM(b.total_amount) DESC
+-        """, (start_date, end_date))
++            SELECT c.name,cc.name AS category_name,SUM(t.sessions) AS sessions,
++                   SUM(t.amount) AS revenue,COUNT(DISTINCT t.booking_id) AS bookings,
++                   COUNT(DISTINCT t.customer_id) AS customers,c.service_fee,c.product_fee
++            FROM (
++                SELECT b.course_id,b.sessions_purchased AS sessions,b.total_amount AS amount,
++                       b.id AS booking_id,b.customer_id
++                FROM bookings b JOIN users u ON u.id=b.customer_id
++                WHERE DATE(b.created_at) BETWEEN %s AND %s AND b.status!='cancelled'
++                  AND b.course_purchase_id IS NULL AND u.email!='store@jparomatic.local'
++                UNION ALL
++                SELECT cp.course_id,1 AS sessions,a.recognized_amount AS amount,
++                       a.booking_id,cp.customer_id
++                FROM customer_course_allocations a JOIN customer_course_purchases cp ON cp.id=a.purchase_id
++                JOIN users u ON u.id=cp.customer_id
++                WHERE a.status='completed' AND DATE(a.completed_at) BETWEEN %s AND %s
++                  AND u.email!='store@jparomatic.local'
++            ) t JOIN courses c ON c.id=t.course_id
++            LEFT JOIN course_categories cc ON cc.id=c.category_id
++            GROUP BY c.id,c.name,cc.name,c.service_fee,c.product_fee
++            ORDER BY revenue DESC
++        """, (start_date,end_date,start_date,end_date))
+ 
+         for row in cursor.fetchall():
+             cost_per = float(row['service_fee'] or 0) + \
+diff --git a/project/course_entitlements.py b/project/course_entitlements.py
+new file mode 100644
+index 0000000..cc743ba
+--- /dev/null
++++ b/project/course_entitlements.py
+@@ -0,0 +1,162 @@
++"""05: Paid course entitlements, bookings and recognition.
++
++All functions using a cursor participate in the caller's MySQL transaction.
++Never commit or send external notifications inside these helpers.
++"""
++import re
++from decimal import Decimal
++from project.stored_value import money
++
++
++def positive_money(value, field='金額'):
++    result = money(value)
++    if result <= 0 or result > Decimal('99999999.99'):
++        raise ValueError(f'{field}必須為正數且不得超過允許範圍')
++    return result
++
++
++def parse_tiers(raw):
++    """5:11000,10:20000. Single-session tier always uses course regular_price."""
++    raw = (raw or '').strip()
++    if len(raw) > 300:
++        raise ValueError('堂數優惠設定過長')
++    result = {}
++    if not raw:
++        return result
++    for entry in raw.split(','):
++        match = re.fullmatch(r'\s*(\d{1,3})\s*:\s*(\d{1,8}(?:\.\d{1,2})?)\s*', entry)
++        if not match:
++            raise ValueError('堂數優惠請用「5:11000,10:20000」格式')
++        sessions = int(match.group(1))
++        if sessions < 2 or sessions > 100 or sessions in result:
++            raise ValueError('優惠堂數需為 2～100，且不可重複；單堂使用原價')
++        result[sessions] = positive_money(match.group(2), '堂數優惠總價')
++    return result
++
++
++def replace_tiers(cursor, course_id, tiers):
++    cursor.execute('DELETE FROM course_sale_tiers WHERE course_id=%s', (course_id,))
++    for count, price in sorted(tiers.items()):
++        cursor.execute('INSERT INTO course_sale_tiers (course_id,sessions,default_total) VALUES (%s,%s,%s)',
++                       (course_id, count, price))
++
++
++def load_tiers(cursor, course_id):
++    cursor.execute('SELECT sessions,default_total FROM course_sale_tiers WHERE course_id=%s ORDER BY sessions',
++                   (course_id,))
++    return {int(row['sessions']): money(row['default_total']) for row in cursor.fetchall()}
++
++
++def available_sessions(purchase):
++    return int(purchase['total_sessions']) - int(purchase['completed_sessions']) - int(purchase['reserved_sessions'])
++
++
++def record_course_event(cursor, purchase_id, booking_id, action, actor_id,
++                        reserved_delta=0, completed_delta=0, recognized=Decimal('0')):
++    """Append-only action ledger, participating in the caller's transaction."""
++    cursor.execute("""INSERT INTO customer_course_events
++        (purchase_id,booking_id,action,delta_reserved,delta_completed,recognized_amount,operated_by)
++        VALUES (%s,%s,%s,%s,%s,%s,%s)""",
++        (purchase_id,booking_id,action,reserved_delta,completed_delta,recognized,actor_id))
++
++
++def reserve_for_booking(cursor, purchase_id, customer_id, course_id, booking_id, actor_id):
++    """Lock purchase first. Never permit overspending across simultaneous bookings."""
++    cursor.execute('''SELECT id,customer_id,course_id,total_sessions,completed_sessions,reserved_sessions
++        FROM customer_course_purchases WHERE id=%s AND status='active' FOR UPDATE''', (purchase_id,))
++    purchase = cursor.fetchone()
++    if not purchase or purchase['customer_id'] != customer_id or purchase['course_id'] != course_id:
++        raise ValueError('該客戶沒有這筆指定課程的可用購買權益')
++    if available_sessions(purchase) < 1:
++        raise ValueError('已購課程可用堂數不足（包含其他已預約保留的堂數）')
++    cursor.execute('''INSERT INTO customer_course_allocations
++        (purchase_id,booking_id,status,recognized_amount,operated_by)
++        VALUES (%s,%s,'reserved',0,%s)''', (purchase_id, booking_id, actor_id))
++    cursor.execute('''UPDATE customer_course_purchases SET reserved_sessions=reserved_sessions+1
++        WHERE id=%s''', (purchase_id,))
++    cursor.execute('UPDATE bookings SET course_purchase_id=%s WHERE id=%s', (purchase_id, booking_id))
++    record_course_event(cursor,purchase_id,booking_id,'reserve',actor_id,reserved_delta=1)
++
++
++def transition_allocation(cursor, booking_id, status, actor_id):
++    """Call while holding the corresponding booking row lock, before status UPDATE.
++    Legacy bookings (without a linked purchase) are unchanged.
++    """
++    cursor.execute('''SELECT a.id,a.purchase_id,a.status,a.recognized_amount
++        FROM customer_course_allocations a WHERE a.booking_id=%s FOR UPDATE''', (booking_id,))
++    alloc = cursor.fetchone()
++    if not alloc:
++        return False
++    cursor.execute('''SELECT id,total_sessions,total_paid,completed_sessions,reserved_sessions
++        FROM customer_course_purchases WHERE id=%s FOR UPDATE''', (alloc['purchase_id'],))
++    purchase = cursor.fetchone()
++    if not purchase:
++        raise ValueError('對應的課程購買紀錄不存在')
++    current = alloc['status']
++    if current == 'completed':
++        if status != 'completed':
++            raise ValueError('已完成的堂數不得直接取消或改回未完成；必須另行人工帳務更正')
++        return True
++    if current == 'reserved':
++        if status == 'completed':
++            if purchase['reserved_sessions'] < 1:
++                raise ValueError('預約保留堂數不一致')
++            # Allocate actual discounted purchase price over completed lessons.
++            # The last lesson receives the rounding residual.
++            cursor.execute('''SELECT COALESCE(SUM(a.recognized_amount),0) AS recognized
++                FROM customer_course_allocations a WHERE a.purchase_id=%s AND a.status='completed' ''',
++                (alloc['purchase_id'],))
++            already = money(cursor.fetchone()['recognized'])
++            if int(purchase['completed_sessions']) + 1 == int(purchase['total_sessions']):
++                recognized = money(purchase['total_paid']) - already
++            else:
++                recognized = money(Decimal(str(purchase['total_paid'])) / Decimal(purchase['total_sessions']))
++            cursor.execute('''UPDATE customer_course_purchases SET completed_sessions=completed_sessions+1,
++                reserved_sessions=reserved_sessions-1 WHERE id=%s''', (alloc['purchase_id'],))
++            cursor.execute('''UPDATE customer_course_allocations SET status='completed', recognized_amount=%s,
++                operated_by=%s,completed_at=NOW() WHERE id=%s''', (recognized, actor_id, alloc['id']))
++            record_course_event(cursor,alloc['purchase_id'],booking_id,'complete',actor_id,
++                                reserved_delta=-1,completed_delta=1,recognized=recognized)
++        elif status == 'cancelled':
++            cursor.execute('''UPDATE customer_course_purchases SET reserved_sessions=reserved_sessions-1
++                WHERE id=%s AND reserved_sessions>0''', (alloc['purchase_id'],))
++            if cursor.rowcount != 1:
++                raise ValueError('預約保留堂數不足，無法取消')
++            cursor.execute('''UPDATE customer_course_allocations SET status='released',operated_by=%s
++                WHERE id=%s''', (actor_id, alloc['id']))
++            record_course_event(cursor,alloc['purchase_id'],booking_id,'release',actor_id,reserved_delta=-1)
++        return True
++    if current == 'released':
++        if status == 'cancelled':
++            return True
++        if status == 'completed':
++            raise ValueError('已取消的課程不能直接核銷，請先恢復預約')
++        if available_sessions(purchase) < 1:
++            raise ValueError('剩餘堂數不足，無法恢復預約')
++        cursor.execute('''UPDATE customer_course_purchases SET reserved_sessions=reserved_sessions+1
++            WHERE id=%s''', (alloc['purchase_id'],))
++        cursor.execute('''UPDATE customer_course_allocations SET status='reserved',operated_by=%s
++            WHERE id=%s''', (actor_id, alloc['id']))
++        record_course_event(cursor,alloc['purchase_id'],booking_id,'restore',actor_id,reserved_delta=1)
++        return True
++    raise ValueError('未知的課程核銷狀態')
++
++
++def occupy_schedule(cursor, appointment, duration=60):
++    """Use existing shop schedule with capacity checks; otherwise create one slot.
++    Caller must be inside a transaction.
++    """
++    from datetime import timedelta
++    cursor.execute('''SELECT id,max_capacity,current_bookings,is_active FROM shop_schedules
++        WHERE start_time=%s FOR UPDATE''', (appointment,))
++    slot = cursor.fetchone()
++    if slot:
++        if not slot['is_active'] or slot['current_bookings'] >= slot['max_capacity']:
++            raise ValueError('預約時段已關閉或額滿')
++        cursor.execute('''UPDATE shop_schedules SET current_bookings=current_bookings+1 WHERE id=%s''',
++                       (slot['id'],))
++        return slot['id']
++    cursor.execute('''INSERT INTO shop_schedules
++        (start_time,end_time,max_capacity,current_bookings,is_active)
++        VALUES (%s,%s,1,1,1)''', (appointment, appointment+timedelta(minutes=duration or 60)))
++    return cursor.lastrowid
+diff --git a/project/course_sales.py b/project/course_sales.py
+new file mode 100644
+index 0000000..86ce89e
+--- /dev/null
++++ b/project/course_sales.py
+@@ -0,0 +1,232 @@
++"""Staff-only course sales and redemption bookings (JP SPA 05).
++
++Course purchases are paid in full. Deposited customer products are not a payment
++method for fixed-price store-consumable courses. Session booking has no new sale.
++"""
++import json
++import re
++from datetime import datetime
++from zoneinfo import ZoneInfo
++from decimal import Decimal
++
++import MySQLdb
++import MySQLdb.cursors
++from flask import Blueprint, request, flash, redirect, url_for, jsonify, current_app
++
++from project.decorators import staff_required
++from project.db import get_current_user_id
++from project.extensions import database
++from project.stored_value import money, change_balance
++from project.course_entitlements import (available_sessions, load_tiers, occupy_schedule,
++                                         positive_money, reserve_for_booking, record_course_event)
++
++course_sales_bp = Blueprint('course_sales', __name__)
++_ALLOWED_METHODS = {'cash', 'credit_card', 'bank_transfer', 'stored_value', 'other'}
++
++
++def _request_key():
++    value = (request.form.get('request_key') or '').strip()
++    if not re.fullmatch(r'[A-Za-z0-9_-]{20,55}', value):
++        raise ValueError('請重新整理頁面再提交課程操作')
++    return value
++
++
++def _actor():
++    actor = get_current_user_id()
++    if not actor:
++        raise ValueError('沒有有效的操作人員')
++    return actor
++
++
++def _payments(raw, total):
++    if not raw or len(raw) > 6000:
++        raise ValueError('課程付款明細不存在或過長')
++    try:
++        data = json.loads(raw)
++    except (ValueError, TypeError) as exc:
++        raise ValueError('付款格式錯誤') from exc
++    if not isinstance(data, list) or not (1 <= len(data) <= 20):
++        raise ValueError('請填寫 1～20 筆付款明細')
++    result = []
++    for entry in data:
++        if not isinstance(entry, dict) or entry.get('method') not in _ALLOWED_METHODS:
++            raise ValueError('不支援的付款方式：套裝課程不可使用寄店抵扣')
++        amount = money(entry.get('amount'))
++        if amount < 0 or amount != amount.to_integral_value():
++            raise ValueError('付款金額須為非負整數元')
++        if amount > 0:
++            result.append((entry['method'], amount))
++    if sum((a for _, a in result), Decimal('0')) != total:
++        raise ValueError('課程必須全額付清，所有付款方式金額合計須等於實際售價')
++    return result
++
++
++def _audit(cursor, actor, action, target_id, details):
++    cursor.execute('''INSERT INTO audit_logs
++        (user_id,action,target_type,target_id,details,ip_address)
++        VALUES (%s,%s,'course_purchase',%s,%s,%s)''',
++        (actor, action, target_id, json.dumps(details, ensure_ascii=False), request.remote_addr))
++
++
++def _make_booking(cursor, purchase_id, customer_id, course_id, appointment, actor, request_key=None):
++    cursor.execute('SELECT duration FROM courses WHERE id=%s AND is_active=1', (course_id,))
++    course = cursor.fetchone()
++    if not course:
++        raise ValueError('課程不存在或已停用')
++    schedule_id = occupy_schedule(cursor, appointment, int(course['duration'] or 60))
++    cursor.execute('''INSERT INTO bookings
++        (customer_id,course_id,global_schedule_id,total_amount,is_first_time,
++         sessions_purchased,sessions_remaining,status,booking_date,payment_method,
++         course_booking_request_key)
++        VALUES (%s,%s,%s,0,0,1,1,'confirmed',%s,'prepaid_course',%s)''',
++        (customer_id,course_id,schedule_id,appointment,request_key))
++    booking_id = cursor.lastrowid
++    reserve_for_booking(cursor, purchase_id, customer_id, course_id, booking_id, actor)
++    return booking_id
++
++
++@course_sales_bp.route('/course-sales', methods=['POST'])
++@staff_required
++def sell():
++    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
++    try:
++        key = _request_key()
++        actor = _actor()
++        customer_id = request.form.get('customer_id', type=int)
++        course_id = request.form.get('course_id', type=int)
++        count = request.form.get('sessions', type=int)
++        if not customer_id or not course_id or not count or count < 1 or count > 100:
++            raise ValueError('客戶、課程或購買堂數不正確')
++        final_price = positive_money(request.form.get('final_price'), '實際售價')
++        if final_price != final_price.to_integral_value():
++            raise ValueError('課程銷售金額須為整數元')
++        payment_lines = _payments(request.form.get('payments_json'), final_price)
++        use_mode = request.form.get('use_mode', 'save')
++        if use_mode not in ('save', 'now', 'future'):
++            raise ValueError('使用安排不正確')
++        appt = None
++        if use_mode != 'save':
++            try:
++                appt = datetime.strptime(request.form.get('appointment_time') or '', '%Y-%m-%dT%H:%M')
++            except ValueError as exc:
++                raise ValueError('請填寫正確的預約時間') from exc
++            today = datetime.now(ZoneInfo('Asia/Taipei')).date()
++            if use_mode == 'now' and appt.date() != today:
++                raise ValueError('現場使用僅限台灣今日服務；其他日期請選擇未來預約')
++            if use_mode == 'future' and appt.date() <= today:
++                raise ValueError('未來預約請選擇台灣明日之後的日期')
++        database.connection.begin()
++        cursor.execute("SELECT id,email FROM users WHERE id=%s AND role='customer'", (customer_id,))
++        user = cursor.fetchone()
++        if not user or user['email'] == 'store@jparomatic.local':
++            raise ValueError('客戶帳號不存在，或屬於店內損耗專用帳號')
++        cursor.execute('''SELECT id,regular_price,is_active FROM courses WHERE id=%s FOR UPDATE''', (course_id,))
++        course = cursor.fetchone()
++        if not course or not course['is_active']:
++            raise ValueError('課程已停用，無法販售')
++        tiers = load_tiers(cursor, course_id)
++        default_price = money(course['regular_price']) if count == 1 else tiers.get(count)
++        if default_price is None:
++            raise ValueError('此課程沒有設定該購買堂數，請先到課程管理設定優惠')
++        cursor.execute('''INSERT INTO customer_course_purchases
++            (request_key,customer_id,course_id,total_sessions,total_paid,default_total,
++             completed_sessions,reserved_sessions,status,sold_by)
++            VALUES (%s,%s,%s,%s,%s,%s,0,0,'active',%s)''',
++            (key,customer_id,course_id,count,final_price,default_price,actor))
++        purchase_id = cursor.lastrowid
++        record_course_event(cursor,purchase_id,None,'sale',actor)
++        paid_with_wallet = Decimal('0')
++        for method, amount in payment_lines:
++            cursor.execute('''INSERT INTO customer_course_payments
++                (purchase_id,method,amount,operated_by) VALUES (%s,%s,%s,%s)''',
++                (purchase_id,method,amount,actor))
++            if method == 'stored_value':
++                paid_with_wallet += amount
++        if paid_with_wallet:
++            change_balance(cursor, customer_id, -paid_with_wallet, 'spend', actor,
++                           notes=f'課程購買 #{purchase_id} 儲值扣款', request_key=f'cps_{key}')
++        booking_id = None
++        if appt:
++            booking_id = _make_booking(cursor,purchase_id,customer_id,course_id,appt,actor)
++        _audit(cursor, actor, 'create', purchase_id,
++               {'course_id':course_id,'sessions':count,'default_total':str(default_price),
++                'final_price':str(final_price),'payment_methods':[m for m,_ in payment_lines],
++                'appointment_booking_id':booking_id})
++        database.connection.commit()
++        flash(f'課程販售成功：已購 {count} 堂'+(f'，預約 #{booking_id} 已保留 1 堂' if booking_id else '，堂數已存入客戶帳戶'), 'success')
++    except MySQLdb.IntegrityError as exc:
++        database.connection.rollback()
++        flash('這份課程操作已送出過，或資料庫約束檢查失敗；未重複銷售', 'error')
++        current_app.logger.warning('Course sale integrity conflict: %s', getattr(exc, 'args', [None])[0])
++    except (ValueError,TypeError) as exc:
++        database.connection.rollback()
++        flash(f'課程販售失敗：{exc}', 'error')
++    except Exception:
++        database.connection.rollback()
++        current_app.logger.exception('Course sale failed')
++        flash('課程販售失敗，整筆交易已撤銷，請查看伺服器紀錄', 'error')
++    finally:
++        cursor.close()
++    return redirect(url_for('admin.dashboard', tab='bookings'))
++
++
++@course_sales_bp.route('/api/customer/<int:customer_id>/course-purchases')
++@staff_required
++def customer_purchases(customer_id):
++    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
++    try:
++        cursor.execute('''SELECT p.id,p.course_id,c.name AS course_name,p.total_sessions,
++            p.completed_sessions,p.reserved_sessions
++            FROM customer_course_purchases p JOIN courses c ON c.id=p.course_id
++            JOIN users u ON u.id=p.customer_id
++            WHERE p.customer_id=%s AND p.status='active' AND c.is_active=1
++              AND u.email!='store@jparomatic.local'
++            ORDER BY p.id DESC''', (customer_id,))
++        purchases = [dict(id=r['id'],course_id=r['course_id'],course_name=r['course_name'],
++                          available=available_sessions(r),total=r['total_sessions'],
++                          completed=r['completed_sessions'],reserved=r['reserved_sessions'])
++                     for r in cursor.fetchall() if available_sessions(r)>0]
++        return jsonify(purchases)
++    finally:
++        cursor.close()
++
++
++@course_sales_bp.route('/course-owned-book', methods=['POST'])
++@staff_required
++def book_owned():
++    cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
++    try:
++        key = _request_key()
++        actor = _actor()
++        customer_id = request.form.get('customer_id',type=int)
++        purchase_id = request.form.get('purchase_id',type=int)
++        if not customer_id or not purchase_id:
++            raise ValueError('請選擇客戶及已購課程')
++        try:
++            appt = datetime.strptime(request.form.get('appointment_time') or '', '%Y-%m-%dT%H:%M')
++        except ValueError as exc:
++            raise ValueError('請選擇預約時間') from exc
++        database.connection.begin()
++        cursor.execute('''SELECT course_id FROM customer_course_purchases
++            WHERE id=%s AND customer_id=%s AND status='active' FOR UPDATE''',(purchase_id,customer_id))
++        purchase = cursor.fetchone()
++        if not purchase:
++            raise ValueError('找不到客戶已購課程')
++        booking_id = _make_booking(cursor,purchase_id,customer_id,purchase['course_id'],appt,actor,key)
++        _audit(cursor, actor, 'reserve', purchase_id,
++               {'booking_id':booking_id,'customer_id':customer_id,'course_id':purchase['course_id']})
++        database.connection.commit()
++        flash(f'預約 #{booking_id} 已建立，暫時保留一堂；完成服務後才正式扣堂', 'success')
++    except MySQLdb.IntegrityError:
++        database.connection.rollback()
++        flash('這份預約已送出或時段已被占用，請確認預約紀錄', 'error')
++    except (ValueError,TypeError) as exc:
++        database.connection.rollback()
++        flash(f'已購堂數預約失敗：{exc}', 'error')
++    except Exception:
++        database.connection.rollback()
++        current_app.logger.exception('Book owned course failed')
++        flash('建立已購課程預約失敗，整筆操作未生效', 'error')
++    finally:
++        cursor.close()
++    return redirect(url_for('admin.dashboard', tab='bookings'))
+diff --git a/project/customer.py b/project/customer.py
+index 0026740..2c5130a 100644
+--- a/project/customer.py
++++ b/project/customer.py
+@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, session, flash, redirect,
+ from .decorators import login_required, customer_required
+ from project.extensions import database, mail
+ from project.stored_value import cancel_order as cancel_order_with_refund, lock_order
++from project.course_entitlements import transition_allocation
+ from .db import get_current_user_id, get_user_details, update_user_profile
+ from project.notifications import send_email
+ import MySQLdb.cursors
+@@ -111,6 +112,11 @@ def dashboard():
+     cursor.execute('SELECT balance FROM customer_stored_balances WHERE customer_id=%s', (user_id,))
+     wallet_row = cursor.fetchone()
+     stored_value_balance = wallet_row['balance'] if wallet_row else 0
++    cursor.execute('''SELECT cp.id,cp.course_id,c.name AS course_name,cp.total_sessions,
++        cp.completed_sessions,cp.reserved_sessions
++        FROM customer_course_purchases cp JOIN courses c ON c.id=cp.course_id
++        WHERE cp.customer_id=%s AND cp.status='active' ORDER BY cp.created_at DESC''', (user_id,))
++    owned_courses = cursor.fetchall()
+     cursor.close()
+ 
+     return render_template(
+@@ -119,7 +125,8 @@ def dashboard():
+         active_courses=active_courses,
+         recent_orders=recent_orders,
+         purchased_products=purchased_products,
+-        stored_value_balance=stored_value_balance
++        stored_value_balance=stored_value_balance,
++        owned_courses=owned_courses
+     )
+ 
+ # ==========================================
+@@ -260,6 +267,8 @@ def cancel_booking(booking_id):
+                ('stored_value_amount', 'other_payment_amount', 'deposit_credit_amount')):
+             raise ValueError('此預約已有付款或待核銷寄店抵扣，請聯絡店家處理退款與沖銷')
+ 
++        # If this booking reserved a prepaid course, give the held session back.
++        transition_allocation(cursor,booking_id,'cancelled',user_id)
+         cursor.execute(
+             "UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
+ 
+diff --git a/project/templates/admin_customer_detail.html b/project/templates/admin_customer_detail.html
+index 486005e..0655b8d 100644
+--- a/project/templates/admin_customer_detail.html
++++ b/project/templates/admin_customer_detail.html
+@@ -66,7 +66,7 @@
+     <!-- 頁籤導覽列 -->
+     <ul class="nav nav-tabs mb-4" id="customerTab" role="tablist">
+         <li class="nav-item">
+-            <button class="nav-link {% if request.args.get('tab') != 'inventory' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#info">
++            <button class="nav-link {% if request.args.get('tab') not in ['inventory','owned_courses'] %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#info">
+                 <i class="bi bi-person-badge"></i> 基本資料與編輯
+             </button>
+         </li>
+@@ -82,6 +82,9 @@
+                     course_bookings|length }}</span>
+             </button>
+         </li>
++        <li class="nav-item"><button class="nav-link {% if request.args.get('tab') == 'owned_courses' %}active{% endif %}"
++                data-bs-toggle="tab" data-bs-target="#ownedCourses05">
++                <i class="bi bi-ticket-perforated"></i> 已購課程／寄存堂數</button></li>
+         <li class="nav-item">
+             <button class="nav-link {% if request.args.get('tab') == 'inventory' %}active{% endif %}"
+                 data-bs-toggle="tab" data-bs-target="#customerInventory">
+@@ -94,7 +97,7 @@
+     <div class="tab-content bg-white p-4 border border-top-0 rounded-bottom shadow-sm mt-n4">
+ 
+         <!-- 1. 基本資料與編輯表單 -->
+-        <div class="tab-pane fade {% if request.args.get('tab') != 'inventory' %}show active{% endif %}" id="info">
++        <div class="tab-pane fade {% if request.args.get('tab') not in ['inventory','owned_courses'] %}show active{% endif %}" id="info">
+             <form method="POST" action="{{ url_for('admin.update_customer', customer_id=customer.id) }}">
+                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                 <div class="row g-3">
+@@ -253,6 +256,34 @@
+             {% endif %}
+         </div>
+ 
++        <!-- 05: Course purchases and remaining sessions (not booking invoices). -->
++        <div class="tab-pane fade {% if request.args.get('tab') == 'owned_courses' %}show active{% endif %}" id="ownedCourses05">
++          <h5 class="fw-bold mb-2">客戶已購課程堂數</h5>
++          <p class="small text-muted">預約先保留一堂；服務完成後核銷。購買完成時即已全額付清，使用堂數不再次收款。</p>
++          <div class="table-responsive"><table class="table table-hover align-middle">
++            <thead><tr><th>購買編號／時間</th><th>課程</th><th>購買堂數</th><th>已完成</th><th>已預約保留</th><th>可再預約</th><th>實售總價</th></tr></thead>
++            <tbody>{% for p in owned_courses %}<tr>
++              <td>#{{ p.id }}<div class="small text-muted">{{ p.created_at.strftime('%Y-%m-%d') }}</div></td>
++              <td>{{ p.course_name }}</td><td>{{ p.total_sessions }}</td><td>{{ p.completed_sessions }}</td>
++              <td>{{ p.reserved_sessions }}</td>
++              <td class="fw-bold {% if p.total_sessions - p.completed_sessions - p.reserved_sessions > 0 %}text-success{% else %}text-muted{% endif %}">
++                {{ p.total_sessions - p.completed_sessions - p.reserved_sessions }}</td>
++              <td>NT$ {{ '{:,.0f}'.format(p.total_paid) }}</td>
++            </tr>{% else %}<tr><td colspan="7" class="text-muted">目前沒有 05 版課程販售紀錄，舊預約不會自動轉成已購堂數。</td></tr>{% endfor %}</tbody>
++          </table></div>
++          {% for p in owned_courses if p.total_sessions - p.completed_sessions - p.reserved_sessions > 0 %}
++          <form class="row g-2 align-items-end border rounded p-2 mb-2" method="POST" action="{{ url_for('course_sales.book_owned') }}">
++            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
++            <input type="hidden" name="request_key" value="{{ owned_booking_request_key }}">
++            <input type="hidden" name="customer_id" value="{{ customer.id }}">
++            <input type="hidden" name="purchase_id" value="{{ p.id }}">
++            <div class="col-md-5"><label class="form-label small">{{ p.course_name }}｜購買批次 #{{ p.id }}（剩餘可用 {{ p.total_sessions-p.completed_sessions-p.reserved_sessions }} 堂）</label></div>
++            <div class="col-md-4"><label class="form-label small">預約時間（台灣時間）</label>
++              <input type="datetime-local" name="appointment_time" class="form-control" required></div>
++            <div class="col-md-3"><button class="btn btn-outline-primary w-100" type="submit">保留 1 堂並預約</button></div>
++          </form>
++          {% endfor %}
++        </div>
+         <!-- 4. 客戶寄店產品：與基本資料相同，直接於頁籤編輯，不使用 Modal -->
+         <div class="tab-pane fade {% if request.args.get('tab') == 'inventory' %}show active{% endif %}"
+              id="customerInventory">
+diff --git a/project/templates/admin_dashboard.html b/project/templates/admin_dashboard.html
+index 6570857..108c402 100644
+--- a/project/templates/admin_dashboard.html
++++ b/project/templates/admin_dashboard.html
+@@ -203,7 +203,7 @@
+           <div class="card-body">
+             <div class="d-flex justify-content-between align-items-center">
+               <div>
+-                <h6 class="text-muted mb-1">總營收</h6>
++                <h6 class="text-muted mb-1">總營收（舊制估算＋05已履約）</h6>
+                 <h3 class="fw-bold mb-0 text-primary">NT$ {{ '{:,.0f}'.format(stats.revenue) }}</h3>
+               </div>
+               <div class="bg-primary bg-opacity-10 p-3 rounded-circle text-primary">
+@@ -241,6 +241,16 @@
+       {% endif %}
+     </div>
+ 
++    <p class="small text-muted mb-3">05：課程預售款於完成服務時認列；實際收款與未履約金額獨立列示，下方數據僅涵蓋 05 新流程。</p>
++    <div class="row g-3 mb-4">
++      <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body">
++        <div class="text-muted small">05 課程販售新增非儲值付款</div><div class="fw-bold fs-5">NT$ {{ '{:,.0f}'.format(stats.course_cash_received) }}</div>
++      </div></div></div>
++      <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body">
++        <div class="text-muted small">05 課程未履約餘額（估算）</div><div class="fw-bold fs-5">NT$ {{ '{:,.0f}'.format(stats.course_unfulfilled) }}</div>
++      </div></div></div>
++    </div>
++
+     <div class="row g-3 mb-4">
+       <div class="col-md-3">
+         <button type="button" class="btn btn-outline-primary w-100 py-3" data-bs-toggle="modal"
+@@ -413,8 +423,8 @@
+                 <td>{{ '{:,.0f}'.format(course.regular_price) }}</td>
+                 <td>{{ course.duration }} 分</td>
+                 <td>
+-                  <span class="badge {% if course.is_active %}bg-success{% else %}bg-secondary{% endif %}">
+-                    {{ '啟用' if course.is_active else '停用' }}
++                  <span class="badge {% if not course.is_active %}bg-secondary{% elif not course.is_public %}bg-warning text-dark{% else %}bg-success{% endif %}">
++                    {{ '停用' if not course.is_active else ('不顯示（僅後台）' if not course.is_public else '啟用') }}
+                   </span>
+                 </td>
+                 <td class="text-end">
+@@ -629,7 +639,13 @@
+       <div>
+         <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
+         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookingModal">
+-          <i class="bi bi-plus-circle"></i> 建立/補登預約
++          <i class="bi bi-plus-circle"></i> 建立/補登預約（直接收費）
++        </button>
++        <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#courseSale05Modal">
++          <i class="bi bi-bag-check"></i> 課程販售（寄存堂數）
++        </button>
++        <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#bookOwned05Modal">
++          <i class="bi bi-calendar-plus"></i> 使用客戶已購堂數預約
+         </button>
+       </div>
+       <div class="d-flex gap-2">
+@@ -1202,6 +1218,14 @@
+             </div>
+             {% endif %}
+             <div class="col-md-4"><label>時長(分)</label><input name="duration" type="number" class="form-control"></div>
++            <div class="col-md-8"><label>多堂優惠設定（選填）</label>
++              <input name="sale_tiers" class="form-control" placeholder="例如 5:11000,10:20000" maxlength="300">
++              <small class="text-muted">每個課程自行設定堂數及優惠總價；1 堂自動使用課程原價。</small></div>
++            <div class="col-md-4"><label>上架狀態</label>
++              <select class="form-select" name="course_visibility"><option value="public">啟用（官網顯示）</option>
++              <option value="hidden">不顯示（僅後台）</option><option value="disabled">停用</option></select></div>
++            <div class="col-12 form-check ms-2"><input type="checkbox" name="uses_store_consumables" value="1" class="form-check-input" id="newCourseShopConsumables">
++              <label for="newCourseShopConsumables" class="form-check-label">固定價套裝課程：使用店內耗材（不使用顧客寄店產品）</label></div>
+             <div class="col-12"><label>描述</label><textarea name="description" class="form-control"></textarea></div>
+             <div class="col-12"><input type="file" name="image" class="form-control"></div>
+           </div>
+@@ -1253,7 +1277,15 @@
+                 class="form-control"></textarea></div>
+             <div class="col-6"><input type="file" name="image" class="form-control"></div>
+             <div class="col-6"><img id="editCoursePreview" width="100"></div>
+-            <div class="col-12"><input type="checkbox" name="is_active" id="edit_course_is_active"> 啟用</div>
++            <div class="col-md-8"><label>多堂優惠（選填）</label>
++              <input name="sale_tiers" id="edit_course_sale_tiers" class="form-control" placeholder="5:11000,10:20000" maxlength="300">
++              <small class="text-muted">單堂價格沿用上方原價；可設定不同購買堂數的優惠總價。</small></div>
++            <div class="col-md-4"><label>上架狀態</label>
++              <select name="course_visibility" id="edit_course_visibility" class="form-select">
++                <option value="public">啟用（官網顯示）</option><option value="hidden">不顯示（僅後台）</option>
++                <option value="disabled">停用</option></select></div>
++            <div class="col-12 form-check ms-2"><input type="checkbox" name="uses_store_consumables" value="1" id="edit_course_uses_store" class="form-check-input">
++              <label for="edit_course_uses_store" class="form-check-label">固定價套裝課程：使用店內耗材（不使用顧客寄店產品）</label></div>
+           </div>
+         </div>
+         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button
+@@ -1960,6 +1992,68 @@
+ 
+ 
+ 
++<!-- 05: Sales create a paid entitlement. They do not themselves create earned service revenue. -->
++<div class="modal fade" id="courseSale05Modal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable">
++  <form class="modal-content" id="courseSale05Form" action="{{ url_for('course_sales.sell') }}" method="POST">
++    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
++    <input type="hidden" name="request_key" value="{{ course_sale_request_key }}">
++    <input type="hidden" name="payments_json" id="courseSale05PaymentsJson" value="">
++    <div class="modal-header"><h5 class="modal-title">課程販售・建立已購堂數</h5>
++      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
++    <div class="modal-body">
++      <p class="text-muted small">同一指定課程可販售不同優惠堂數，購買當下必須全額付清；不強制當日使用或預約。</p>
++      <div class="row g-3">
++        <div class="col-md-6"><label class="form-label">客戶</label><select name="customer_id" id="courseSale05Customer" class="form-select" required>
++          <option value="">選擇客戶</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}
++          <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,0) }}">{{ c.surname }}{{ c.firstname }} (#{{ c.id }})</option>{% endfor %}
++        </select></div>
++        <div class="col-md-6"><label class="form-label">課程</label><select name="course_id" id="courseSale05Course" class="form-select" required>
++          <option value="">選擇課程</option>{% for c in courses if c.is_active %}
++          <option value="{{ c.id }}" data-price="{{ c.regular_price }}">{{ c.name }}{% if not c.is_public %}（僅後台）{% endif %}</option>{% endfor %}
++        </select></div>
++        <div class="col-md-6"><label class="form-label">購買堂數（依課程優惠）</label>
++          <select name="sessions" id="courseSale05Count" class="form-select" required><option value="1">1 堂</option></select></div>
++        <div class="col-md-6"><label class="form-label">實際售價（可修改）</label>
++          <input type="number" name="final_price" id="courseSale05Price" min="1" step="1" class="form-control" required>
++          <div class="small text-muted">預設總價 NT$ <span id="courseSale05Default">0</span>；調整後保留原價紀錄</div></div>
++        <div class="col-12"><label class="form-label">付款明細（現金／刷卡／匯款／儲值金，可拆分）</label>
++          <div id="courseSale05Payments"></div>
++          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="courseSale05AddPayment()">+ 新增付款方式</button>
++          <div class="small text-muted mt-2">客戶儲值金：NT$ <span id="courseSale05Wallet">0</span></div>
++          <div id="courseSale05BalanceError" class="small text-danger"></div></div>
++        <div class="col-md-6"><label class="form-label">購買後安排</label>
++          <select name="use_mode" id="courseSale05Mode" class="form-select">
++            <option value="save">只寄存堂數，下次再預約</option>
++            <option value="now">今天現場使用（建立待完成服務紀錄）</option>
++            <option value="future">同時預約未來日期（先保留一堂）</option>
++          </select></div>
++        <div class="col-md-6" id="courseSale05TimeWrap" hidden><label class="form-label">服務時間（台灣時間）</label>
++          <input type="datetime-local" name="appointment_time" id="courseSale05Time" class="form-control"></div>
++      </div>
++    </div>
++    <div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">取消</button>
++      <button class="btn btn-success" type="submit">確認付清並建立已購堂數</button></div>
++  </form></div></div>
++
++<!-- 05: Redeem an existing prepaid session; this is NOT a new sale. -->
++<div class="modal fade" id="bookOwned05Modal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="POST" action="{{ url_for('course_sales.book_owned') }}">
++  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
++  <input type="hidden" name="request_key" value="{{ owned_booking_request_key }}">
++  <div class="modal-header"><h5 class="modal-title">使用已購課程堂數預約</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
++  <div class="modal-body">
++    <label class="form-label">客戶</label><select name="customer_id" id="bookOwned05Customer" class="form-select mb-3" required>
++      <option value="">請選擇</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}<option value="{{ c.id }}">{{ c.surname }}{{ c.firstname }}</option>{% endfor %}
++    </select>
++    <label class="form-label">已購課程批次（顯示可用堂數）</label>
++    <select name="purchase_id" id="bookOwned05Purchase" class="form-select mb-3" required><option value="">請先選擇客戶</option></select>
++    <label class="form-label">預約時間（台灣時間）</label>
++    <input type="datetime-local" name="appointment_time" class="form-control mb-2" required>
++    <small class="text-muted">此操作不收款；預約先保留 1 堂，服務完成後才正式扣堂及認列營收。</small>
++  </div>
++  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
++    <button type="submit" class="btn btn-primary">建立已購課程預約</button></div>
++</form></div></div>
++
+ <!-- ⭐ 建立預約 Modal (一體化表單) -->
+ <div class="modal fade" id="addBookingModal" tabindex="-1">
+   <div class="modal-dialog modal-xl modal-dialog-scrollable">
+@@ -1975,6 +2069,7 @@
+       </div>
+ 
+       <div class="modal-body pb-4">
++        <p class="small text-muted">原有 04 預約表單會建立直接收費的單堂預約；若要使用客戶先前已購課程，請改用「使用客戶已購堂數預約」，不要再次收取課程費。</p>
+         <!-- 1. 選擇客戶 -->
+         <h6 class="fw-bold text-primary mb-2">1. 選擇客戶 <span class="text-danger">*</span></h6>
+         <div id="bookingCustomerList" class="mb-2"></div>
+@@ -2060,7 +2155,7 @@
+ <datalist id="dl-courses">
+   {% for c in courses %}
+   <option data-id="{{ c.id }}" data-price="{{ c.regular_price }}" data-exp="{{ c.experience_price }}"
+-    value="{{ c.name }}"></option>
++    data-store="{{ 1 if c.uses_store_consumables else 0 }}" value="{{ c.name }}"></option>
+   {% endfor %}
+ </datalist>
+ 
+@@ -2211,8 +2306,11 @@
+         const preview = document.getElementById('editCoursePreview');
+         if (preview) preview.src = imgPath;
+ 
+-        const activeEl = document.getElementById('edit_course_is_active');
+-        if (activeEl) activeEl.checked = !!course.is_active;
++        setVal('edit_course_sale_tiers', course.sale_tiers || '');
++        const visible = document.getElementById('edit_course_visibility');
++        if (visible) visible.value = !course.is_active ? 'disabled' : (course.is_public ? 'public' : 'hidden');
++        const store = document.getElementById('edit_course_uses_store');
++        if (store) store.checked = !!course.uses_store_consumables;
+ 
+         const formEl = document.getElementById('editCourseForm');
+         if (formEl) {
+@@ -2799,6 +2897,7 @@
+       tr.querySelector('.row-item-id').value = opt.dataset.id;
+       tr.dataset.regPrice = opt.dataset.price;
+       tr.dataset.expPrice = opt.dataset.exp || opt.dataset.price;
++      tr.dataset.useShop = opt.dataset.store || '0';
+       calcItemPrice(tr);
+     }
+   }
+@@ -2891,6 +2990,7 @@
+     const fee = isCourse ? Number(tr.dataset.feePrice || 0) : 0;
+     if (deposit > 0 && !isCourse) error = '加購產品不能使用寄店扣料';
+     if (deposit > 0 && (!fee || deposit > total - fee)) error = '寄店抵扣不能超過課程扣除手技費後的金額';
++    if (deposit > 0 && tr.dataset.useShop === '1') error = '固定價套裝課程使用店內耗材，不可使用客戶寄店抵扣';
+     if (wallet > balance) error = '儲值扣款超出客戶可用額度';
+     if (applied > total) error = '各付款金額合計超過本列總額';
+     tr.querySelector('.row-pay-error').textContent = error;
+@@ -3063,4 +3163,97 @@
+     XLSX.writeFile(wb, `晶品芳療_庫存管理_${today}.xlsx`);
+   }
+ </script>
++<script>
++// 05: new staff-only course sale screen, independent of the 04 mixed-booking form.
++const courseSale05Tiers = {{ course_tiers|tojson }};
++function courseSale05AddPayment(method='cash',amount='0') {
++  const methods=[['cash','現金'],['credit_card','信用卡'],['bank_transfer','匯款'],['stored_value','儲值扣款'],['other','其他']];
++  const container=document.getElementById('courseSale05Payments');
++  if(container.querySelectorAll('.cp05-line').length>=20) return;
++  const div=document.createElement('div'); div.className='cp05-line d-flex gap-2 mb-2';
++  const select=document.createElement('select'); select.className='form-select cp05-method';
++  for(const [code,label] of methods){const o=new Option(label,code);select.add(o);} select.value=method;
++  const input=document.createElement('input'); input.type='number';input.min='0';input.step='1';
++  input.value=amount;input.className='form-control cp05-amount';
++  const remove=document.createElement('button'); remove.type='button';remove.className='btn btn-outline-danger';remove.textContent='×';
++  remove.onclick=()=>{div.remove();courseSale05Validate();};
++  select.onchange=courseSale05Validate;input.oninput=courseSale05Validate;
++  div.append(select,input,remove);container.append(div);courseSale05Validate();
++}
++function courseSale05DefaultPrice() {
++  const course=document.getElementById('courseSale05Course');const count=document.getElementById('courseSale05Count');
++  const selected=course.selectedOptions[0];
++  if(!selected?.value){count.innerHTML='<option value="">先選擇課程</option>';return;}
++  const tier=courseSale05Tiers[selected.value]||{};
++  const oldCount=count.value;
++  count.innerHTML='';
++  for(const qty of [1,...Object.keys(tier).map(Number).sort((a,b)=>a-b)]){
++    count.add(new Option(`${qty} 堂`,String(qty)));
++  }
++  if(Array.from(count.options).some(o=>o.value===oldCount))count.value=oldCount;
++  courseSale05SetPrice();
++}
++function courseSale05SetPrice() {
++  const course=document.getElementById('courseSale05Course'); const qty=document.getElementById('courseSale05Count').value;
++  const tier=courseSale05Tiers[course.value]||{};
++  const amount=qty==='1'?Number(course.selectedOptions[0]?.dataset.price||0):Number(tier[qty]||0);
++  document.getElementById('courseSale05Price').value=String(Math.round(amount));
++  document.getElementById('courseSale05Default').textContent=amount.toLocaleString();
++  const payments=document.querySelectorAll('#courseSale05Payments .cp05-line');
++  if(payments.length===1) payments[0].querySelector('.cp05-amount').value=String(Math.round(amount));
++  courseSale05Validate();
++}
++function courseSale05Validate() {
++  const customer=document.getElementById('courseSale05Customer');
++  const wallet=Number(customer.selectedOptions[0]?.dataset.balance||0);
++  document.getElementById('courseSale05Wallet').textContent=Math.floor(wallet).toLocaleString();
++  const total=Number(document.getElementById('courseSale05Price').value||0);
++  let paid=0,stored=0;
++  document.querySelectorAll('#courseSale05Payments .cp05-line').forEach(div=>{
++    const amount=Number(div.querySelector('.cp05-amount').value||0);
++    paid+=amount;if(div.querySelector('.cp05-method').value==='stored_value')stored+=amount;
++  });
++  let err='';
++  if(!Number.isInteger(total)||total<=0)err='課程售價必須為正整數';
++  else if(!Number.isInteger(paid)||paid!==total)err=`付款合計 NT$${paid}，須付清 NT$${total}`;
++  else if(stored>wallet)err='儲值餘額不足';
++  document.getElementById('courseSale05BalanceError').textContent=err;
++  return !err;
++}
++async function bookOwned05Load() {
++  const customer=document.getElementById('bookOwned05Customer').value;
++  const purchase=document.getElementById('bookOwned05Purchase');
++  purchase.innerHTML='<option value="">讀取中</option>';
++  if(!customer){purchase.innerHTML='<option value="">請先選擇客戶</option>';return;}
++  try{
++    const response=await fetch(`/admin/api/customer/${encodeURIComponent(customer)}/course-purchases`);
++    if(!response.ok)throw new Error('權限或連線問題');
++    const data=await response.json();purchase.innerHTML='';
++    purchase.add(new Option('請選擇課程／購買批次',''));
++    for(const p of data)purchase.add(new Option(`${p.course_name}（批次 #${p.id}，可用 ${p.available} 堂）`,String(p.id)));
++  }catch(e){purchase.innerHTML='<option value="">讀取失敗，請重新整理</option>';}
++}
++document.addEventListener('DOMContentLoaded',()=>{
++  const form=document.getElementById('courseSale05Form');
++  document.getElementById('courseSale05Course')?.addEventListener('change',courseSale05DefaultPrice);
++  document.getElementById('courseSale05Count')?.addEventListener('change',courseSale05SetPrice);
++  document.getElementById('courseSale05Price')?.addEventListener('input',courseSale05Validate);
++  document.getElementById('courseSale05Customer')?.addEventListener('change',courseSale05Validate);
++  const mode=document.getElementById('courseSale05Mode');
++  const setMode=()=>{const show=mode.value!=='save';document.getElementById('courseSale05TimeWrap').hidden=!show;
++    document.getElementById('courseSale05Time').required=show;};
++  mode?.addEventListener('change',setMode);setMode();
++  courseSale05AddPayment();
++  form?.addEventListener('submit',e=>{
++    if(!courseSale05Validate()){e.preventDefault();return;}
++    document.getElementById('courseSale05PaymentsJson').value=JSON.stringify(Array.from(
++      document.querySelectorAll('#courseSale05Payments .cp05-line')).map(div=>({
++      method:div.querySelector('.cp05-method').value,amount:div.querySelector('.cp05-amount').value||'0'
++    })));
++    if(!document.getElementById('courseSale05PaymentsJson').value){e.preventDefault();return;}
++    const button=form.querySelector('button[type="submit"]');if(button)button.disabled=true;
++  });
++  document.getElementById('bookOwned05Customer')?.addEventListener('change',bookOwned05Load);
++});
++</script>
+ {% endblock %}
+\ No newline at end of file
+diff --git a/project/templates/course_detail.html b/project/templates/course_detail.html
+index 4d193a4..6eae63a 100644
+--- a/project/templates/course_detail.html
++++ b/project/templates/course_detail.html
+@@ -173,7 +173,18 @@
+                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                 <input type="hidden" name="schedule_id" id="modalScheduleId">
+ 
++                <input type="hidden" name="course_booking_request_key" value="{{ booking_request_key }}">
+                 <div class="modal-body p-4">
++                    {% if owned_courses %}
++                    <div class="mb-3">
++                      <label class="form-label">使用已購課程堂數（選填）</label>
++                      <select name="course_purchase_id" class="form-select">
++                        <option value="">不使用已購堂數，沿用原一般預約流程</option>
++                        {% for p in owned_courses %}<option value="{{ p.id }}">已購課程批次 #{{ p.id }} —
++                          可用 {{ p.total_sessions - p.completed_sessions - p.reserved_sessions }} 堂</option>{% endfor %}
++                      </select>
++                      <div class="small text-success">若選擇已購堂數，這次不另外收費；預約先保留一堂，完成後核銷。</div>
++                    </div>{% endif %}
+                     <div class="mb-3">
+                         <label class="text-muted small">預約課程</label>
+                         <div class="fw-bold fs-5">{{ course.name }}</div>
+diff --git a/project/templates/customer_dashboard.html b/project/templates/customer_dashboard.html
+index 75c5bd8..ad289f5 100644
+--- a/project/templates/customer_dashboard.html
++++ b/project/templates/customer_dashboard.html
+@@ -14,6 +14,16 @@
+   </div>
+ </div>
+ 
++{% if owned_courses %}
++<div class="container mb-4"><div class="card border-primary"><div class="card-body">
++  <h5 class="fw-bold">我的已購課程／剩餘堂數</h5>
++  <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>課程</th><th>已購</th><th>已完成</th><th>預約保留</th><th>可再預約</th></tr></thead>
++    <tbody>{% for p in owned_courses %}<tr><td>{{ p.course_name }}</td><td>{{ p.total_sessions }}</td><td>{{ p.completed_sessions }}</td><td>{{ p.reserved_sessions }}</td>
++      <td class="fw-bold text-success">{{ p.total_sessions-p.completed_sessions-p.reserved_sessions }}</td></tr>{% endfor %}</tbody>
++  </table></div><p class="small text-muted">預約時選擇已購堂數，服務完成後才扣堂；此頁為權益餘額，不是再次收費紀錄。</p>
++</div></div></div>
++{% endif %}
++
+ <div class="row g-4">
+ 
+   <div class="col-12 col-md-4 col-lg-3">
+diff --git a/project/views.py b/project/views.py
+index 5cb6028..b136f27 100644
+--- a/project/views.py
++++ b/project/views.py
+@@ -3,6 +3,8 @@ from .decorators import login_required, customer_required
+ from project.extensions import database
+ from project.stored_value import cancel_order as cancel_order_with_refund, lock_order
+ from .db import get_current_user_id, get_current_user_role, is_logged_in
++from project.course_entitlements import reserve_for_booking
++import secrets
+ # 引入新的通知函式
+ from .notifications import notify_contact_message, notify_new_order_created, notify_new_booking_created
+ import MySQLdb.cursors
+@@ -180,7 +182,7 @@ def courses():
+     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+ 
+     # Build query
+-    where_clauses = ["c.is_active = TRUE"]
++    where_clauses = ["c.is_active = TRUE AND c.is_public = TRUE"]
+     params = []
+ 
+     if category_id:
+@@ -240,10 +242,18 @@ def course_detail(course_id):
+         SELECT c.*, cc.name as category_name
+         FROM courses c
+         LEFT JOIN course_categories cc ON c.category_id = cc.id
+-        WHERE c.id = %s AND c.is_active = TRUE
++        WHERE c.id = %s AND c.is_active = TRUE AND c.is_public = TRUE
+     """, (course_id,))
+ 
+     course = cursor.fetchone()
++    owned_courses = []
++    user_id = get_current_user_id()
++    if course and user_id and get_current_user_role() == 'customer':
++        cursor.execute('''SELECT id,total_sessions,completed_sessions,reserved_sessions
++            FROM customer_course_purchases WHERE customer_id=%s AND course_id=%s AND status='active'
++            ORDER BY id DESC''', (user_id, course_id))
++        owned_courses = [p for p in cursor.fetchall()
++                         if int(p['total_sessions']) > int(p['completed_sessions'])+int(p['reserved_sessions'])]
+     cursor.close()
+ 
+     if not course:
+@@ -251,7 +261,9 @@ def course_detail(course_id):
+ 
+     return render_template(
+         'course_detail.html',
+-        course=course
++        course=course,
++        owned_courses=owned_courses,
++        booking_request_key=secrets.token_urlsafe(24)
+     )
+ 
+ 
+@@ -288,8 +300,13 @@ def get_course_schedule(course_id):
+             # 預設抓 60 天，避免跨年邏輯錯誤
+             end_date = start_date + timedelta(days=60)
+ 
+-        # 3. 執行資料庫查詢
++        # Nonpublic/disabled courses must not leak schedules via their URL.
+         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
++        cursor.execute('SELECT id FROM courses WHERE id=%s AND is_active=1 AND is_public=1', (course_id,))
++        if not cursor.fetchone():
++            cursor.close()
++            abort(404)
++        # 3. 執行資料庫查詢
+         cursor.execute("SET time_zone = '+08:00'")
+ 
+         # 查詢語句 (確保欄位名稱與 shop_schedules 表格一致)
+@@ -341,6 +358,9 @@ def get_course_schedule(course_id):
+         return jsonify(events)
+ 
+     except Exception as e:
++        from werkzeug.exceptions import HTTPException
++        if isinstance(e, HTTPException):
++            raise
+         # ⭐ 關鍵：將錯誤印在伺服器 Log，並回傳空陣列避免前端崩潰
+         print(f"API Error in get_course_schedule: {e}")
+         traceback.print_exc()
+@@ -965,7 +985,7 @@ def book_course(course_id):
+ 
+     try:
+         # 2. 取得課程資料 (計算價格用)
+-        cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
++        cursor.execute("SELECT * FROM courses WHERE id = %s AND is_active=1 AND is_public=1", (course_id,))
+         course = cursor.fetchone()
+         if not course:
+             raise Exception("課程不存在")
+@@ -997,23 +1017,36 @@ def book_course(course_id):
+         else:
+             final_price = course['regular_price']
+ 
++        # 05: Use purchased sessions without a new sale/charge.
++        purchase_id = request.form.get('course_purchase_id', type=int)
++        purchased_booking_key = None
++        if purchase_id:
++            purchased_booking_key = (request.form.get('course_booking_request_key') or '').strip()
++            import re
++            if not re.fullmatch(r'[A-Za-z0-9_-]{20,55}', purchased_booking_key):
++                raise ValueError('預約表單已過期，請重新整理')
++            final_price = 0
++
+         # 5. 寫入預約 (bookings)
+         # ⭐ 重點修正：寫入 global_schedule_id
+         cursor.execute("""
+             INSERT INTO bookings 
+             (customer_id, course_id, global_schedule_id, total_amount, 
+-             is_first_time, sessions_purchased, sessions_remaining, status, created_at)
+-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
++             is_first_time, sessions_purchased, sessions_remaining, status, created_at, course_booking_request_key)
++            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW(), %s)
+         """, (
+             user_id,
+             course_id,
+             schedule_id,
+             final_price,
+             is_first_time,
+-            course['sessions'],  # 購買堂數
+-            course['sessions']  # 剩餘堂數
++            1 if purchase_id else course['sessions'],  # 05 purchased rights: reserve one session
++            1 if purchase_id else course['sessions'],  # 剩餘堂數
++            purchased_booking_key
+         ))
+         booking_id = cursor.lastrowid
++        if purchase_id:
++            reserve_for_booking(cursor,purchase_id,user_id,course_id,booking_id,user_id)
+ 
+         # 6. 更新時段人數 (shop_schedules)
+         cursor.execute("""

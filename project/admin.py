@@ -18,6 +18,7 @@ from project.db import get_current_user_id, get_current_user_role
 import MySQLdb.cursors
 from decimal import Decimal
 from zoneinfo import ZoneInfo
+from project.course_entitlements import parse_tiers, replace_tiers, load_tiers, transition_allocation
 from project.stored_value import (money, ensure_wallet, change_balance, lock_order,
                                   cancel_order, restore_order, archive_order)
 # from project.services import admin_update_order_with_inventory
@@ -171,7 +172,12 @@ def dashboard():
              WHERE o.status != 'cancelled' AND o.deleted_at IS NULL AND u.email != 'store@jparomatic.local') +
             (SELECT COALESCE(SUM(b.total_amount), 0)
              FROM bookings b JOIN users u ON b.customer_id = u.id
-             WHERE b.status != 'cancelled' AND u.email != 'store@jparomatic.local')
+             WHERE b.status != 'cancelled' AND u.email != 'store@jparomatic.local') +
+            (SELECT COALESCE(SUM(a.recognized_amount),0)
+             FROM customer_course_allocations a
+             JOIN customer_course_purchases cp ON cp.id=a.purchase_id
+             JOIN users u ON u.id=cp.customer_id
+             WHERE a.status='completed' AND u.email != 'store@jparomatic.local')
         as total_revenue
     """)
     res = cursor.fetchone()
@@ -194,11 +200,20 @@ def dashboard():
         SELECT COALESCE(SUM(b.sessions_purchased * (c.service_fee + c.product_fee)), 0) as course_cost
         FROM bookings b
         JOIN courses c ON b.course_id = c.id
-        WHERE b.status != 'cancelled'
+        WHERE b.status != 'cancelled' AND (b.course_purchase_id IS NULL OR b.status='completed')
     """)
     res = cursor.fetchone()
     course_cost = float(
         res['course_cost']) if res and res['course_cost'] else 0.0
+
+    # 05: customer prepaid course receipts are separate from completed-service revenue.
+    cursor.execute('''SELECT COALESCE(SUM(amount),0) AS cash_received
+        FROM customer_course_payments WHERE method != 'stored_value' ''')
+    course_cash_received = cursor.fetchone()['cash_received']
+    cursor.execute('''SELECT COALESCE(SUM(total_paid),0) AS prepaid_total,
+               COALESCE(SUM(total_paid * completed_sessions / total_sessions),0) AS allocated_total
+        FROM customer_course_purchases''')
+    liabilities = cursor.fetchone()
 
     total_cost = order_cost + course_cost
     net_profit = total_revenue - total_cost
@@ -244,6 +259,10 @@ def dashboard():
         ORDER BY c.created_at DESC
     """)
     courses = cursor.fetchall()
+    cursor.execute('SELECT course_id,sessions,default_total FROM course_sale_tiers ORDER BY course_id,sessions')
+    course_tiers = {}
+    for tier in cursor.fetchall():
+        course_tiers.setdefault(tier['course_id'], {})[tier['sessions']] = float(tier['default_total'])
 
     # Categories
     cursor.execute(
@@ -432,7 +451,9 @@ def dashboard():
         'customers': customer_count,
         'posts': post_count,
         'revenue': float(total_revenue),
-        'net_profit': net_profit
+        'net_profit': net_profit,
+        'course_cash_received': course_cash_received,
+        'course_unfulfilled': max(Decimal('0'), Decimal(str(liabilities['prepaid_total'])) - Decimal(str(liabilities['allocated_total'])))
     }
 
     # ================= 新增：員工與手技費資料 =================
@@ -460,6 +481,9 @@ def dashboard():
         recent_bookings=recent_bookings,
         products=products,
         courses=courses,
+        course_tiers=course_tiers,
+        course_sale_request_key=secrets.token_urlsafe(24),
+        owned_booking_request_key=secrets.token_urlsafe(24),
         product_categories=product_categories,
         course_categories=course_categories,
         events=events,
@@ -694,9 +718,11 @@ def get_course_json(course_id):
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
     cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
     course = cursor.fetchone()
+    tiers = load_tiers(cursor,course_id) if course else {}
     cursor.close()
 
     if course:
+        course['sale_tiers'] = ','.join(f'{qty}:{price:.0f}' for qty,price in tiers.items())
         for key in ['regular_price', 'experience_price', 'service_fee', 'product_fee']:
             if key in course and course[key] is not None:
                 course[key] = float(course[key])
@@ -721,6 +747,11 @@ def add_course_modal():
         product_fee = request.form.get('product_fee') or 0
         duration = request.form.get('duration') or 60
         description = request.form.get('description')
+        tiers = parse_tiers(request.form.get('sale_tiers'))
+        visibility = request.form.get('course_visibility','public')
+        if visibility not in ('public','hidden','disabled'):
+            raise ValueError('課程上架狀態不正確')
+        uses_store = 1 if request.form.get('uses_store_consumables') == '1' else 0
 
         image_url = None
         if 'image' in request.files:
@@ -732,13 +763,15 @@ def add_course_modal():
         sql = """
             INSERT INTO courses
             (name, category_id, regular_price, experience_price, service_fee, product_fee,
-             duration, description, image, is_active, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1, NOW())
+             duration, description, image, is_active, is_public, uses_store_consumables, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
         """
         cursor.execute(sql, (name, category_id, regular_price, experience_price,
-                       service_fee, product_fee, duration, description, image_url))
+                       service_fee, product_fee, duration, description, image_url,
+                       0 if visibility == 'disabled' else 1, 1 if visibility == 'public' else 0, uses_store))
 
         new_id = cursor.lastrowid
+        replace_tiers(cursor, new_id, tiers)
         database.connection.commit()
         cursor.close()
 
@@ -772,7 +805,13 @@ def update_course_modal(course_id):
         experience_price = request.form.get('experience_price') or 0
         duration = request.form.get('duration') or 60
         description = request.form.get('description')
-        is_active = 1 if request.form.get('is_active') else 0
+        visibility = request.form.get('course_visibility','public')
+        if visibility not in ('public','hidden','disabled'):
+            raise ValueError('課程上架狀態不正確')
+        is_active = 0 if visibility == 'disabled' else 1
+        is_public = 1 if visibility == 'public' else 0
+        uses_store = 1 if request.form.get('uses_store_consumables') == '1' else 0
+        tiers = parse_tiers(request.form.get('sale_tiers'))
 
         # ⭐ 關鍵修正：判斷成本欄位是否存在於表單中
         # 如果是 Admin (有欄位)，就用傳來的直；如果是 Staff (無欄位)，就沿用資料庫舊值
@@ -799,22 +838,23 @@ def update_course_modal(course_id):
                 UPDATE courses
                 SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
                     service_fee=%s, product_fee=%s, duration=%s, description=%s,
-                    is_active=%s, image=%s, updated_at=NOW()
+                    is_active=%s, is_public=%s, uses_store_consumables=%s, image=%s, updated_at=NOW()
                 WHERE id=%s
             """
             cursor.execute(sql, (name, category_id, regular_price, experience_price, service_fee,
-                           product_fee, duration, description, is_active, image_url, course_id))
+                           product_fee, duration, description, is_active, is_public, uses_store, image_url, course_id))
         else:
             sql = """
                 UPDATE courses
                 SET name=%s, category_id=%s, regular_price=%s, experience_price=%s,
                     service_fee=%s, product_fee=%s, duration=%s, description=%s,
-                    is_active=%s, updated_at=NOW()
+                    is_active=%s, is_public=%s, uses_store_consumables=%s, updated_at=NOW()
                 WHERE id=%s
             """
             cursor.execute(sql, (name, category_id, regular_price, experience_price,
-                           service_fee, product_fee, duration, description, is_active, course_id))
+                           service_fee, product_fee, duration, description, is_active, is_public, uses_store, course_id))
 
+        replace_tiers(cursor,course_id,tiers)
         database.connection.commit()
         cursor.close()
 
@@ -849,8 +889,10 @@ def delete_course_modal(course_id):
         cursor.execute(
             "SELECT COUNT(*) as count FROM bookings WHERE course_id = %s", (course_id,))
         booking_count = cursor.fetchone()['count']
+        cursor.execute('SELECT COUNT(*) AS count FROM customer_course_purchases WHERE course_id=%s', (course_id,))
+        purchase_count = cursor.fetchone()['count']
 
-        if booking_count > 0:
+        if booking_count > 0 or purchase_count > 0:
             # A. 有預約紀錄 -> 執行「停用」
             cursor.execute(
                 "UPDATE courses SET is_active = FALSE WHERE id = %s", (course_id,))
@@ -1468,6 +1510,8 @@ def update_booking_status(booking_id):
             cursor.execute(
                 'UPDATE shop_schedules SET current_bookings=current_bookings+%s WHERE id=%s', (delta, schedule_id))
 
+        # 05: Paid entitlement stays reserved until service completion.
+        transition_allocation(cursor, booking_id, status, get_current_user_id())
         # 2. 更新狀態
         cursor.execute(
             "UPDATE bookings SET status = %s WHERE id = %s", (status, booking_id))
@@ -1898,6 +1942,11 @@ def customer_detail(customer_id):
             ORDER BY b.created_at DESC
         """, (customer_id,))
         course_bookings = cursor.fetchall()
+        cursor.execute('''SELECT cp.id,cp.course_id,cp.total_sessions,cp.completed_sessions,
+            cp.reserved_sessions,cp.total_paid,cp.created_at,c.name AS course_name
+            FROM customer_course_purchases cp JOIN courses c ON c.id=cp.course_id
+            WHERE cp.customer_id=%s ORDER BY cp.id DESC''', (customer_id,))
+        owned_courses = cursor.fetchall()
 
         # Prepaid credit (never expires). Ledger is append-only.
         cursor.execute(
@@ -1984,6 +2033,8 @@ def customer_detail(customer_id):
         product_orders=product_orders,
         order_items_map=order_items_map,
         course_bookings=course_bookings,
+        owned_courses=owned_courses,
+        owned_booking_request_key=secrets.token_urlsafe(24),
         customer_sources=customer_sources,
         customer_inventory=customer_inventory,
         purchased_products=purchased_products,
@@ -2124,10 +2175,15 @@ def deduct_customer_inventory(customer_id):
             raise ValueError('請填寫至少一項扣除容量')
         notes = (request.form.get('notes') or '').strip()[:500]
         database.connection.begin()
-        cursor.execute('''SELECT id FROM bookings WHERE id=%s AND customer_id=%s
-                          AND status='completed' FOR UPDATE''', (booking_id, customer_id))
-        if not cursor.fetchone():
+        cursor.execute('''SELECT b.id,c.uses_store_consumables,b.course_purchase_id
+            FROM bookings b JOIN courses c ON c.id=b.course_id
+            WHERE b.id=%s AND b.customer_id=%s AND b.status='completed' FOR UPDATE''',
+            (booking_id, customer_id))
+        booking = cursor.fetchone()
+        if not booking:
             raise ValueError('預約不存在、未完成或不是此客戶的課程')
+        if booking['uses_store_consumables'] or booking['course_purchase_id']:
+            raise ValueError('此課程使用店內耗材或已購堂數，不應扣除客戶寄店產品')
         operation_id = _inventory_request(cursor, customer_id, 'deduct', key,
                                           booking_id, used_on, notes)
         for inv_id in sorted(deduction_map):
@@ -2783,7 +2839,7 @@ def add_booking_manual():
             fee_id = None
             fee_amount = Decimal('0')
             if kind == 'course':
-                cursor.execute('''SELECT regular_price, experience_price FROM courses
+                cursor.execute('''SELECT regular_price, experience_price, uses_store_consumables FROM courses
                                   WHERE id=%s AND is_active=1''', (item_id,))
                 course = cursor.fetchone()
                 if not course:
@@ -2817,6 +2873,8 @@ def add_booking_manual():
             lines = _manual_payment_entries(json.dumps(row.get('payments')), kind, total,
                                             fee_amount, cursor, customer_id)
             stored, deposit, other, due, pay_method, other_method = _manual_payment_summary(lines, total)
+            if kind == 'course' and course['uses_store_consumables'] and deposit:
+                raise ValueError('使用店內耗材的套裝課程，不可另以客戶寄店產品抵扣')
             if kind == 'course':
                 cursor.execute('''INSERT INTO bookings
                     (customer_id, course_id, total_amount, is_first_time,
@@ -2967,8 +3025,10 @@ def delete_booking(booking_id):
 
         # 1. 查詢該預約是否有佔用「全店共用排班表 (shop_schedules)」
         cursor.execute(
-            "SELECT global_schedule_id FROM bookings WHERE id = %s", (booking_id,))
+            "SELECT global_schedule_id,course_purchase_id FROM bookings WHERE id = %s FOR UPDATE", (booking_id,))
         booking = cursor.fetchone()
+        if booking and booking.get('course_purchase_id'):
+            raise ValueError('已購課程核銷預約不得永久刪除，請透過狀態取消釋放堂數')
 
         # 2. 如果有綁定時段，把該時段的「已預約人數」扣回來，釋放名額
         if booking and booking.get('global_schedule_id'):

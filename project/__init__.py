@@ -152,6 +152,10 @@ def create_app():
     from project.admin import admin_bp
     app.register_blueprint(admin_bp, url_prefix='/admin')
 
+    # 05: independent, staff-only course sales and entitlements.
+    from project.course_sales import course_sales_bp
+    app.register_blueprint(course_sales_bp, url_prefix='/admin')
+
     from project.customer import customer_bp
     app.register_blueprint(customer_bp, url_prefix='/customer')
 

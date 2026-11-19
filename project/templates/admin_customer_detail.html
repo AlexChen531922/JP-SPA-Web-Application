@@ -66,7 +66,7 @@
     <!-- 頁籤導覽列 -->
     <ul class="nav nav-tabs mb-4" id="customerTab" role="tablist">
         <li class="nav-item">
-            <button class="nav-link {% if request.args.get('tab') != 'inventory' %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#info">
+            <button class="nav-link {% if request.args.get('tab') not in ['inventory','owned_courses'] %}active{% endif %}" data-bs-toggle="tab" data-bs-target="#info">
                 <i class="bi bi-person-badge"></i> 基本資料與編輯
             </button>
         </li>
@@ -82,6 +82,9 @@
                     course_bookings|length }}</span>
             </button>
         </li>
+        <li class="nav-item"><button class="nav-link {% if request.args.get('tab') == 'owned_courses' %}active{% endif %}"
+                data-bs-toggle="tab" data-bs-target="#ownedCourses05">
+                <i class="bi bi-ticket-perforated"></i> 已購課程／寄存堂數</button></li>
         <li class="nav-item">
             <button class="nav-link {% if request.args.get('tab') == 'inventory' %}active{% endif %}"
                 data-bs-toggle="tab" data-bs-target="#customerInventory">
@@ -94,7 +97,7 @@
     <div class="tab-content bg-white p-4 border border-top-0 rounded-bottom shadow-sm mt-n4">
 
         <!-- 1. 基本資料與編輯表單 -->
-        <div class="tab-pane fade {% if request.args.get('tab') != 'inventory' %}show active{% endif %}" id="info">
+        <div class="tab-pane fade {% if request.args.get('tab') not in ['inventory','owned_courses'] %}show active{% endif %}" id="info">
             <form method="POST" action="{{ url_for('admin.update_customer', customer_id=customer.id) }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="row g-3">
@@ -253,6 +256,34 @@
             {% endif %}
         </div>
 
+        <!-- 05: Course purchases and remaining sessions (not booking invoices). -->
+        <div class="tab-pane fade {% if request.args.get('tab') == 'owned_courses' %}show active{% endif %}" id="ownedCourses05">
+          <h5 class="fw-bold mb-2">客戶已購課程堂數</h5>
+          <p class="small text-muted">預約先保留一堂；服務完成後核銷。購買完成時即已全額付清，使用堂數不再次收款。</p>
+          <div class="table-responsive"><table class="table table-hover align-middle">
+            <thead><tr><th>購買編號／時間</th><th>課程</th><th>購買堂數</th><th>已完成</th><th>已預約保留</th><th>可再預約</th><th>實售總價</th></tr></thead>
+            <tbody>{% for p in owned_courses %}<tr>
+              <td>#{{ p.id }}<div class="small text-muted">{{ p.created_at.strftime('%Y-%m-%d') }}</div></td>
+              <td>{{ p.course_name }}</td><td>{{ p.total_sessions }}</td><td>{{ p.completed_sessions }}</td>
+              <td>{{ p.reserved_sessions }}</td>
+              <td class="fw-bold {% if p.total_sessions - p.completed_sessions - p.reserved_sessions > 0 %}text-success{% else %}text-muted{% endif %}">
+                {{ p.total_sessions - p.completed_sessions - p.reserved_sessions }}</td>
+              <td>NT$ {{ '{:,.0f}'.format(p.total_paid) }}</td>
+            </tr>{% else %}<tr><td colspan="7" class="text-muted">目前沒有 05 版課程販售紀錄，舊預約不會自動轉成已購堂數。</td></tr>{% endfor %}</tbody>
+          </table></div>
+          {% for p in owned_courses if p.total_sessions - p.completed_sessions - p.reserved_sessions > 0 %}
+          <form class="row g-2 align-items-end border rounded p-2 mb-2" method="POST" action="{{ url_for('course_sales.book_owned') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="request_key" value="{{ owned_booking_request_key }}">
+            <input type="hidden" name="customer_id" value="{{ customer.id }}">
+            <input type="hidden" name="purchase_id" value="{{ p.id }}">
+            <div class="col-md-5"><label class="form-label small">{{ p.course_name }}｜購買批次 #{{ p.id }}（剩餘可用 {{ p.total_sessions-p.completed_sessions-p.reserved_sessions }} 堂）</label></div>
+            <div class="col-md-4"><label class="form-label small">預約時間（台灣時間）</label>
+              <input type="datetime-local" name="appointment_time" class="form-control" required></div>
+            <div class="col-md-3"><button class="btn btn-outline-primary w-100" type="submit">保留 1 堂並預約</button></div>
+          </form>
+          {% endfor %}
+        </div>
         <!-- 4. 客戶寄店產品：與基本資料相同，直接於頁籤編輯，不使用 Modal -->
         <div class="tab-pane fade {% if request.args.get('tab') == 'inventory' %}show active{% endif %}"
              id="customerInventory">

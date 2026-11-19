@@ -203,7 +203,7 @@
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center">
               <div>
-                <h6 class="text-muted mb-1">總營收</h6>
+                <h6 class="text-muted mb-1">總營收（舊制估算＋05已履約）</h6>
                 <h3 class="fw-bold mb-0 text-primary">NT$ {{ '{:,.0f}'.format(stats.revenue) }}</h3>
               </div>
               <div class="bg-primary bg-opacity-10 p-3 rounded-circle text-primary">
@@ -239,6 +239,16 @@
         </div>
       </div>
       {% endif %}
+    </div>
+
+    <p class="small text-muted mb-3">05：課程預售款於完成服務時認列；實際收款與未履約金額獨立列示，下方數據僅涵蓋 05 新流程。</p>
+    <div class="row g-3 mb-4">
+      <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body">
+        <div class="text-muted small">05 課程販售新增非儲值付款</div><div class="fw-bold fs-5">NT$ {{ '{:,.0f}'.format(stats.course_cash_received) }}</div>
+      </div></div></div>
+      <div class="col-md-3"><div class="card border-0 shadow-sm"><div class="card-body">
+        <div class="text-muted small">05 課程未履約餘額（估算）</div><div class="fw-bold fs-5">NT$ {{ '{:,.0f}'.format(stats.course_unfulfilled) }}</div>
+      </div></div></div>
     </div>
 
     <div class="row g-3 mb-4">
@@ -413,8 +423,8 @@
                 <td>{{ '{:,.0f}'.format(course.regular_price) }}</td>
                 <td>{{ course.duration }} 分</td>
                 <td>
-                  <span class="badge {% if course.is_active %}bg-success{% else %}bg-secondary{% endif %}">
-                    {{ '啟用' if course.is_active else '停用' }}
+                  <span class="badge {% if not course.is_active %}bg-secondary{% elif not course.is_public %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                    {{ '停用' if not course.is_active else ('不顯示（僅後台）' if not course.is_public else '啟用') }}
                   </span>
                 </td>
                 <td class="text-end">
@@ -629,7 +639,13 @@
       <div>
         <h4 class="fw-bold mb-0 d-inline-block me-3"><i class="bi bi-calendar2-week"></i> 預約管理</h4>
         <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addBookingModal">
-          <i class="bi bi-plus-circle"></i> 建立/補登預約
+          <i class="bi bi-plus-circle"></i> 建立/補登預約（直接收費）
+        </button>
+        <button type="button" class="btn btn-outline-success" data-bs-toggle="modal" data-bs-target="#courseSale05Modal">
+          <i class="bi bi-bag-check"></i> 課程販售（寄存堂數）
+        </button>
+        <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#bookOwned05Modal">
+          <i class="bi bi-calendar-plus"></i> 使用客戶已購堂數預約
         </button>
       </div>
       <div class="d-flex gap-2">
@@ -1202,6 +1218,14 @@
             </div>
             {% endif %}
             <div class="col-md-4"><label>時長(分)</label><input name="duration" type="number" class="form-control"></div>
+            <div class="col-md-8"><label>多堂優惠設定（選填）</label>
+              <input name="sale_tiers" class="form-control" placeholder="例如 5:11000,10:20000" maxlength="300">
+              <small class="text-muted">每個課程自行設定堂數及優惠總價；1 堂自動使用課程原價。</small></div>
+            <div class="col-md-4"><label>上架狀態</label>
+              <select class="form-select" name="course_visibility"><option value="public">啟用（官網顯示）</option>
+              <option value="hidden">不顯示（僅後台）</option><option value="disabled">停用</option></select></div>
+            <div class="col-12 form-check ms-2"><input type="checkbox" name="uses_store_consumables" value="1" class="form-check-input" id="newCourseShopConsumables">
+              <label for="newCourseShopConsumables" class="form-check-label">固定價套裝課程：使用店內耗材（不使用顧客寄店產品）</label></div>
             <div class="col-12"><label>描述</label><textarea name="description" class="form-control"></textarea></div>
             <div class="col-12"><input type="file" name="image" class="form-control"></div>
           </div>
@@ -1253,7 +1277,15 @@
                 class="form-control"></textarea></div>
             <div class="col-6"><input type="file" name="image" class="form-control"></div>
             <div class="col-6"><img id="editCoursePreview" width="100"></div>
-            <div class="col-12"><input type="checkbox" name="is_active" id="edit_course_is_active"> 啟用</div>
+            <div class="col-md-8"><label>多堂優惠（選填）</label>
+              <input name="sale_tiers" id="edit_course_sale_tiers" class="form-control" placeholder="5:11000,10:20000" maxlength="300">
+              <small class="text-muted">單堂價格沿用上方原價；可設定不同購買堂數的優惠總價。</small></div>
+            <div class="col-md-4"><label>上架狀態</label>
+              <select name="course_visibility" id="edit_course_visibility" class="form-select">
+                <option value="public">啟用（官網顯示）</option><option value="hidden">不顯示（僅後台）</option>
+                <option value="disabled">停用</option></select></div>
+            <div class="col-12 form-check ms-2"><input type="checkbox" name="uses_store_consumables" value="1" id="edit_course_uses_store" class="form-check-input">
+              <label for="edit_course_uses_store" class="form-check-label">固定價套裝課程：使用店內耗材（不使用顧客寄店產品）</label></div>
           </div>
         </div>
         <div class="modal-footer"><button class="btn btn-secondary" data-bs-dismiss="modal">取消</button><button
@@ -1960,6 +1992,68 @@
 
 
 
+<!-- 05: Sales create a paid entitlement. They do not themselves create earned service revenue. -->
+<div class="modal fade" id="courseSale05Modal" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable">
+  <form class="modal-content" id="courseSale05Form" action="{{ url_for('course_sales.sell') }}" method="POST">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="request_key" value="{{ course_sale_request_key }}">
+    <input type="hidden" name="payments_json" id="courseSale05PaymentsJson" value="">
+    <div class="modal-header"><h5 class="modal-title">課程販售・建立已購堂數</h5>
+      <button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <p class="text-muted small">同一指定課程可販售不同優惠堂數，購買當下必須全額付清；不強制當日使用或預約。</p>
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label">客戶</label><select name="customer_id" id="courseSale05Customer" class="form-select" required>
+          <option value="">選擇客戶</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}
+          <option value="{{ c.id }}" data-balance="{{ stored_balances.get(c.id,0) }}">{{ c.surname }}{{ c.firstname }} (#{{ c.id }})</option>{% endfor %}
+        </select></div>
+        <div class="col-md-6"><label class="form-label">課程</label><select name="course_id" id="courseSale05Course" class="form-select" required>
+          <option value="">選擇課程</option>{% for c in courses if c.is_active %}
+          <option value="{{ c.id }}" data-price="{{ c.regular_price }}">{{ c.name }}{% if not c.is_public %}（僅後台）{% endif %}</option>{% endfor %}
+        </select></div>
+        <div class="col-md-6"><label class="form-label">購買堂數（依課程優惠）</label>
+          <select name="sessions" id="courseSale05Count" class="form-select" required><option value="1">1 堂</option></select></div>
+        <div class="col-md-6"><label class="form-label">實際售價（可修改）</label>
+          <input type="number" name="final_price" id="courseSale05Price" min="1" step="1" class="form-control" required>
+          <div class="small text-muted">預設總價 NT$ <span id="courseSale05Default">0</span>；調整後保留原價紀錄</div></div>
+        <div class="col-12"><label class="form-label">付款明細（現金／刷卡／匯款／儲值金，可拆分）</label>
+          <div id="courseSale05Payments"></div>
+          <button type="button" class="btn btn-sm btn-outline-secondary" onclick="courseSale05AddPayment()">+ 新增付款方式</button>
+          <div class="small text-muted mt-2">客戶儲值金：NT$ <span id="courseSale05Wallet">0</span></div>
+          <div id="courseSale05BalanceError" class="small text-danger"></div></div>
+        <div class="col-md-6"><label class="form-label">購買後安排</label>
+          <select name="use_mode" id="courseSale05Mode" class="form-select">
+            <option value="save">只寄存堂數，下次再預約</option>
+            <option value="now">今天現場使用（建立待完成服務紀錄）</option>
+            <option value="future">同時預約未來日期（先保留一堂）</option>
+          </select></div>
+        <div class="col-md-6" id="courseSale05TimeWrap" hidden><label class="form-label">服務時間（台灣時間）</label>
+          <input type="datetime-local" name="appointment_time" id="courseSale05Time" class="form-control"></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" type="button" data-bs-dismiss="modal">取消</button>
+      <button class="btn btn-success" type="submit">確認付清並建立已購堂數</button></div>
+  </form></div></div>
+
+<!-- 05: Redeem an existing prepaid session; this is NOT a new sale. -->
+<div class="modal fade" id="bookOwned05Modal" tabindex="-1"><div class="modal-dialog"><form class="modal-content" method="POST" action="{{ url_for('course_sales.book_owned') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="hidden" name="request_key" value="{{ owned_booking_request_key }}">
+  <div class="modal-header"><h5 class="modal-title">使用已購課程堂數預約</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <label class="form-label">客戶</label><select name="customer_id" id="bookOwned05Customer" class="form-select mb-3" required>
+      <option value="">請選擇</option>{% for c in customers_list if c.email != 'store@jparomatic.local' %}<option value="{{ c.id }}">{{ c.surname }}{{ c.firstname }}</option>{% endfor %}
+    </select>
+    <label class="form-label">已購課程批次（顯示可用堂數）</label>
+    <select name="purchase_id" id="bookOwned05Purchase" class="form-select mb-3" required><option value="">請先選擇客戶</option></select>
+    <label class="form-label">預約時間（台灣時間）</label>
+    <input type="datetime-local" name="appointment_time" class="form-control mb-2" required>
+    <small class="text-muted">此操作不收款；預約先保留 1 堂，服務完成後才正式扣堂及認列營收。</small>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">建立已購課程預約</button></div>
+</form></div></div>
+
 <!-- ⭐ 建立預約 Modal (一體化表單) -->
 <div class="modal fade" id="addBookingModal" tabindex="-1">
   <div class="modal-dialog modal-xl modal-dialog-scrollable">
@@ -1975,6 +2069,7 @@
       </div>
 
       <div class="modal-body pb-4">
+        <p class="small text-muted">原有 04 預約表單會建立直接收費的單堂預約；若要使用客戶先前已購課程，請改用「使用客戶已購堂數預約」，不要再次收取課程費。</p>
         <!-- 1. 選擇客戶 -->
         <h6 class="fw-bold text-primary mb-2">1. 選擇客戶 <span class="text-danger">*</span></h6>
         <div id="bookingCustomerList" class="mb-2"></div>
@@ -2060,7 +2155,7 @@
 <datalist id="dl-courses">
   {% for c in courses %}
   <option data-id="{{ c.id }}" data-price="{{ c.regular_price }}" data-exp="{{ c.experience_price }}"
-    value="{{ c.name }}"></option>
+    data-store="{{ 1 if c.uses_store_consumables else 0 }}" value="{{ c.name }}"></option>
   {% endfor %}
 </datalist>
 
@@ -2211,8 +2306,11 @@
         const preview = document.getElementById('editCoursePreview');
         if (preview) preview.src = imgPath;
 
-        const activeEl = document.getElementById('edit_course_is_active');
-        if (activeEl) activeEl.checked = !!course.is_active;
+        setVal('edit_course_sale_tiers', course.sale_tiers || '');
+        const visible = document.getElementById('edit_course_visibility');
+        if (visible) visible.value = !course.is_active ? 'disabled' : (course.is_public ? 'public' : 'hidden');
+        const store = document.getElementById('edit_course_uses_store');
+        if (store) store.checked = !!course.uses_store_consumables;
 
         const formEl = document.getElementById('editCourseForm');
         if (formEl) {
@@ -2799,6 +2897,7 @@
       tr.querySelector('.row-item-id').value = opt.dataset.id;
       tr.dataset.regPrice = opt.dataset.price;
       tr.dataset.expPrice = opt.dataset.exp || opt.dataset.price;
+      tr.dataset.useShop = opt.dataset.store || '0';
       calcItemPrice(tr);
     }
   }
@@ -2891,6 +2990,7 @@
     const fee = isCourse ? Number(tr.dataset.feePrice || 0) : 0;
     if (deposit > 0 && !isCourse) error = '加購產品不能使用寄店扣料';
     if (deposit > 0 && (!fee || deposit > total - fee)) error = '寄店抵扣不能超過課程扣除手技費後的金額';
+    if (deposit > 0 && tr.dataset.useShop === '1') error = '固定價套裝課程使用店內耗材，不可使用客戶寄店抵扣';
     if (wallet > balance) error = '儲值扣款超出客戶可用額度';
     if (applied > total) error = '各付款金額合計超過本列總額';
     tr.querySelector('.row-pay-error').textContent = error;
@@ -3062,5 +3162,98 @@
     const today = new Date().toISOString().slice(0, 10);
     XLSX.writeFile(wb, `晶品芳療_庫存管理_${today}.xlsx`);
   }
+</script>
+<script>
+// 05: new staff-only course sale screen, independent of the 04 mixed-booking form.
+const courseSale05Tiers = {{ course_tiers|tojson }};
+function courseSale05AddPayment(method='cash',amount='0') {
+  const methods=[['cash','現金'],['credit_card','信用卡'],['bank_transfer','匯款'],['stored_value','儲值扣款'],['other','其他']];
+  const container=document.getElementById('courseSale05Payments');
+  if(container.querySelectorAll('.cp05-line').length>=20) return;
+  const div=document.createElement('div'); div.className='cp05-line d-flex gap-2 mb-2';
+  const select=document.createElement('select'); select.className='form-select cp05-method';
+  for(const [code,label] of methods){const o=new Option(label,code);select.add(o);} select.value=method;
+  const input=document.createElement('input'); input.type='number';input.min='0';input.step='1';
+  input.value=amount;input.className='form-control cp05-amount';
+  const remove=document.createElement('button'); remove.type='button';remove.className='btn btn-outline-danger';remove.textContent='×';
+  remove.onclick=()=>{div.remove();courseSale05Validate();};
+  select.onchange=courseSale05Validate;input.oninput=courseSale05Validate;
+  div.append(select,input,remove);container.append(div);courseSale05Validate();
+}
+function courseSale05DefaultPrice() {
+  const course=document.getElementById('courseSale05Course');const count=document.getElementById('courseSale05Count');
+  const selected=course.selectedOptions[0];
+  if(!selected?.value){count.innerHTML='<option value="">先選擇課程</option>';return;}
+  const tier=courseSale05Tiers[selected.value]||{};
+  const oldCount=count.value;
+  count.innerHTML='';
+  for(const qty of [1,...Object.keys(tier).map(Number).sort((a,b)=>a-b)]){
+    count.add(new Option(`${qty} 堂`,String(qty)));
+  }
+  if(Array.from(count.options).some(o=>o.value===oldCount))count.value=oldCount;
+  courseSale05SetPrice();
+}
+function courseSale05SetPrice() {
+  const course=document.getElementById('courseSale05Course'); const qty=document.getElementById('courseSale05Count').value;
+  const tier=courseSale05Tiers[course.value]||{};
+  const amount=qty==='1'?Number(course.selectedOptions[0]?.dataset.price||0):Number(tier[qty]||0);
+  document.getElementById('courseSale05Price').value=String(Math.round(amount));
+  document.getElementById('courseSale05Default').textContent=amount.toLocaleString();
+  const payments=document.querySelectorAll('#courseSale05Payments .cp05-line');
+  if(payments.length===1) payments[0].querySelector('.cp05-amount').value=String(Math.round(amount));
+  courseSale05Validate();
+}
+function courseSale05Validate() {
+  const customer=document.getElementById('courseSale05Customer');
+  const wallet=Number(customer.selectedOptions[0]?.dataset.balance||0);
+  document.getElementById('courseSale05Wallet').textContent=Math.floor(wallet).toLocaleString();
+  const total=Number(document.getElementById('courseSale05Price').value||0);
+  let paid=0,stored=0;
+  document.querySelectorAll('#courseSale05Payments .cp05-line').forEach(div=>{
+    const amount=Number(div.querySelector('.cp05-amount').value||0);
+    paid+=amount;if(div.querySelector('.cp05-method').value==='stored_value')stored+=amount;
+  });
+  let err='';
+  if(!Number.isInteger(total)||total<=0)err='課程售價必須為正整數';
+  else if(!Number.isInteger(paid)||paid!==total)err=`付款合計 NT$${paid}，須付清 NT$${total}`;
+  else if(stored>wallet)err='儲值餘額不足';
+  document.getElementById('courseSale05BalanceError').textContent=err;
+  return !err;
+}
+async function bookOwned05Load() {
+  const customer=document.getElementById('bookOwned05Customer').value;
+  const purchase=document.getElementById('bookOwned05Purchase');
+  purchase.innerHTML='<option value="">讀取中</option>';
+  if(!customer){purchase.innerHTML='<option value="">請先選擇客戶</option>';return;}
+  try{
+    const response=await fetch(`/admin/api/customer/${encodeURIComponent(customer)}/course-purchases`);
+    if(!response.ok)throw new Error('權限或連線問題');
+    const data=await response.json();purchase.innerHTML='';
+    purchase.add(new Option('請選擇課程／購買批次',''));
+    for(const p of data)purchase.add(new Option(`${p.course_name}（批次 #${p.id}，可用 ${p.available} 堂）`,String(p.id)));
+  }catch(e){purchase.innerHTML='<option value="">讀取失敗，請重新整理</option>';}
+}
+document.addEventListener('DOMContentLoaded',()=>{
+  const form=document.getElementById('courseSale05Form');
+  document.getElementById('courseSale05Course')?.addEventListener('change',courseSale05DefaultPrice);
+  document.getElementById('courseSale05Count')?.addEventListener('change',courseSale05SetPrice);
+  document.getElementById('courseSale05Price')?.addEventListener('input',courseSale05Validate);
+  document.getElementById('courseSale05Customer')?.addEventListener('change',courseSale05Validate);
+  const mode=document.getElementById('courseSale05Mode');
+  const setMode=()=>{const show=mode.value!=='save';document.getElementById('courseSale05TimeWrap').hidden=!show;
+    document.getElementById('courseSale05Time').required=show;};
+  mode?.addEventListener('change',setMode);setMode();
+  courseSale05AddPayment();
+  form?.addEventListener('submit',e=>{
+    if(!courseSale05Validate()){e.preventDefault();return;}
+    document.getElementById('courseSale05PaymentsJson').value=JSON.stringify(Array.from(
+      document.querySelectorAll('#courseSale05Payments .cp05-line')).map(div=>({
+      method:div.querySelector('.cp05-method').value,amount:div.querySelector('.cp05-amount').value||'0'
+    })));
+    if(!document.getElementById('courseSale05PaymentsJson').value){e.preventDefault();return;}
+    const button=form.querySelector('button[type="submit"]');if(button)button.disabled=true;
+  });
+  document.getElementById('bookOwned05Customer')?.addEventListener('change',bookOwned05Load);
+});
 </script>
 {% endblock %}

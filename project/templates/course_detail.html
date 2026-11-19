@@ -173,7 +173,18 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="schedule_id" id="modalScheduleId">
 
+                <input type="hidden" name="course_booking_request_key" value="{{ booking_request_key }}">
                 <div class="modal-body p-4">
+                    {% if owned_courses %}
+                    <div class="mb-3">
+                      <label class="form-label">使用已購課程堂數（選填）</label>
+                      <select name="course_purchase_id" class="form-select">
+                        <option value="">不使用已購堂數，沿用原一般預約流程</option>
+                        {% for p in owned_courses %}<option value="{{ p.id }}">已購課程批次 #{{ p.id }} —
+                          可用 {{ p.total_sessions - p.completed_sessions - p.reserved_sessions }} 堂</option>{% endfor %}
+                      </select>
+                      <div class="small text-success">若選擇已購堂數，這次不另外收費；預約先保留一堂，完成後核銷。</div>
+                    </div>{% endif %}
                     <div class="mb-3">
                         <label class="text-muted small">預約課程</label>
                         <div class="fw-bold fs-5">{{ course.name }}</div>

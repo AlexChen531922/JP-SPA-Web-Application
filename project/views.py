@@ -3,6 +3,8 @@ from .decorators import login_required, customer_required
 from project.extensions import database
 from project.stored_value import cancel_order as cancel_order_with_refund, lock_order
 from .db import get_current_user_id, get_current_user_role, is_logged_in
+from project.course_entitlements import reserve_for_booking
+import secrets
 # 引入新的通知函式
 from .notifications import notify_contact_message, notify_new_order_created, notify_new_booking_created
 import MySQLdb.cursors
@@ -180,7 +182,7 @@ def courses():
     cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
 
     # Build query
-    where_clauses = ["c.is_active = TRUE"]
+    where_clauses = ["c.is_active = TRUE AND c.is_public = TRUE"]
     params = []
 
     if category_id:
@@ -240,10 +242,18 @@ def course_detail(course_id):
         SELECT c.*, cc.name as category_name
         FROM courses c
         LEFT JOIN course_categories cc ON c.category_id = cc.id
-        WHERE c.id = %s AND c.is_active = TRUE
+        WHERE c.id = %s AND c.is_active = TRUE AND c.is_public = TRUE
     """, (course_id,))
 
     course = cursor.fetchone()
+    owned_courses = []
+    user_id = get_current_user_id()
+    if course and user_id and get_current_user_role() == 'customer':
+        cursor.execute('''SELECT id,total_sessions,completed_sessions,reserved_sessions
+            FROM customer_course_purchases WHERE customer_id=%s AND course_id=%s AND status='active'
+            ORDER BY id DESC''', (user_id, course_id))
+        owned_courses = [p for p in cursor.fetchall()
+                         if int(p['total_sessions']) > int(p['completed_sessions'])+int(p['reserved_sessions'])]
     cursor.close()
 
     if not course:
@@ -251,7 +261,9 @@ def course_detail(course_id):
 
     return render_template(
         'course_detail.html',
-        course=course
+        course=course,
+        owned_courses=owned_courses,
+        booking_request_key=secrets.token_urlsafe(24)
     )
 
 
@@ -288,8 +300,13 @@ def get_course_schedule(course_id):
             # 預設抓 60 天，避免跨年邏輯錯誤
             end_date = start_date + timedelta(days=60)
 
-        # 3. 執行資料庫查詢
+        # Nonpublic/disabled courses must not leak schedules via their URL.
         cursor = database.connection.cursor(MySQLdb.cursors.DictCursor)
+        cursor.execute('SELECT id FROM courses WHERE id=%s AND is_active=1 AND is_public=1', (course_id,))
+        if not cursor.fetchone():
+            cursor.close()
+            abort(404)
+        # 3. 執行資料庫查詢
         cursor.execute("SET time_zone = '+08:00'")
 
         # 查詢語句 (確保欄位名稱與 shop_schedules 表格一致)
@@ -341,6 +358,9 @@ def get_course_schedule(course_id):
         return jsonify(events)
 
     except Exception as e:
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            raise
         # ⭐ 關鍵：將錯誤印在伺服器 Log，並回傳空陣列避免前端崩潰
         print(f"API Error in get_course_schedule: {e}")
         traceback.print_exc()
@@ -965,7 +985,7 @@ def book_course(course_id):
 
     try:
         # 2. 取得課程資料 (計算價格用)
-        cursor.execute("SELECT * FROM courses WHERE id = %s", (course_id,))
+        cursor.execute("SELECT * FROM courses WHERE id = %s AND is_active=1 AND is_public=1", (course_id,))
         course = cursor.fetchone()
         if not course:
             raise Exception("課程不存在")
@@ -997,23 +1017,36 @@ def book_course(course_id):
         else:
             final_price = course['regular_price']
 
+        # 05: Use purchased sessions without a new sale/charge.
+        purchase_id = request.form.get('course_purchase_id', type=int)
+        purchased_booking_key = None
+        if purchase_id:
+            purchased_booking_key = (request.form.get('course_booking_request_key') or '').strip()
+            import re
+            if not re.fullmatch(r'[A-Za-z0-9_-]{20,55}', purchased_booking_key):
+                raise ValueError('預約表單已過期，請重新整理')
+            final_price = 0
+
         # 5. 寫入預約 (bookings)
         # ⭐ 重點修正：寫入 global_schedule_id
         cursor.execute("""
             INSERT INTO bookings 
             (customer_id, course_id, global_schedule_id, total_amount, 
-             is_first_time, sessions_purchased, sessions_remaining, status, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW())
+             is_first_time, sessions_purchased, sessions_remaining, status, created_at, course_booking_request_key)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending', NOW(), %s)
         """, (
             user_id,
             course_id,
             schedule_id,
             final_price,
             is_first_time,
-            course['sessions'],  # 購買堂數
-            course['sessions']  # 剩餘堂數
+            1 if purchase_id else course['sessions'],  # 05 purchased rights: reserve one session
+            1 if purchase_id else course['sessions'],  # 剩餘堂數
+            purchased_booking_key
         ))
         booking_id = cursor.lastrowid
+        if purchase_id:
+            reserve_for_booking(cursor,purchase_id,user_id,course_id,booking_id,user_id)
 
         # 6. 更新時段人數 (shop_schedules)
         cursor.execute("""

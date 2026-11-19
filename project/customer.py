@@ -2,6 +2,7 @@ from flask import Blueprint, render_template, request, session, flash, redirect,
 from .decorators import login_required, customer_required
 from project.extensions import database, mail
 from project.stored_value import cancel_order as cancel_order_with_refund, lock_order
+from project.course_entitlements import transition_allocation
 from .db import get_current_user_id, get_user_details, update_user_profile
 from project.notifications import send_email
 import MySQLdb.cursors
@@ -111,6 +112,11 @@ def dashboard():
     cursor.execute('SELECT balance FROM customer_stored_balances WHERE customer_id=%s', (user_id,))
     wallet_row = cursor.fetchone()
     stored_value_balance = wallet_row['balance'] if wallet_row else 0
+    cursor.execute('''SELECT cp.id,cp.course_id,c.name AS course_name,cp.total_sessions,
+        cp.completed_sessions,cp.reserved_sessions
+        FROM customer_course_purchases cp JOIN courses c ON c.id=cp.course_id
+        WHERE cp.customer_id=%s AND cp.status='active' ORDER BY cp.created_at DESC''', (user_id,))
+    owned_courses = cursor.fetchall()
     cursor.close()
 
     return render_template(
@@ -119,7 +125,8 @@ def dashboard():
         active_courses=active_courses,
         recent_orders=recent_orders,
         purchased_products=purchased_products,
-        stored_value_balance=stored_value_balance
+        stored_value_balance=stored_value_balance,
+        owned_courses=owned_courses
     )
 
 # ==========================================
@@ -260,6 +267,8 @@ def cancel_booking(booking_id):
                ('stored_value_amount', 'other_payment_amount', 'deposit_credit_amount')):
             raise ValueError('此預約已有付款或待核銷寄店抵扣，請聯絡店家處理退款與沖銷')
 
+        # If this booking reserved a prepaid course, give the held session back.
+        transition_allocation(cursor,booking_id,'cancelled',user_id)
         cursor.execute(
             "UPDATE bookings SET status = 'cancelled' WHERE id = %s", (booking_id,))
 
